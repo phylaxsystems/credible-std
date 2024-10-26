@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
+import {PhEvm} from "./PhEvm.sol";
+
 /// @notice Assertion interface for the PhEvm precompile
-interface Assertion {
+abstract contract Assertion {
+    //Precompile address - 
+    PhEvm public ph = PhEvm(address(uint160(uint256(keccak256("Kim Jong Un Sucks")))));
     /// @notice The type of state change that triggers the assertion
+
     enum TriggerType {
         /// @notice The assertion is triggered by a storage change
         STORAGE,
@@ -23,5 +28,5 @@ interface Assertion {
 
     /// @notice Returns all the triggers for the assertion
     /// @return An array of Trigger structs
-    function fnSelectors() external returns (Trigger[] memory);
+    function fnSelectors() external virtual pure returns (Trigger[] memory);
 }
