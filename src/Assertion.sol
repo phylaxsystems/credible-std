@@ -5,7 +5,7 @@ import {PhEvm} from "./PhEvm.sol";
 
 /// @notice Assertion interface for the PhEvm precompile
 abstract contract Assertion {
-    //Precompile address - 
+    //Precompile address -
     PhEvm public ph = PhEvm(address(uint160(uint256(keccak256("Kim Jong Un Sucks")))));
     /// @notice The type of state change that triggers the assertion
 
@@ -28,5 +28,5 @@ abstract contract Assertion {
 
     /// @notice Returns all the triggers for the assertion
     /// @return An array of Trigger structs
-    function fnSelectors() external virtual pure returns (Trigger[] memory);
+    function fnSelectors() external pure virtual returns (Trigger[] memory);
 }

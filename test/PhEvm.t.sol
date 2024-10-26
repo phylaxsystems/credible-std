@@ -6,6 +6,7 @@ import {MockAssertion} from "./mocks/MockAssertion.sol";
 
 contract PhEvmTest is Test {
     MockAssertion mockAssertion;
+
     function setUp() public {
         mockAssertion = new MockAssertion();
     }
