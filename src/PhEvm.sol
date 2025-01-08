@@ -21,7 +21,7 @@ interface PhEvm {
 
     // Loads a storage slot from an address
     function load(address target, bytes32 slot) external view returns (bytes32 data);
-    
+
     // Get the logs from the assertion triggering transaction.
     function getLogs() external returns (Log[] memory logs);
 }
