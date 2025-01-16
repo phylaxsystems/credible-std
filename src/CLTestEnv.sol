@@ -30,7 +30,7 @@ contract CLTestEnv {
         adopters[assertionAdopter].push(abi.encodePacked(assertionCode, constructorArgs));
     }
 
-    function transact(address to, uint256 value, bytes calldata data) external returns (bool) {
+    function validate(address to, uint256 value, bytes calldata data) external returns (bool) {
         return vmEx.assertionEx(
             abi.encode(AssertionTransaction({from: msg.sender, to: to, value: value, data: data})), to, adopters[to]
         );
