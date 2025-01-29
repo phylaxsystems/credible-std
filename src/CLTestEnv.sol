@@ -6,7 +6,7 @@ import {Vm} from "../lib/forge-std/src/Vm.sol";
 interface VmEx is Vm {
     function assertionEx(bytes calldata tx, address assertionAdopter, bytes[] calldata assertions)
         external
-        returns (bool success);
+        returns (bool success, uint256 gasUsed, uint256 assertionsRan);
 }
 
 contract CLTestEnv {
@@ -30,7 +30,7 @@ contract CLTestEnv {
         adopters[assertionAdopter].push(abi.encodePacked(assertionCode, constructorArgs));
     }
 
-    function validate(address to, uint256 value, bytes calldata data) external returns (bool) {
+    function validate(address to, uint256 value, bytes calldata data) external returns (bool, uint256, uint256) {
         return vmEx.assertionEx(
             abi.encode(AssertionTransaction({from: msg.sender, to: to, value: value, data: data})), to, adopters[to]
         );
