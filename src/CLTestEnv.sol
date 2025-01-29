@@ -6,7 +6,7 @@ import {Vm} from "../lib/forge-std/src/Vm.sol";
 interface VmEx is Vm {
     function assertionEx(bytes calldata tx, address assertionAdopter, bytes[] calldata assertions)
         external
-        returns (bool success);
+        returns (bool success, uint256 gasUsed, uint256 assertionsRan);
 }
 
 contract CLTestEnv {
