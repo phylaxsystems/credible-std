@@ -17,7 +17,7 @@ contract CLTestEnv {
     }
 
     VmEx public immutable vmEx;
-    mapping(string => bytes) public labelToAssertions;
+    mapping(string => bytes) public assertionLabelToAssertionContract;
     mapping(string => address[]) public assertionLabelToAdopters;
 
     constructor(address vm_address) {
@@ -32,7 +32,7 @@ contract CLTestEnv {
     ) external {
         bytes memory assertion = abi.encodePacked(assertionCode, constructorArgs);
         assertionLabelToAdopters[label].push(assertionAdopter);
-        labelToAssertions[label] = assertion;
+        assertionLabelToAssertionContract[label] = assertion;
     }
 
     function validate(string memory label, address to, uint256 value, bytes calldata data) external {
@@ -41,7 +41,7 @@ contract CLTestEnv {
             vmEx.assertionEx(
                 abi.encode(AssertionTransaction({from: msg.sender, to: to, value: value, data: data})),
                 assertionAdopter,
-                labelToAssertions[label],
+                assertionLabelToAssertionContract[label],
                 label
             );
         }
