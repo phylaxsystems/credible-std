@@ -7,7 +7,7 @@ import {Assertion} from "./Assertion.sol";
 import {CLTestEnv, VmEx} from "./CLTestEnv.sol";
 import {Vm} from "../lib/forge-std/src/Vm.sol";
 
-contract CredibleTest is Test {
-    CLTestEnv cl = new CLTestEnv(VM_ADDRESS);
+contract CredibleTest {
+    CLTestEnv cl = new CLTestEnv();
     VmEx clVm = cl.vmEx();
 }
