@@ -16,12 +16,14 @@ contract CLTestEnv {
         bytes data;
     }
 
+    Vm private constant VM_ADDRESS = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+
     VmEx public immutable vmEx;
     mapping(string => bytes) public assertionLabelToAssertionContract;
     mapping(string => address[]) public assertionLabelToAdopters;
 
-    constructor(address vm_address) {
-        vmEx = VmEx(vm_address);
+    constructor() {
+        vmEx = VmEx(address(VM_ADDRESS));
     }
 
     function addAssertion(
