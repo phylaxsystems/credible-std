@@ -52,4 +52,7 @@ interface PhEvm {
 
     // Get the call inputs for a given target and selector
     function getCallInputs(address target, bytes4 selector) external view returns (CallInputs[] memory calls);
+
+    // Get state changes for a given slot
+    function getStateChanges(bytes32 slot) external returns (bytes32[] memory);
 }
