@@ -7,7 +7,7 @@ import {TriggerRecorder} from "./TriggerRecorder.sol";
 /// @notice Assertion interface for the PhEvm precompile
 abstract contract Assertion is Credible {
     //Trigger recorder address
-    TriggerRecorder triggerRecorder = TriggerRecorder(address(uint160(uint256(keccak256("TriggerRecorder")))));
+    TriggerRecorder constant triggerRecorder = TriggerRecorder(address(uint160(uint256(keccak256("TriggerRecorder")))));
 
     /// @notice Used to record fn selectors and their triggers.
     function triggers() external view virtual;
