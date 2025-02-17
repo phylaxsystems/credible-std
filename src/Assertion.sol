@@ -17,7 +17,7 @@ abstract contract Assertion is Credible {
         triggerRecorder.registerCallTrigger(fnSelector);
     }
 
-    function getStateChangesUint(bytes32 slot) internal returns (uint256[] memory) {
+    function getStateChangesUint(bytes32 slot) internal view returns (uint256[] memory) {
         bytes32[] memory stateChanges = ph.getStateChanges(slot);
 
         // Explicit cast to uint256[]
@@ -29,7 +29,7 @@ abstract contract Assertion is Credible {
         return uintChanges;
     }
 
-    function getStateChangesAddress(bytes32 slot) internal returns (address[] memory) {
+    function getStateChangesAddress(bytes32 slot) internal view returns (address[] memory) {
         bytes32[] memory stateChanges = ph.getStateChanges(slot);
 
         assembly {
@@ -53,7 +53,7 @@ abstract contract Assertion is Credible {
         return addressChanges;
     }
 
-    function getStateChangesBool(bytes32 slot) internal returns (bool[] memory) {
+    function getStateChangesBool(bytes32 slot) internal view returns (bool[] memory) {
         bytes32[] memory stateChanges = ph.getStateChanges(slot);
 
         assembly {
@@ -72,5 +72,65 @@ abstract contract Assertion is Credible {
         }
 
         return boolChanges;
+    }
+
+    function getStateChangesBytes32(bytes32 slot) internal view virtual returns (bytes32[] memory) {
+        return ph.getStateChanges(slot);
+    }
+
+    function getSlotMapping(bytes32 slot, uint256 key, uint256 offset) private pure returns (bytes32) {
+        return bytes32(uint256(keccak256(abi.encodePacked(key, slot))) + offset);
+    }
+
+    function getStateChangesUint(bytes32 slot, uint256 key) internal view virtual returns (uint256[] memory) {
+        return getStateChangesUint(slot, key, 0);
+    }
+
+    function getStateChangesAddress(bytes32 slot, uint256 key) internal view virtual returns (address[] memory) {
+        return getStateChangesAddress(slot, key, 0);
+    }
+
+    function getStateChangesBool(bytes32 slot, uint256 key) internal view virtual returns (bool[] memory) {
+        return getStateChangesBool(slot, key, 0);
+    }
+
+    function getStateChangesBytes32(bytes32 slot, uint256 key) internal view virtual returns (bytes32[] memory) {
+        return getStateChangesBytes32(slot, key, 0);
+    }
+
+    function getStateChangesUint(bytes32 slot, uint256 key, uint256 slotOffset)
+        internal
+        view
+        virtual
+        returns (uint256[] memory)
+    {
+        return getStateChangesUint(getSlotMapping(slot, key, slotOffset));
+    }
+
+    function getStateChangesAddress(bytes32 slot, uint256 key, uint256 slotOffset)
+        internal
+        view
+        virtual
+        returns (address[] memory)
+    {
+        return getStateChangesAddress(getSlotMapping(slot, key, slotOffset));
+    }
+
+    function getStateChangesBool(bytes32 slot, uint256 key, uint256 slotOffset)
+        internal
+        view
+        virtual
+        returns (bool[] memory)
+    {
+        return getStateChangesBool(getSlotMapping(slot, key, slotOffset));
+    }
+
+    function getStateChangesBytes32(bytes32 slot, uint256 key, uint256 slotOffset)
+        internal
+        view
+        virtual
+        returns (bytes32[] memory)
+    {
+        return getStateChangesBytes32(getSlotMapping(slot, key, slotOffset));
     }
 }

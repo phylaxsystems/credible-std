@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {MockAssertion} from "./mocks/MockAssertion.sol";
 
 contract AssertionTest is Test, MockAssertion {
-    function testStateChanges() public {
+    function testStateChanges() public view {
         bytes32[] memory stateChanges = ph.getStateChanges(0x0);
         assertEq(stateChanges.length, 3);
         assertEq(stateChanges[0], bytes32(uint256(0x0)));
@@ -13,7 +13,7 @@ contract AssertionTest is Test, MockAssertion {
         assertEq(stateChanges[2], bytes32(type(uint256).max));
     }
 
-    function testStateChangesUint() public {
+    function testStateChangesUint() public view {
         uint256[] memory stateChanges = getStateChangesUint(0x0);
         assertEq(stateChanges.length, 3);
         assertEq(stateChanges[0], 0x0);
@@ -21,7 +21,7 @@ contract AssertionTest is Test, MockAssertion {
         assertEq(stateChanges[2], type(uint256).max);
     }
 
-    function testStateChangesAddress() public {
+    function testStateChangesAddress() public view {
         address[] memory stateChanges = getStateChangesAddress(0x0);
         assertEq(stateChanges.length, 3);
         assertEq(stateChanges[0], address(0x0));
@@ -30,7 +30,7 @@ contract AssertionTest is Test, MockAssertion {
         assertEq(uint256(uint160(stateChanges[2])), uint256(type(uint160).max));
     }
 
-    function testStateChangesBool() public {
+    function testStateChangesBool() public view {
         bool[] memory stateChanges = getStateChangesBool(0x0);
         assertEq(stateChanges.length, 3);
         assertEq(stateChanges[0], false);
