@@ -6,5 +6,5 @@ import {PhEvm} from "./PhEvm.sol";
 /// @notice The Credible contract
 abstract contract Credible {
     //Precompile address -
-    PhEvm constant ph = PhEvm(address(uint160(uint256(keccak256("Kim Jong Un Sucks")))));
+    PhEvm immutable ph = PhEvm(address(uint160(uint256(keccak256("Kim Jong Un Sucks")))));
 }

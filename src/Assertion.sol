@@ -20,13 +20,16 @@ abstract contract Assertion is Credible {
     function getStateChangesUint(bytes32 slot) internal returns (uint256[] memory) {
         bytes32[] memory stateChanges = ph.getStateChanges(slot);
 
+        // Explicit cast to uint256[]
+        uint256[] memory uintChanges;
         assembly {
-            // Return the same memory location, but interpreted as uint256[]
-            return(add(stateChanges, 0), mload(stateChanges))
+            uintChanges := stateChanges
         }
+
+        return uintChanges;
     }
 
-    function getStateChangesAddress(bytes32 slot) internal returns (address[] calldata) {
+    function getStateChangesAddress(bytes32 slot) internal returns (address[] memory) {
         bytes32[] memory stateChanges = ph.getStateChanges(slot);
 
         assembly {
@@ -39,13 +42,18 @@ abstract contract Assertion is Credible {
                     )
                 mstore(add(add(stateChanges, 0x20), mul(i, 0x20)), addr)
             }
-
-            // Return the modified memory as address[]
-            return(add(stateChanges, 0), mload(stateChanges))
         }
+
+        // Explicit cast to address[]
+        address[] memory addressChanges;
+        assembly {
+            addressChanges := stateChanges
+        }
+
+        return addressChanges;
     }
 
-    function getStateChangesBool(bytes32 slot) internal returns (bool[] calldata) {
+    function getStateChangesBool(bytes32 slot) internal returns (bool[] memory) {
         bytes32[] memory stateChanges = ph.getStateChanges(slot);
 
         assembly {
@@ -55,9 +63,14 @@ abstract contract Assertion is Credible {
                 let boolValue := iszero(iszero(mload(add(add(stateChanges, 0x20), mul(i, 0x20)))))
                 mstore(add(add(stateChanges, 0x20), mul(i, 0x20)), boolValue)
             }
-
-            // Return the modified memory as bool[]
-            return(add(stateChanges, 0), mload(stateChanges))
         }
+
+        // Explicit cast to bool[]
+        bool[] memory boolChanges;
+        assembly {
+            boolChanges := stateChanges
+        }
+
+        return boolChanges;
     }
 }
