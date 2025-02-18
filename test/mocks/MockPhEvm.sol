@@ -6,7 +6,7 @@ import {PhEvm} from "../../src/PhEvm.sol";
 contract MockPhEvm is PhEvm {
     mapping(bytes32 slot => bytes32[] stateChanges) private slotStateChanges;
 
-    constructor() {
+    function initialize() public {
         slotStateChanges[0x0] = new bytes32[](3);
         slotStateChanges[0x0][0] = bytes32(uint256(0x0));
         slotStateChanges[0x0][1] = bytes32(uint256(0x1));
