@@ -6,7 +6,7 @@ import {MockAssertion} from "./mocks/MockAssertion.sol";
 
 contract AssertionTest is Test, MockAssertion {
     function testStateChanges() public view {
-        bytes32[] memory stateChanges = ph.getStateChanges(0x0);
+        bytes32[] memory stateChanges = ph.getStateChanges(address(this), 0x0);
         assertEq(stateChanges.length, 3);
         assertEq(stateChanges[0], bytes32(uint256(0x0)));
         assertEq(stateChanges[1], bytes32(uint256(0x1)));
@@ -14,7 +14,7 @@ contract AssertionTest is Test, MockAssertion {
     }
 
     function testStateChangesUint() public view {
-        uint256[] memory stateChanges = getStateChangesUint(0x0);
+        uint256[] memory stateChanges = getStateChangesUint(address(this), 0x0);
         assertEq(stateChanges.length, 3);
         assertEq(stateChanges[0], 0x0);
         assertEq(stateChanges[1], 0x1);
@@ -22,7 +22,7 @@ contract AssertionTest is Test, MockAssertion {
     }
 
     function testStateChangesAddress() public view {
-        address[] memory stateChanges = getStateChangesAddress(0x0);
+        address[] memory stateChanges = getStateChangesAddress(address(this), 0x0);
         assertEq(stateChanges.length, 3);
         assertEq(stateChanges[0], address(0x0));
         assertEq(stateChanges[1], address(0x1));
@@ -31,7 +31,7 @@ contract AssertionTest is Test, MockAssertion {
     }
 
     function testStateChangesBool() public view {
-        bool[] memory stateChanges = getStateChangesBool(0x0);
+        bool[] memory stateChanges = getStateChangesBool(address(this), 0x0);
         assertEq(stateChanges.length, 3);
         assertEq(stateChanges[0], false);
         assertEq(stateChanges[1], true);

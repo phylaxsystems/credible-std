@@ -4,8 +4,8 @@ pragma solidity ^0.8.13;
 import {Credible} from "./Credible.sol";
 
 contract StateChanges is Credible {
-    function getStateChangesUint(bytes32 slot) internal view returns (uint256[] memory) {
-        bytes32[] memory stateChanges = ph.getStateChanges(slot);
+    function getStateChangesUint(address contractAddress, bytes32 slot) internal view returns (uint256[] memory) {
+        bytes32[] memory stateChanges = ph.getStateChanges(contractAddress, slot);
 
         // Explicit cast to uint256[]
         uint256[] memory uintChanges;
@@ -16,8 +16,8 @@ contract StateChanges is Credible {
         return uintChanges;
     }
 
-    function getStateChangesAddress(bytes32 slot) internal view returns (address[] memory) {
-        bytes32[] memory stateChanges = ph.getStateChanges(slot);
+    function getStateChangesAddress(address contractAddress, bytes32 slot) internal view returns (address[] memory) {
+        bytes32[] memory stateChanges = ph.getStateChanges(contractAddress, slot);
 
         assembly {
             // Zero out the upper 96 bits for each element to ensure clean address casting
@@ -40,8 +40,8 @@ contract StateChanges is Credible {
         return addressChanges;
     }
 
-    function getStateChangesBool(bytes32 slot) internal view returns (bool[] memory) {
-        bytes32[] memory stateChanges = ph.getStateChanges(slot);
+    function getStateChangesBool(address contractAddress, bytes32 slot) internal view returns (bool[] memory) {
+        bytes32[] memory stateChanges = ph.getStateChanges(contractAddress, slot);
 
         assembly {
             // Convert each bytes32 to bool
@@ -61,63 +61,75 @@ contract StateChanges is Credible {
         return boolChanges;
     }
 
-    function getStateChangesBytes32(bytes32 slot) internal view virtual returns (bytes32[] memory) {
-        return ph.getStateChanges(slot);
+    function getStateChangesBytes32(address contractAddress, bytes32 slot) internal view returns (bytes32[] memory) {
+        return ph.getStateChanges(contractAddress, slot);
     }
 
     function getSlotMapping(bytes32 slot, uint256 key, uint256 offset) private pure returns (bytes32) {
         return bytes32(uint256(keccak256(abi.encodePacked(key, slot))) + offset);
     }
 
-    function getStateChangesUint(bytes32 slot, uint256 key) internal view virtual returns (uint256[] memory) {
-        return getStateChangesUint(slot, key, 0);
-    }
-
-    function getStateChangesAddress(bytes32 slot, uint256 key) internal view virtual returns (address[] memory) {
-        return getStateChangesAddress(slot, key, 0);
-    }
-
-    function getStateChangesBool(bytes32 slot, uint256 key) internal view virtual returns (bool[] memory) {
-        return getStateChangesBool(slot, key, 0);
-    }
-
-    function getStateChangesBytes32(bytes32 slot, uint256 key) internal view virtual returns (bytes32[] memory) {
-        return getStateChangesBytes32(slot, key, 0);
-    }
-
-    function getStateChangesUint(bytes32 slot, uint256 key, uint256 slotOffset)
+    function getStateChangesUint(address contractAddress, bytes32 slot, uint256 key)
         internal
         view
-        virtual
         returns (uint256[] memory)
     {
-        return getStateChangesUint(getSlotMapping(slot, key, slotOffset));
+        return getStateChangesUint(contractAddress, slot, key, 0);
     }
 
-    function getStateChangesAddress(bytes32 slot, uint256 key, uint256 slotOffset)
+    function getStateChangesAddress(address contractAddress, bytes32 slot, uint256 key)
         internal
         view
-        virtual
         returns (address[] memory)
     {
-        return getStateChangesAddress(getSlotMapping(slot, key, slotOffset));
+        return getStateChangesAddress(contractAddress, slot, key, 0);
     }
 
-    function getStateChangesBool(bytes32 slot, uint256 key, uint256 slotOffset)
+    function getStateChangesBool(address contractAddress, bytes32 slot, uint256 key)
         internal
         view
-        virtual
         returns (bool[] memory)
     {
-        return getStateChangesBool(getSlotMapping(slot, key, slotOffset));
+        return getStateChangesBool(contractAddress, slot, key, 0);
     }
 
-    function getStateChangesBytes32(bytes32 slot, uint256 key, uint256 slotOffset)
+    function getStateChangesBytes32(address contractAddress, bytes32 slot, uint256 key)
         internal
         view
-        virtual
         returns (bytes32[] memory)
     {
-        return getStateChangesBytes32(getSlotMapping(slot, key, slotOffset));
+        return getStateChangesBytes32(contractAddress, slot, key, 0);
+    }
+
+    function getStateChangesUint(address contractAddress, bytes32 slot, uint256 key, uint256 slotOffset)
+        internal
+        view
+        returns (uint256[] memory)
+    {
+        return getStateChangesUint(contractAddress, getSlotMapping(slot, key, slotOffset));
+    }
+
+    function getStateChangesAddress(address contractAddress, bytes32 slot, uint256 key, uint256 slotOffset)
+        internal
+        view
+        returns (address[] memory)
+    {
+        return getStateChangesAddress(contractAddress, getSlotMapping(slot, key, slotOffset));
+    }
+
+    function getStateChangesBool(address contractAddress, bytes32 slot, uint256 key, uint256 slotOffset)
+        internal
+        view
+        returns (bool[] memory)
+    {
+        return getStateChangesBool(contractAddress, getSlotMapping(slot, key, slotOffset));
+    }
+
+    function getStateChangesBytes32(address contractAddress, bytes32 slot, uint256 key, uint256 slotOffset)
+        internal
+        view
+        returns (bytes32[] memory)
+    {
+        return getStateChangesBytes32(contractAddress, getSlotMapping(slot, key, slotOffset));
     }
 }

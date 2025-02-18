@@ -14,7 +14,7 @@ contract MockPhEvm is PhEvm {
     }
 
     // Mock state changes for testing
-    function getStateChanges(bytes32 slot) public view returns (bytes32[] memory stateChanges) {
+    function getStateChanges(address, bytes32 slot) public view returns (bytes32[] memory stateChanges) {
         stateChanges = slotStateChanges[slot];
     }
 

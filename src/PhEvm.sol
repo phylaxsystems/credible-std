@@ -54,5 +54,8 @@ interface PhEvm {
     function getCallInputs(address target, bytes4 selector) external view returns (CallInputs[] memory calls);
 
     // Get state changes for a given contract and storage slot.
-    function getStateChanges(address contractAddress, bytes32 slot) external returns (bytes32[] memory stateChanges);
+    function getStateChanges(address contractAddress, bytes32 slot)
+        external
+        view
+        returns (bytes32[] memory stateChanges);
 }
