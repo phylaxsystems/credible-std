@@ -3,9 +3,10 @@ pragma solidity ^0.8.13;
 
 import {Credible} from "./Credible.sol";
 import {TriggerRecorder} from "./TriggerRecorder.sol";
+import {StateChanges} from "./StateChanges.sol";
 
 /// @notice Assertion interface for the PhEvm precompile
-abstract contract Assertion is Credible {
+abstract contract Assertion is Credible, StateChanges {
     //Trigger recorder address
     TriggerRecorder constant triggerRecorder = TriggerRecorder(address(uint160(uint256(keccak256("TriggerRecorder")))));
 
