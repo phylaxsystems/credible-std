@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {Credible} from "../src/Credible.sol";
 
 contract PhEvmTest is Test, Credible {
-    function testAddress() public view {
+    function testAddress() public pure {
         assertEq(address(ph), address(0x4461812e00718ff8D80929E3bF595AEaaa7b881E));
     }
 }
