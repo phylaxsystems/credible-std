@@ -117,7 +117,7 @@ For a detailed guide on how to create an assertion check out the [Writing Assert
 
 ### Available Cheatcodes
 
-The PhEvm precompile provides several cheatcodes for assertion validation:
+The credible-std provides several cheatcodes for assertion validation:
 
 - `forkPreState()`: Forks to the state prior to the assertion triggering transaction
 - `forkPostState()`: Forks to the state after the assertion triggering transaction
