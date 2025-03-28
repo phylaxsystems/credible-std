@@ -8,12 +8,19 @@ The Phylax Credible Layer (PCL) is a security framework that enables real-time m
 
 ### Key Components
 
-- `Credible.sol`: Base contract that provides access to the PhEvm precompile
-- `Assertion.sol`: Abstract contract for implementing assertions with trigger registration
-- `StateChanges.sol`: Utilities for tracking and validating state changes
-- `TriggerRecorder.sol`: Manages assertion triggers for function calls and state changes
-- `PhEvm.sol`: Interface for the PhEvm precompile
-- `CredibleTest.sol`: Testing utilities for assertion development
+- `Credible.sol`: Base contract that provides access to the PhEvm precompile for assertion validation
+- `Assertion.sol`: Abstract contract for implementing assertions with trigger registration and validation logic
+- `StateChanges.sol`: Utilities for tracking and validating contract state changes with type-safe conversions
+- `TriggerRecorder.sol`: Manages assertion triggers for function calls, storage changes, and balance changes
+- `PhEvm.sol`: Interface for the PhEvm precompile that enables assertion validation
+- `CredibleTest.sol`: Testing utilities for assertion development and validation
+
+## Features
+
+- **Trigger System**: Register triggers for function calls, storage changes, and balance changes to monitor specific contract behaviors
+- **State Change Tracking**: Type-safe utilities for monitoring and validating contract state changes with built-in conversion helpers
+- **Testing Framework**: Comprehensive testing utilities for assertion development with built-in validation helpers
+- **PhEvm Integration**: Direct access to the PhEvm precompile for advanced assertion logic and validation
 
 TODO: fix link
 You can find detailed documentation on the Credible Layer and how to use the credible-std library in the [Credible Layer Documentation](ADD_LINK_ONCE_DOCUMENTATION_IS_PUBLISHED).
@@ -61,29 +68,65 @@ npm install
 
 ## Usage
 
+### Assertion Lifecycle
+
+1. Create an assertion contract that inherits from `Assertion`
+2. Initialize the assertion in the constructor with the contract address you want to monitor
+3. Register triggers in the `triggers()` function for when the assertion should be checked
+4. Implement validation logic in your assertion function(s)
+5. Add the assertion to your test environment using `cl.addAssertion()`
+6. Test the assertion using `cl.validate()`
+
 ### Creating an Assertion
 
 ```solidity
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Assertion} from "credible-std/src/Assertion.sol";
+import {Assertion} from "credible-std/src/Assertion.sol"; // Credible Layer precompiles
+import {Ownable} from "../../src/Ownable.sol"; // Contract to write assertions for
 
-contract MyAssertion is Assertion {
-    function triggers() external view override {
-        // Register triggers for your assertion
-        registerCallTrigger(this.validate.selector);
+contract OwnableAssertion is Assertion {
+    Ownable ownable;
+
+    constructor(address ownable_) {
+        ownable = Ownable(ownable_); // Define address of Ownable contract
     }
 
-    function validate() external view {
-        // Implement your assertion logic here
-        // This will be called when triggers are activated
+    // Define selectors for the assertions, several assertions can be defined here
+    // This function is required by the Assertion interface
+    function triggers() external view override {
+        registerCallTrigger(this.assertionOwnershipChange.selector); // Register the selector for the assertionOwnershipChange function
+    }
+
+    // This function is used to check if the ownership has changed
+    // Get the owner of the contract before and after the transaction
+    // Return false if the owner has changed, true if it has not
+    function assertionOwnershipChange() external {
+        ph.forkPreState(); // Fork the pre-state of the transaction
+        address preOwner = ownable.owner(); // Get the owner of the contract before the transaction
+        ph.forkPostState(); // Fork the post-state of the transaction
+        address postOwner = ownable.owner(); // Get the owner of the contract after the transaction
+        require(postOwner == preOwner, "Ownership has changed"); // revert if the owner has changed
     }
 }
 ```
 
 TODO: fix link
 For a detailed guide on how to create an assertion check out the [Writing Assertions](INSERT_LINK_ONCE_DOCUMENTATION_IS_PUBLISHED) section of the documentation.
+
+### Available Cheatcodes
+
+The PhEvm precompile provides several cheatcodes for assertion validation:
+
+- `forkPreState()`: Forks to the state prior to the assertion triggering transaction
+- `forkPostState()`: Forks to the state after the assertion triggering transaction
+- `load(address target, bytes32 slot)`: Loads a storage slot from an address
+- `getLogs()`: Retrieves logs from the assertion triggering transaction
+- `getCallInputs(address target, bytes4 selector)`: Gets call inputs for a given target and selector
+- `getStateChanges(address contractAddress, bytes32 slot)`: Gets state changes for a given contract and storage slot
+
+These cheatcodes can be accessed through the `ph` instance in your assertion contracts, which is provided by the `Credible` base contract.
 
 ### Testing Assertions
 
@@ -128,10 +171,3 @@ contract TestOwnableAssertion is CredibleTest, Test {
 TODO: fix link
 
 For a detailed guide on how to test assertions check out the [Testing Assertions](INSERT_LINK_ONCE_DOCUMENTATION_IS_PUBLISHED) section of the documentation.
-
-## Features
-
-- **Trigger System**: Register triggers for function calls, storage changes, and balance changes
-- **State Change Tracking**: Built-in utilities for monitoring contract state changes
-- **Testing Framework**: Comprehensive testing utilities for assertion development
-- **PhEvm Integration**: Direct access to the PhEvm precompile for advanced assertion logic
