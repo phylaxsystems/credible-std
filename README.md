@@ -1,10 +1,10 @@
-# Credible-std
+# credible-std
 
-Credible-std is a standard library for implementing assertions in the Phylax Credible Layer (PCL). It provides the core contracts and interfaces needed to create and manage assertions for smart contract security monitoring.
+credible-std is a standard library for implementing assertions in the Phylax Credible Layer (PCL). It provides the core contracts and interfaces needed to create and manage assertions for smart contract security monitoring.
 
 ## Overview
 
-The Phylax Credible Layer (PCL) is a security framework that enables real-time monitoring and validation of smart contract behavior through assertions. Credible-std provides the foundational contracts and utilities needed to implement these assertions.
+The Phylax Credible Layer (PCL) is a security framework that enables real-time monitoring and validation of smart contract behavior through assertions. credible-std provides the foundational contracts and utilities needed to implement these assertions.
 
 ### Key Components
 
@@ -22,8 +22,7 @@ The Phylax Credible Layer (PCL) is a security framework that enables real-time m
 - **Testing Framework**: Comprehensive testing utilities for assertion development with built-in validation helpers
 - **PhEvm Integration**: Direct access to the PhEvm precompile for advanced assertion logic and validation
 
-TODO: fix link
-You can find detailed documentation on the Credible Layer and how to use the credible-std library in the [Credible Layer Documentation](ADD_LINK_ONCE_DOCUMENTATION_IS_PUBLISHED).
+You can find detailed documentation on the Credible Layer and how to use the credible-std library in the [Credible Layer Documentation](https://docs.phylax.systems/credible/credible-introduction).
 
 ## Installation
 
@@ -112,8 +111,7 @@ contract OwnableAssertion is Assertion {
 }
 ```
 
-TODO: fix link
-For a detailed guide on how to create an assertion check out the [Writing Assertions](INSERT_LINK_ONCE_DOCUMENTATION_IS_PUBLISHED) section of the documentation.
+For a detailed guide on how to write assertions check out the [Writing Assertions](https://docs.phylax.systems/credible/pcl-assertion-guide) section of the documentation.
 
 ### Available Cheatcodes
 
@@ -168,6 +166,4 @@ contract TestOwnableAssertion is CredibleTest, Test {
 }
 ```
 
-TODO: fix link
-
-For a detailed guide on how to test assertions check out the [Testing Assertions](INSERT_LINK_ONCE_DOCUMENTATION_IS_PUBLISHED) section of the documentation.
+For a detailed guide on how to test assertions check out the [Testing Assertions](https://docs.phylax.systems/credible/testing-assertions) section of the documentation.
