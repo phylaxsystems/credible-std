@@ -58,4 +58,7 @@ interface PhEvm {
         external
         view
         returns (bytes32[] memory stateChanges);
+
+    // Get assertion adopter contract address associated with the assertion triggering transaction.
+    function getAssertionAdopter() external view returns (address);
 }
