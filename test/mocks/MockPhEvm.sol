@@ -32,4 +32,7 @@ contract MockPhEvm is PhEvm {
 
     // Get the call inputs for a given target and selector
     function getCallInputs(address target, bytes4 selector) public view returns (CallInputs[] memory calls) {}
+
+    // Get assertion adopter address
+    function getAssertionAdopter() public view returns (address) {}
 }
