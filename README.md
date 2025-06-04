@@ -123,6 +123,7 @@ The credible-std provides several cheatcodes for assertion validation:
 - `getLogs()`: Retrieves logs from the assertion triggering transaction
 - `getCallInputs(address target, bytes4 selector)`: Gets call inputs for a given target and selector
 - `getStateChanges(address contractAddress, bytes32 slot)`: Gets state changes for a given contract and storage slot
+- `getAssertionAdopter()`: Get assertion adopter contract address associated with the assertion triggering transaction
 
 These cheatcodes can be accessed through the `ph` instance in your assertion contracts, which is provided by the `Credible` base contract.
 
@@ -151,7 +152,7 @@ contract TestOwnableAssertion is CredibleTest, Test {
 
     function test_assertionOwnershipChanged() public {
         address aaAddress = address(assertionAdopter);
-        string memory label = "Ownership has changed";
+        string memory label = "OwnableAssertion";
 
         // Associate the assertion with the protocol
         // cl will manage the correct assertion execution under the hood when the protocol is being called
