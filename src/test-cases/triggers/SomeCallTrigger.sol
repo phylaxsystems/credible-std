@@ -23,6 +23,5 @@ contract SomeCallTrigger is Assertion {
 contract TriggeringTx {
     constructor() payable {
         TARGET.incrementStorage();
-        (1);
     }
 }

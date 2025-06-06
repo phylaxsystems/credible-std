@@ -20,8 +20,8 @@ contract Target {
     }
 
     function incrementStorage() public {
-        uint value = value + 1;
-        writeStorage(value);
+        uint256 _value = value + 1;
+        writeStorage(_value);
     }
 
     function writeStorageAndRevert(uint256 value_) external {
