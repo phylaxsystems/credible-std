@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 Target constant TARGET = Target(
-    address(0x118DD24a3b0D02F90D8896E242D3838B4D37c181)
+    address(0x8464135c8F25Da09e49BC8782676a84730C318bC)
 );
 
 contract Target {
