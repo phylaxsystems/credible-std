@@ -7,8 +7,8 @@ import {Test} from "forge-std/Test.sol";
 import {console} from "forge-std/console.sol";
 import {Target, TARGET} from "../common/Target.sol";
 
-contract SomeCallTrigger {
-    function testTriggered() external view {
+contract SomeCallTrigger is Assertion {
+    function testTriggered() external {
         revert();
     }
 

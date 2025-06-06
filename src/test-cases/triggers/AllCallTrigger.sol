@@ -8,8 +8,8 @@ import {console} from "forge-std/console.sol";
 
 import {Target, TARGET} from "../common/Target.sol";
 
-contract AllCallTrigger {
-    function testTriggered() external view {
+contract AllCallTrigger is Assertion {
+    function testTriggered() external {
         revert();
     }
 
