@@ -10,7 +10,7 @@ import {Target, TARGET} from "../common/Target.sol";
 contract TestLoad is Assertion, Test {
     constructor() payable {}
 
-    function testLoad() external view {
+    function testLoad() external {
         ph.forkPreState();
 
         uint256 preCount = uint256(ph.load(address(TARGET), 0));
