@@ -26,4 +26,6 @@ contract Target {
         writeStorage(value_);
         revert("revert from Target");
     }
+
+    receive() external payable {}
 }
