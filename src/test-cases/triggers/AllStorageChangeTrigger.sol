@@ -9,8 +9,11 @@ import {console} from "forge-std/console.sol";
 import {Target, TARGET} from "../common/Target.sol";
 
 contract AllStorageChangeTrigger is Assertion {
-    function testTriggered() external pure {
-        revert();
+    function testTriggered() external {
+        ph.forkPreState();
+        if (address(TARGET).code.length != 0) {
+            revert("Target not deployed yet");
+        }
     }
 
     function triggers() external view override {
