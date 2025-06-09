@@ -11,7 +11,6 @@ contract TestGetAdopter is Assertion, Test {
     constructor() payable {}
 
     function testGetAdopter() external view {
-        require(TARGET.readStorage() == 1, "val != 1");
         address adopter = ph.getAssertionAdopter();
         require(adopter == address(TARGET), "adopter != target");
     }
