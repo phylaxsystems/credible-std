@@ -126,7 +126,7 @@ contract TestForking1 is ForkingTest {
     constructor()
         ForkingTest(
             InitData({
-                newTarget: address(0x1A9c28714584DC5Bc4715C0624c171B5F4F82Be8),
+                newTarget: address(0x8019401e3Eda99Ff0f7fee39e6Ae724006390A61),
                 startValue: 2,
                 expectedSumPersistence: 10
             })
