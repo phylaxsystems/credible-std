@@ -36,6 +36,9 @@ contract TestCallInputs is Assertion, Test {
         param = abi.decode(callInput.input, (uint256));
         require(param == 2, "Second writeStorage param should be 2");
         require(callInput.value == 0, "callInput.value != 0");
+
+        callInputs = ph.getCallInputs(address(TARGET), bytes4(0));
+        require(callInputs.length == 0, "callInputs.length != 0");
     }
     //TODO: validate same selector to multiple targets does not get included for wrong address
 

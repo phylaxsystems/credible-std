@@ -64,8 +64,9 @@ contract TestForking is Assertion, Test {
 
         ph.forkPreState();
         require(TARGET.readStorage() == 1, "preStateValue != 1");
+        sum += TARGET.readStorage();
 
-        require(sum == 4, "sum != 4");
+        require(sum == 6, "sum != 6");
     }
 
     function triggers() external view override {
