@@ -32,7 +32,7 @@ contract TestMbStateChanges is Assertion, Test {
     constructor() payable {}
 
     function testGetStateChanges() external view {
-        uint256 callCount = ph.getCallCount();
+        //uint256 callCount = ph.getCallCount();
         bytes32[] memory changes = ph.getStateChanges(address(TARGET), bytes32(0));
 
         require(changes.length == 3, "changes.length != 3");
