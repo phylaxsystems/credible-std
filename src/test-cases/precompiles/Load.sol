@@ -10,20 +10,30 @@ import {Target, TARGET} from "../common/Target.sol";
 contract TestLoad is Assertion, Test {
     constructor() payable {}
 
-    function testLoad() external {
-        ph.forkPreState();
+    function _loadCount() internal view returns (uint256) {
+        return uint256(ph.load(address(TARGET), 0));
+    }
 
-        uint256 preCount = uint256(ph.load(address(TARGET), 0));
+    function testLoad() external {
+        require(_loadCount() == 2, "postStateCount != 2 (no switch)");
+        require(
+            TARGET.readStorage() == _loadCount(),
+            "readStorage != postStateCount (no switch)"
+        );
+
+        ph.forkPreState();
+        require(_loadCount() == 1, "preStateCount != 1");
+        require(
+            TARGET.readStorage() == _loadCount(),
+            "readStorage != preStateCount"
+        );
 
         ph.forkPostState();
-
-        uint256 postCount = uint256(ph.load(address(TARGET), 0));
-
-        uint256 callCount = ph
-            .getCallInputs(address(TARGET), Target.incrementStorage.selector)
-            .length;
-
-        require(postCount - preCount == callCount, "Values not as expected");
+        require(_loadCount() == 2, "postStateCount != 2 (switch)");
+        require(
+            TARGET.readStorage() == _loadCount(),
+            "readStorage != postStateCount (switch)"
+        );
     }
 
     function triggers() external view override {

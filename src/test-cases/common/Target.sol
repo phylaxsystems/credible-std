@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-Target constant TARGET = Target(payable(0xdCCf1eEB153eF28fdc3CF97d33f60576cF092e9c));
+Target constant TARGET = Target(
+    payable(0xdCCf1eEB153eF28fdc3CF97d33f60576cF092e9c)
+);
 
 contract Target {
     event Log(uint256 value);
@@ -28,4 +30,6 @@ contract Target {
     }
 
     receive() external payable {}
+
+    fallback() external {}
 }
