@@ -10,7 +10,7 @@ import {Target, TARGET} from "../common/Target.sol";
 contract TestForking is Assertion, Test {
     uint256 expectedSum = 0;
     uint256 someInitValue = 1;
-    address newTarget = address(0);
+    address newTarget = address(0x1A9c28714584DC5Bc4715C0624c171B5F4F82Be8);
 
     constructor() payable {}
 

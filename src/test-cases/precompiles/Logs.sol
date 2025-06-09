@@ -7,7 +7,7 @@ import {Assertion} from "../../Assertion.sol";
 import {PhEvm} from "../../PhEvm.sol";
 import {Target, TARGET} from "../common/Target.sol";
 
-contract TestGetLogs is Assertion, Test {
+contract TestLogs is Assertion, Test {
     constructor() payable {}
 
     function testGetLogs() external {
