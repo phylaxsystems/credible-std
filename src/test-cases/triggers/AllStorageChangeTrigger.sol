@@ -12,7 +12,13 @@ contract AllStorageChangeTrigger is Assertion {
     function testTriggered() external {
         ph.forkPreState();
         if (address(TARGET).code.length != 0) {
-            revert("Target not deployed yet");
+            if (TARGET.readStorage() == 0) {
+                revert(
+                    "Initial storage not 0, contract deployed before this transaction, assertion triggered as expected"
+                );
+            } else {
+                //Initial storage 0, contract not deployed before this transaction.
+            }
         }
     }
 
