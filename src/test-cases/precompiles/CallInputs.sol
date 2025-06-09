@@ -37,6 +37,7 @@ contract TestCallInputs is Assertion, Test {
         require(param == 2, "Second writeStorage param should be 2");
         require(callInput.value == 0, "callInput.value != 0");
     }
+    //TODO validate same selector to multiple targets does not get included for wrong address
 
     function triggers() external view override {
         registerCallTrigger(this.testGetCallInputs.selector);

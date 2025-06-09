@@ -14,14 +14,35 @@ contract TestForking is Assertion, Test {
 
     constructor() payable {}
 
+    function testForkSwitchNewDeployedContract() external {
+        require(
+            newTarget.code.length != 0,
+            "post state newTarget.code.length should not be 0"
+        );
+
+        ph.forkPreState();
+        require(
+            newTarget.code.length == 0,
+            "pre state newTarget.code.length should be 0"
+        );
+
+        ph.forkPostState();
+        require(
+            newTarget.code.length != 0,
+            "post state newTarget.code.length should not be 0"
+        );
+    }
+
     function testForkSwitch() external {
         uint256 calls = ph
             .getCallInputs(address(TARGET), TARGET.incrementStorage.selector)
             .length;
 
+        ph.forkPreState();
         uint256 startValue = TARGET.readStorage();
         require(startValue < 3, "startValue >= 3");
 
+        ph.forkPostState();
         //Test fork switching reads from underlying state
         require(
             TARGET.readStorage() == startValue + calls,
@@ -33,14 +54,16 @@ contract TestForking is Assertion, Test {
             TARGET.readStorage() == startValue,
             "readStorage() != startValue"
         );
-        require(newTarget.code.length == 0, "preState newTarget.code.length != 0");
 
         ph.forkPostState();
         require(
             TARGET.readStorage() == startValue + calls,
             "readStorage() != startValue + calls"
         );
-        require(newTarget.code.length != 0, "postState newTarget.code.length == 0");
+        require(
+            newTarget.code.length != 0,
+            "postState newTarget.code.length == 0"
+        );
 
         ph.forkPreState();
         require(
