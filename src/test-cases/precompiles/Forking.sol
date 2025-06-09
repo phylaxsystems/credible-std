@@ -10,6 +10,7 @@ struct InitData {
     address newTarget;
     uint256 startValue;
     uint256 expectedSumPersistence;
+    uint256 expectedDiff;
 }
 
 abstract contract ForkingTest is Assertion, Test {
@@ -66,40 +67,54 @@ abstract contract ForkingTest is Assertion, Test {
     function testPersistTargetContracts() external {
         uint256 _startValue = initData.startValue;
         uint256 _expectedSum = initData.expectedSumPersistence;
+        uint256 _expectedDiff = initData.expectedDiff;
 
         require(someInitValue == 1, "someInitValue != 1");
         require(sum == 0, "expectedSum != 0");
 
+        uint256 expectedPreValue = _startValue;
+        uint256 expectedPostValue = _startValue + _expectedDiff;
+
         require(
-            TARGET.readStorage() == _startValue + 1,
-            "val != _startValue + 1"
+            TARGET.readStorage() == expectedPostValue,
+            "val != expectedPostValue"
         );
         sum += TARGET.readStorage();
-        require(sum == _startValue + 1, "sum != _startValue + 1");
+        require(sum == expectedPostValue, "sum != expectedPostValue");
 
         ph.forkPreState();
         require(
-            TARGET.readStorage() == _startValue,
-            "readStorage != _startValue"
+            TARGET.readStorage() == expectedPreValue,
+            "readStorage != expectedPreValue"
         );
+
         sum += TARGET.readStorage();
-        require(sum == (_startValue * 2 + 1), "sum != _startValue * 2 + 1");
+        require(
+            sum == expectedPreValue + expectedPostValue,
+            "sum != expectedPreValue + expectedPostValue"
+        );
 
         ph.forkPostState();
         require(
-            TARGET.readStorage() == _startValue + 1,
-            "val != _startValue + 1"
+            TARGET.readStorage() == expectedPostValue,
+            "val != expectedPostValue"
         );
         sum += TARGET.readStorage();
-        require(sum == ((_startValue * 3) + 2), "sum != _startValue * 2 + 2");
+        require(
+            sum == expectedPreValue + (expectedPostValue * 2),
+            "sum != expectedPreValue + (expectedPostValue * 2)"
+        );
 
         ph.forkPreState();
         require(
-            TARGET.readStorage() == _startValue,
-            "readStorage != _startValue"
+            TARGET.readStorage() == expectedPreValue,
+            "readStorage != expectedPreValue"
         );
         sum += TARGET.readStorage();
-        require(sum == ((_startValue * 4) + 2), "sum != _startValue * 4 + 2");
+        require(
+            sum == (expectedPreValue + expectedPostValue) * 2,
+            "sum != (expectedPreValue + expectedPostValue) * 2"
+        );
         require(sum == _expectedSum, "sum != _expectedSum");
     }
 
@@ -110,25 +125,40 @@ abstract contract ForkingTest is Assertion, Test {
     }
 }
 
-contract TestForking0 is ForkingTest {
+contract TestForkingTx0 is ForkingTest {
     constructor()
         ForkingTest(
             InitData({
                 newTarget: address(0x40f7EBE92dD6bdbEECADFFF3F9d7A1B33Cf8d7c0),
                 startValue: 1,
-                expectedSumPersistence: 6
+                expectedSumPersistence: 4,
+                expectedDiff: 1
             })
         )
     {}
 }
 
-contract TestForking1 is ForkingTest {
+contract TestForkingTx1 is ForkingTest {
     constructor()
         ForkingTest(
             InitData({
                 newTarget: address(0x8019401e3Eda99Ff0f7fee39e6Ae724006390A61),
                 startValue: 2,
-                expectedSumPersistence: 10
+                expectedSumPersistence: 10,
+                expectedDiff: 1
+            })
+        )
+    {}
+}
+
+contract TestForkingTxMb is ForkingTest {
+    constructor()
+        ForkingTest(
+            InitData({
+                newTarget: address(0x40f7EBE92dD6bdbEECADFFF3F9d7A1B33Cf8d7c0),
+                startValue: 1,
+                expectedSumPersistence: 8,
+                expectedDiff: 2
             })
         )
     {}
