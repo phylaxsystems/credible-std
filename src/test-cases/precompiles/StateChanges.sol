@@ -7,7 +7,7 @@ import {Test} from "forge-std/Test.sol";
 import {console} from "forge-std/console.sol";
 import {Target, TARGET} from "../common/Target.sol";
 
-contract TestGetStateChanges is Assertion, Test {
+contract TestStateChanges is Assertion, Test {
     constructor() payable {}
 
     function testGetStateChanges() external view {
