@@ -10,6 +10,7 @@ import {Target, TARGET} from "../common/Target.sol";
 contract TestForking is Assertion, Test {
     uint256 expectedSum = 0;
     uint256 someInitValue = 1;
+    address newTarget = address(0);
 
     constructor() payable {}
 
@@ -32,15 +33,20 @@ contract TestForking is Assertion, Test {
             TARGET.readStorage() == startValue,
             "readStorage() != startValue"
         );
+        require(newTarget.code.length == 0, "preState newTarget.code.length != 0");
 
         ph.forkPostState();
         require(
             TARGET.readStorage() == startValue + calls,
             "readStorage() != startValue + calls"
         );
+        require(newTarget.code.length != 0, "postState newTarget.code.length == 0");
 
         ph.forkPreState();
-        require(TARGET.readStorage() == startValue, "readStorage() != startValue");
+        require(
+            TARGET.readStorage() == startValue,
+            "readStorage() != startValue"
+        );
     }
 
     function testPersistTargetContracts() external {
@@ -79,5 +85,7 @@ contract TestForking is Assertion, Test {
 contract TriggeringTx {
     constructor() payable {
         TARGET.incrementStorage();
+        // Test code before and after
+        new Target();
     }
 }
