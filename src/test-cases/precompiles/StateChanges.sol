@@ -11,9 +11,33 @@ contract TestStateChanges is Assertion, Test {
     constructor() payable {}
 
     function testGetStateChanges() external view {
+        //uint256 callCount = ph.getCallCount();
+        //bytes32[] memory changes = ph.getStateChanges(address(TARGET), bytes32(0));
+
+        //require(changes.length == 3, "changes.length != 3");
+
+        //uint256 preState = TARGET.readStorage();
+
+        //require(uint256(changes[0]) == 1, "changes[0] != 1");
+        //require(uint256(changes[1]) == 5, "changes[1] != 5");
+        //require(uint256(changes[2]) == 15, "changes[2] != 15");
+    }
+
+    function triggers() external view override {
+        registerCallTrigger(this.testGetStateChanges.selector);
+    }
+}
+
+contract TestMbStateChanges is Assertion, Test {
+    constructor() payable {}
+
+    function testGetStateChanges() external view {
+        uint256 callCount = ph.getCallCount();
         bytes32[] memory changes = ph.getStateChanges(address(TARGET), bytes32(0));
 
         require(changes.length == 3, "changes.length != 3");
+
+        uint256 preState = TARGET.readStorage();
 
         require(uint256(changes[0]) == 1, "changes[0] != 1");
         require(uint256(changes[1]) == 5, "changes[1] != 5");
