@@ -8,7 +8,7 @@ import {console} from "forge-std/console.sol";
 
 import {Target, TARGET} from "../common/Target.sol";
 
-contract BalanceTrigger is Assertion {
+contract TestBalanceTrigger is Assertion {
     function testTriggered() external pure {
         revert();
     }

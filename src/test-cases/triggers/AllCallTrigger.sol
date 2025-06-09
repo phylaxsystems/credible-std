@@ -8,7 +8,7 @@ import {console} from "forge-std/console.sol";
 
 import {Target, TARGET} from "../common/Target.sol";
 
-contract AllCallTrigger is Assertion {
+contract TestAllCallTrigger is Assertion {
     function testTriggered() external pure {
         revert();
     }

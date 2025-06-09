@@ -8,7 +8,7 @@ import {console} from "forge-std/console.sol";
 
 import {Target, TARGET} from "../common/Target.sol";
 
-contract AllStorageChangeTrigger is Assertion {
+contract TestAllStorageChangeTrigger is Assertion {
     function testTriggered() external {
         ph.forkPreState();
         if (address(TARGET).code.length != 0) {
