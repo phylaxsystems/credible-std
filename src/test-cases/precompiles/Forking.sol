@@ -122,7 +122,7 @@ contract TestForking0 is ForkingTest {
     {}
 }
 
-contract TestForking2 is ForkingTest {
+contract TestForking1 is ForkingTest {
     constructor()
         ForkingTest(
             InitData({
