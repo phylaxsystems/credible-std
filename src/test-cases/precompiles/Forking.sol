@@ -44,7 +44,13 @@ contract TestForking is Assertion, Test {
             "post state newTarget.code.length should not be 0"
         );
     }
-    //TODO: add balance check on switching
+    function testForkSwitchBalance() external {
+        require(address(TARGET).balance == 1000, "balance != 1000");
+        ph.forkPreState();
+        require(address(TARGET).balance == 0, "balance != 0");
+        ph.forkPostState();
+        require(address(TARGET).balance == 1000, "balance != 1000");
+    }
 
     function testPersistTargetContracts() external {
         require(someInitValue == 1, "someInitValue != 1");
@@ -73,5 +79,13 @@ contract TestForking is Assertion, Test {
         registerCallTrigger(this.testForkSwitchStorage.selector);
         registerCallTrigger(this.testForkSwitchNewDeployedContract.selector);
         registerCallTrigger(this.testPersistTargetContracts.selector);
+    }
+}
+
+contract TriggeringTx {
+    constructor() payable {
+        TARGET.incrementStorage();
+        (bool success, ) = address(TARGET).call{value: 1000}("");
+        require(success, "call failed");
     }
 }
