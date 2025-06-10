@@ -13,10 +13,7 @@ contract TestSomeCallTrigger is Assertion {
     }
 
     function triggers() external view override {
-        registerCallTrigger(
-            this.testTriggered.selector,
-            Target.incrementStorage.selector
-        );
+        registerCallTrigger(this.testTriggered.selector, Target.incrementStorage.selector);
     }
 }
 

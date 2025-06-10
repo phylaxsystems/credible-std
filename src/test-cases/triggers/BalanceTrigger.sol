@@ -20,7 +20,7 @@ contract TestBalanceTrigger is Assertion {
 
 contract TriggeringTx {
     constructor() payable {
-        (bool success, ) = address(TARGET).call{value: 1}("");
+        (bool success,) = address(TARGET).call{value: 1}("");
         require(success, "Failed to send ETH");
     }
 }

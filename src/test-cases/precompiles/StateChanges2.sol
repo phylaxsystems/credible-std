@@ -11,10 +11,7 @@ contract TestStateChanges2 is Assertion, Test {
     constructor() payable {}
 
     function testGetStateChanges2() external view {
-        bytes32[] memory changes = ph.getStateChanges(
-            address(TARGET),
-            bytes32(0)
-        );
+        bytes32[] memory changes = ph.getStateChanges(address(TARGET), bytes32(0));
 
         require(changes.length == 3, "changes.length != 3");
 

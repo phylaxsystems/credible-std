@@ -7,7 +7,6 @@ import {Test} from "forge-std/Test.sol";
 
 import {Target, TARGET} from "../common/Target.sol";
 
-
 contract TestForking is Assertion, Test {
     uint256 public sum = 0;
     uint256 public someInitValue = 1;
@@ -27,23 +26,15 @@ contract TestForking is Assertion, Test {
     function testForkSwitchNewDeployedContract() external {
         address newTarget = address(0x40f7EBE92dD6bdbEECADFFF3F9d7A1B33Cf8d7c0);
 
-        require(
-            newTarget.code.length != 0,
-            "post state newTarget.code.length should not be 0"
-        );
+        require(newTarget.code.length != 0, "post state newTarget.code.length should not be 0");
 
         ph.forkPreState();
-        require(
-            newTarget.code.length == 0,
-            "pre state newTarget.code.length should be 0"
-        );
+        require(newTarget.code.length == 0, "pre state newTarget.code.length should be 0");
 
         ph.forkPostState();
-        require(
-            newTarget.code.length != 0,
-            "post state newTarget.code.length should not be 0"
-        );
+        require(newTarget.code.length != 0, "post state newTarget.code.length should not be 0");
     }
+
     function testForkSwitchBalance() external {
         require(address(TARGET).balance == 1000, "balance != 1000");
         ph.forkPreState();
@@ -85,7 +76,7 @@ contract TestForking is Assertion, Test {
 contract TriggeringTx {
     constructor() payable {
         TARGET.incrementStorage();
-        (bool success, ) = address(TARGET).call{value: 1000}("");
+        (bool success,) = address(TARGET).call{value: 1000}("");
         require(success, "call failed");
     }
 }

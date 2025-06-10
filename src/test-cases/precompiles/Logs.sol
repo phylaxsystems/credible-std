@@ -18,10 +18,7 @@ contract TestLogs is Assertion, Test {
         PhEvm.Log memory log = logs[0];
         require(log.emitter == address(TARGET), "log.address != target");
         require(log.topics.length == 1, "log.topics.length != 1");
-        require(
-            log.topics[0] == Target.Log.selector,
-            "log.topics[0] != Target.Log.selector"
-        );
+        require(log.topics[0] == Target.Log.selector, "log.topics[0] != Target.Log.selector");
         require(log.data.length == 32, "log.data.length != 32");
         require(bytes32(log.data) == bytes32(uint256(1)), "log.data != 1");
     }
