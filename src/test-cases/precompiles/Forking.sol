@@ -77,6 +77,9 @@ contract TestForking is Assertion {
 contract TriggeringTx {
     constructor() payable {
         TARGET.incrementStorage();
+        // Deploy new target @ 0x40f7EBE92dD6bdbEECADFFF3F9d7A1B33Cf8d7c0
+        new Target();
+
         (bool success,) = address(TARGET).call{value: 1000}("");
         require(success, "call failed");
     }
