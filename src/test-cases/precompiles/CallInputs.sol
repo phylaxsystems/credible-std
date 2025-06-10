@@ -51,16 +51,13 @@ contract TestCallInputs is Assertion, Test {
         param = abi.decode(callInput.input, (uint256));
         require(param == 2, "Second writeStorage param should be 2");
         require(callInput.value == 0, "callInput.value != 0");
-
-        callInputs = ph.getCallInputs(address(TARGET), bytes4(0));
-        require(callInputs.length == 0, "callInputs.length != 0");
     }
     function testCallInputsWrongTarget() external view {
         PhEvm.CallInputs[] memory callInputs = ph.getCallInputs(
             address(0x000000000000000000000000000000000000dEaD),
             Target.readStorage.selector
         );
-        require(callInputs.length == 0, "callInputs.length != 0");
+        require(callInputs.length == 1, "Wrong target: callInputs.length != 1");
     }
 
     function testCallNoSelector() external view {
@@ -68,11 +65,13 @@ contract TestCallInputs is Assertion, Test {
             address(TARGET),
             bytes4(0)
         );
-        require(callInputs.length == 0, "callInputs.length != 0");
+        require(callInputs.length == 1, "No selector: callInputs.length != 1");
     }
 
     function triggers() external view override {
         registerCallTrigger(this.testGetCallInputs.selector);
+        registerCallTrigger(this.testCallInputsWrongTarget.selector);
+        registerCallTrigger(this.testCallNoSelector.selector);
     }
 }
 
@@ -82,7 +81,9 @@ contract TriggeringTx {
         TARGET.writeStorage(2);
         TARGET.readStorage();
 
-        address fallbackTarget = address(0x000000000000000000000000000000000000dEaD);
+        address fallbackTarget = address(
+            0x000000000000000000000000000000000000dEaD
+        );
         (bool success, ) = fallbackTarget.call(
             abi.encodeWithSelector(TARGET.readStorage.selector)
         );
@@ -92,4 +93,3 @@ contract TriggeringTx {
         require(success, "call failed");
     }
 }
-
