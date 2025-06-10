@@ -14,7 +14,7 @@ contract TestLoad is Assertion, Test {
         return uint256(ph.load(address(TARGET), 0));
     }
 
-    function testLoad() external {
+    function load() external {
         require(_loadCount() == 2, "postStateCount != 2 (no switch)");
         require(TARGET.readStorage() == _loadCount(), "readStorage != postStateCount (no switch)");
 
@@ -28,7 +28,7 @@ contract TestLoad is Assertion, Test {
     }
 
     function triggers() external view override {
-        registerCallTrigger(this.testLoad.selector);
+        registerCallTrigger(this.load.selector);
     }
 }
 

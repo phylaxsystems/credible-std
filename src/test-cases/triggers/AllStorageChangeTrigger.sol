@@ -9,7 +9,7 @@ import {console} from "forge-std/console.sol";
 import {Target, TARGET} from "../common/Target.sol";
 
 contract TestAllStorageChangeTrigger is Assertion {
-    function testTriggered() external {
+    function triggered() external {
         ph.forkPreState();
         if (address(TARGET).code.length != 0) {
             if (TARGET.readStorage() != 0) {
@@ -23,7 +23,7 @@ contract TestAllStorageChangeTrigger is Assertion {
     }
 
     function triggers() external view override {
-        registerStorageChangeTrigger(this.testTriggered.selector);
+        registerStorageChangeTrigger(this.triggered.selector);
     }
 }
 

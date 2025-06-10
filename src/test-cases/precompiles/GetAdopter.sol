@@ -10,13 +10,13 @@ import {Target, TARGET} from "../common/Target.sol";
 contract TestGetAdopter is Assertion, Test {
     constructor() payable {}
 
-    function testGetAdopter() external view {
+    function getAdopter() external view {
         address adopter = ph.getAssertionAdopter();
         require(adopter == address(TARGET), "adopter != target");
     }
 
     function triggers() external view override {
-        registerCallTrigger(this.testGetAdopter.selector);
+        registerCallTrigger(this.getAdopter.selector);
     }
 }
 

@@ -10,7 +10,7 @@ import {Target, TARGET} from "../common/Target.sol";
 contract TestStateChanges1 is Assertion, Test {
     constructor() payable {}
 
-    function testGetStateChanges1() external view {
+    function getStateChanges1() external view {
         bytes32[] memory changes = ph.getStateChanges(address(TARGET), bytes32(0));
 
         require(changes.length == 2, "changes.length != 2");
@@ -20,7 +20,7 @@ contract TestStateChanges1 is Assertion, Test {
     }
 
     function triggers() external view override {
-        registerCallTrigger(this.testGetStateChanges1.selector);
+        registerCallTrigger(this.getStateChanges1.selector);
     }
 }
 

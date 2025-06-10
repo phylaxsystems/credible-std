@@ -9,12 +9,12 @@ import {console} from "forge-std/console.sol";
 import {Target, TARGET} from "../common/Target.sol";
 
 contract TestAllCallTrigger is Assertion {
-    function testTriggered() external pure {
+    function triggered() external pure {
         revert();
     }
 
     function triggers() external view override {
-        registerCallTrigger(this.testTriggered.selector);
+        registerCallTrigger(this.triggered.selector);
     }
 }
 

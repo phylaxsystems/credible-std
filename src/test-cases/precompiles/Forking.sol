@@ -7,11 +7,11 @@ import {Test} from "forge-std/Test.sol";
 
 import {Target, TARGET} from "../common/Target.sol";
 
-contract TestForking is Assertion, Test {
+contract TestForking is Assertion {
     uint256 public sum = 0;
     uint256 public someInitValue = 1;
 
-    function testForkSwitchStorage() external {
+    function forkSwitchStorage() external {
         //Test fork switching reads from underlying state
         require(TARGET.readStorage() == 2, "postStateValue != 2 (no switch)");
         ph.forkPreState();
@@ -23,7 +23,7 @@ contract TestForking is Assertion, Test {
         require(TARGET.readStorage() == 2, "postStateValue != 2 (switch)");
     }
 
-    function testForkSwitchNewDeployedContract() external {
+    function forkSwitchNewDeployedContract() external {
         address newTarget = address(0x40f7EBE92dD6bdbEECADFFF3F9d7A1B33Cf8d7c0);
 
         require(newTarget.code.length != 0, "post state newTarget.code.length should not be 0");
@@ -35,7 +35,7 @@ contract TestForking is Assertion, Test {
         require(newTarget.code.length != 0, "post state newTarget.code.length should not be 0");
     }
 
-    function testForkSwitchBalance() external {
+    function forkSwitchBalance() external {
         require(address(TARGET).balance == 1000, "balance != 1000");
         ph.forkPreState();
         require(address(TARGET).balance == 0, "balance != 0");
@@ -43,7 +43,7 @@ contract TestForking is Assertion, Test {
         require(address(TARGET).balance == 1000, "balance != 1000");
     }
 
-    function testPersistTargetContracts() external {
+    function persistTargetContracts() external {
         require(someInitValue == 1, "someInitValue != 1");
         require(sum == 0, "expectedSum != 0");
 
@@ -67,9 +67,10 @@ contract TestForking is Assertion, Test {
     }
 
     function triggers() external view override {
-        registerCallTrigger(this.testForkSwitchStorage.selector);
-        registerCallTrigger(this.testForkSwitchNewDeployedContract.selector);
-        registerCallTrigger(this.testPersistTargetContracts.selector);
+        registerCallTrigger(this.forkSwitchStorage.selector);
+        registerCallTrigger(this.forkSwitchNewDeployedContract.selector);
+        registerCallTrigger(this.persistTargetContracts.selector);
+        registerCallTrigger(this.forkSwitchBalance.selector);
     }
 }
 

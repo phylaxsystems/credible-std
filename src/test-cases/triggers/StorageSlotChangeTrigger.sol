@@ -9,12 +9,12 @@ import {console} from "forge-std/console.sol";
 import {Target, TARGET} from "../common/Target.sol";
 
 contract TestStorageSlotChangeTrigger is Assertion {
-    function testTriggered() external pure {
+    function triggered() external pure {
         revert();
     }
 
     function triggers() external view override {
-        registerStorageChangeTrigger(this.testTriggered.selector, 0);
+        registerStorageChangeTrigger(this.triggered.selector, 0);
     }
 }
 

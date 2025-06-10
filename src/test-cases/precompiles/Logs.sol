@@ -10,7 +10,7 @@ import {Target, TARGET} from "../common/Target.sol";
 contract TestLogs is Assertion, Test {
     constructor() payable {}
 
-    function testGetLogs() external {
+    function getLogs() external {
         require(TARGET.readStorage() == 1, "val != 1");
         PhEvm.Log[] memory logs = ph.getLogs();
         require(logs.length == 1, "logs.length != 2");
@@ -24,7 +24,7 @@ contract TestLogs is Assertion, Test {
     }
 
     function triggers() external view override {
-        registerCallTrigger(this.testGetLogs.selector);
+        registerCallTrigger(this.getLogs.selector);
     }
 }
 

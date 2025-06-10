@@ -8,12 +8,12 @@ import {console} from "forge-std/console.sol";
 import {Target, TARGET} from "../common/Target.sol";
 
 contract TestSomeCallTrigger is Assertion {
-    function testTriggered() external pure {
+    function triggered() external pure {
         revert();
     }
 
     function triggers() external view override {
-        registerCallTrigger(this.testTriggered.selector, Target.incrementStorage.selector);
+        registerCallTrigger(this.triggered.selector, Target.incrementStorage.selector);
     }
 }
 
