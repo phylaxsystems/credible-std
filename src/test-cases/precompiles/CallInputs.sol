@@ -3,12 +3,9 @@ pragma solidity ^0.8.13;
 
 import {Assertion} from "../../Assertion.sol";
 import {PhEvm} from "../../PhEvm.sol";
-import {Test} from "forge-std/Test.sol";
-import {console} from "forge-std/console.sol";
-
 import {Target, TARGET} from "../common/Target.sol";
 
-contract TestCallInputs is Assertion, Test {
+contract TestCallInputs is Assertion {
     constructor() payable {}
 
     function getCallInputs() external view {
