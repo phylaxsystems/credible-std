@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-import {Test} from "forge-std/Test.sol";
-import {console} from "forge-std/console.sol";
 import {Assertion} from "../../Assertion.sol";
 import {PhEvm} from "../../PhEvm.sol";
 import {Target, TARGET} from "../common/Target.sol";
 
-contract TestLogs is Assertion, Test {
+contract TestLogs is Assertion {
     constructor() payable {}
 
     function getLogs() external {

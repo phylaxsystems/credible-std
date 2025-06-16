@@ -2,12 +2,10 @@
 pragma solidity ^0.8.28;
 
 import {Assertion} from "../../Assertion.sol";
-import {PhEvm} from "../../PhEvm.sol";
-import {Test} from "forge-std/Test.sol";
 import {console} from "forge-std/console.sol";
 import {Target, TARGET} from "../common/Target.sol";
 
-contract TestStateChanges1 is Assertion, Test {
+contract TestStateChanges1 is Assertion {
     constructor() payable {}
 
     function getStateChanges1() external view {
