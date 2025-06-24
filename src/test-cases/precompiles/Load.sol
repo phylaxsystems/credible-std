@@ -25,8 +25,13 @@ contract TestLoad is Assertion {
         require(TARGET.readStorage() == _loadCount(), "readStorage != postStateCount (switch)");
     }
 
+    function loadRandomAccount() external view {
+        require(ph.load(address(0x00000000000000000000000000000000001bd5a0), 0) == 0, "load(randomAccount) != 0");
+    }
+
     function triggers() external view override {
         registerCallTrigger(this.load.selector);
+        registerCallTrigger(this.loadRandomAccount.selector);
     }
 }
 
