@@ -1,0 +1,5 @@
+AssertionTest:testStateChanges() (gas: 20672)
+AssertionTest:testStateChangesAddress() (gas: 21933)
+AssertionTest:testStateChangesBool() (gas: 21700)
+AssertionTest:testStateChangesUint() (gas: 20583)
+PhEvmTest:testAddress() (gas: 3395)
