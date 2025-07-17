@@ -48,7 +48,7 @@ abstract contract Assertion is Credible, StateChanges {
     }
 
     /// @notice Logs a string to the console.
-    function log(string calldata val) internal {
+    function log(string memory val) internal {
         emit console_log(val);
     }
 }
