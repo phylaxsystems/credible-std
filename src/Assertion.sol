@@ -4,6 +4,7 @@ pragma solidity ^0.8.13;
 import {Credible} from "./Credible.sol";
 import {TriggerRecorder} from "./TriggerRecorder.sol";
 import {StateChanges} from "./StateChanges.sol";
+import {log as console_log} from "./Console.sol";
 
 /// @notice Assertion interface for the PhEvm precompile
 abstract contract Assertion is Credible, StateChanges {
@@ -44,5 +45,10 @@ abstract contract Assertion is Credible, StateChanges {
     /// @param fnSelector The function selector of the assertion function.
     function registerBalanceChangeTrigger(bytes4 fnSelector) internal view {
         triggerRecorder.registerBalanceChangeTrigger(fnSelector);
+    }
+
+    /// @notice Logs a string to the console.
+    function log(string calldata val) internal {
+        emit console_log(val);
     }
 }
