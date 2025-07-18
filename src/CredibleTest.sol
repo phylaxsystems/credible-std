@@ -8,5 +8,5 @@ interface VmEx is Vm {
 }
 
 contract CredibleTest {
-    VmEx public constant ph = VmEx(address(uint160(uint256(keccak256("hevm cheat code")))));
+    VmEx public constant cl = VmEx(address(uint160(uint256(keccak256("hevm cheat code")))));
 }
