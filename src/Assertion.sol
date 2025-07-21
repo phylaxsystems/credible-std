@@ -45,5 +45,4 @@ abstract contract Assertion is Credible, StateChanges {
     function registerBalanceChangeTrigger(bytes4 fnSelector) internal view {
         triggerRecorder.registerBalanceChangeTrigger(fnSelector);
     }
-
 }
