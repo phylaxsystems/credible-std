@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Test} from "../lib/forge-std/src/Test.sol";
-import {console} from "../lib/forge-std/src/console.sol";
-import {Assertion} from "./Assertion.sol";
-import {CLTestEnv, VmEx} from "./CLTestEnv.sol";
 import {Vm} from "../lib/forge-std/src/Vm.sol";
 
+interface VmEx is Vm {
+    function assertion(address adopter, bytes calldata createData, bytes4 fnSelector) external;
+}
+
 contract CredibleTest {
-    CLTestEnv cl = new CLTestEnv();
-    VmEx clVm = cl.vmEx();
+    VmEx public constant cl = VmEx(address(uint160(uint256(keccak256("hevm cheat code")))));
 }
