@@ -117,10 +117,21 @@ For a detailed guide on how to write assertions check out the [Writing Assertion
 
 The credible-std provides several cheatcodes for assertion validation:
 
+<<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 5a9fa20 (chore: consistent naming)
 - `forkPreTx()`: Forks to the state prior to the assertion triggering transaction.
 - `forkPostTx()`: Forks to the state after the assertion triggering transaction.
 - `forkPreCall(uint256 id)`: Forks to the state at the start of call execution for the specified id. `getCallInputs(..)` can be used to get ids to fork to.
 - `forkPostCall(uint256 id)`: Forks to the state after the call execution for the specified id. `getCallInputs(..)` can be used to get ids to fork to.
+<<<<<<< HEAD
+=======
+- `forkPreTx()`: Forks to the state prior to the assertion triggering transaction
+- `forkPostTx()`: Forks to the state after the assertion triggering transaction
+>>>>>>> e57cf28 (chore: remove mocks and update fork names throughout)
+=======
+>>>>>>> 5a9fa20 (chore: consistent naming)
 - `load(address target, bytes32 slot)`: Loads a storage slot from an address
 - `getLogs()`: Retrieves logs from the assertion triggering transaction
 - `getCallInputs(address target, bytes4 selector)`: Gets call inputs for a given target and selector. Includes id for call forking.
