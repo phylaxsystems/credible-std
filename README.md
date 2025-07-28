@@ -102,9 +102,9 @@ contract OwnableAssertion is Assertion {
     // Get the owner of the contract before and after the transaction
     // Return false if the owner has changed, true if it has not
     function assertionOwnershipChange() external {
-        ph.forkPreState(); // Fork the pre-state of the transaction
+        ph.forkPreTx(); // Fork the pre-state of the transaction
         address preOwner = ownable.owner(); // Get the owner of the contract before the transaction
-        ph.forkPostState(); // Fork the post-state of the transaction
+        ph.forkPostTx(); // Fork the post-state of the transaction
         address postOwner = ownable.owner(); // Get the owner of the contract after the transaction
         require(postOwner == preOwner, "Ownership has changed"); // revert if the owner has changed
     }
@@ -117,8 +117,8 @@ For a detailed guide on how to write assertions check out the [Writing Assertion
 
 The credible-std provides several cheatcodes for assertion validation:
 
-- `forkPreState()`: Forks to the state prior to the assertion triggering transaction
-- `forkPostState()`: Forks to the state after the assertion triggering transaction
+- `forkPreTx()`: Forks to the state prior to the assertion triggering transaction
+- `forkPostTx()`: Forks to the state after the assertion triggering transaction
 - `load(address target, bytes32 slot)`: Loads a storage slot from an address
 - `getLogs()`: Retrieves logs from the assertion triggering transaction
 - `getCallInputs(address target, bytes4 selector)`: Gets call inputs for a given target and selector

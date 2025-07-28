@@ -16,11 +16,11 @@ contract TestLoad is Assertion {
         require(_loadCount() == 2, "postStateCount != 2 (no switch)");
         require(TARGET.readStorage() == _loadCount(), "readStorage != postStateCount (no switch)");
 
-        ph.forkPreState();
+        ph.forkPreTx();
         require(_loadCount() == 1, "preStateCount != 1");
         require(TARGET.readStorage() == _loadCount(), "readStorage != preStateCount");
 
-        ph.forkPostState();
+        ph.forkPostTx();
         require(_loadCount() == 2, "postStateCount != 2 (switch)");
         require(TARGET.readStorage() == _loadCount(), "readStorage != postStateCount (switch)");
     }
