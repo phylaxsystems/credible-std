@@ -36,13 +36,24 @@ interface PhEvm {
         //
         // Previously `transfer.value` or `context.apparent_value`.
         uint256 value;
+        // id of the call, used to pass to forkCallPre and forkCallPost cheatcodes to access the state
+        // before and after the execution of the call.
+        uint256 id;
     }
 
     //Forks to the state prior to the assertion triggering transaction.
-    function forkPreState() external;
+    function forkPreTx() external;
 
     // Forks to the state after the assertion triggering transaction.
-    function forkPostState() external;
+    function forkPostTx() external;
+
+    // Forks to the state before the execution of the call.
+    // Id can be obtained from the CallInputs struct returned by getCallInputs.
+    function forkPreCall(uint256 id) external;
+
+    // Forks to the state after the execution of the call.
+    // Id can be obtained from the CallInputs struct returned by getCallInputs.
+    function forkPostCall(uint256 id) external;
 
     // Loads a storage slot from an address
     function load(address target, bytes32 slot) external view returns (bytes32 data);

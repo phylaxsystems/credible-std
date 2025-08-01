@@ -6,7 +6,7 @@ import {Target, TARGET} from "../common/Target.sol";
 
 contract TestAllStorageChangeTrigger is Assertion {
     function triggered() external {
-        ph.forkPreState();
+        ph.forkPreTx();
         if (address(TARGET).code.length != 0) {
             if (TARGET.readStorage() != 0) {
                 revert(
