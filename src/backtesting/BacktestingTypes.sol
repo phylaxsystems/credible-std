@@ -33,8 +33,6 @@ library BacktestingTypes {
     struct ValidationDetails {
         ValidationResult result;
         string errorMessage; // Human-readable error description
-        bytes errorData; // Raw error data for debugging
-        uint256 gasUsed; // Gas used by the transaction
         bool isProtocolViolation; // Whether this represents a real protocol issue
     }
 
@@ -53,7 +51,6 @@ library BacktestingTypes {
         uint256 totalTransactions;
         uint256 successfulValidations;
         uint256 failedValidations;
-        uint256 errorTransactions;
         // Detailed breakdown by error type
         uint256 assertionFailures; // Real protocol violations
         uint256 transactionReverts; // Transaction execution failures

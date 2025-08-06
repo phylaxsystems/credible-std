@@ -102,6 +102,15 @@ async fn fetch_block_transactions(
                     block.number.clone()
                 };
 
+                // Convert hex transaction index to decimal string
+                let tx_index_decimal = if tx.transaction_index.starts_with("0x") {
+                    u64::from_str_radix(&tx.transaction_index[2..], 16)
+                        .unwrap_or_else(|_| panic!("Invalid hex transaction index: {}", tx.transaction_index))
+                        .to_string()
+                } else {
+                    tx.transaction_index.clone()
+                };
+
                 filtered_transactions.push(FilteredTransaction {
                     hash: tx.hash,
                     from: tx.from,
@@ -109,7 +118,7 @@ async fn fetch_block_transactions(
                     value: tx.value,
                     data: tx.input,
                     block_number: block_num_decimal,
-                    transaction_index: tx.transaction_index,
+                    transaction_index: tx_index_decimal,
                     gas_price: tx.gas_price,
                 });
             }
@@ -206,36 +215,6 @@ async fn fetch_block_range_transactions_optimized(
     Ok(all_transactions)
 }
 
-/// Legacy function for backward compatibility
-async fn fetch_block_range_transactions(
-    rpc_url: &str,
-    start_block: u64,
-    end_block: u64,
-    target_contract: &str,
-) -> Result<Vec<FilteredTransaction>, Box<dyn std::error::Error>> {
-    println!("Using legacy sequential fetch");
-    let mut all_transactions = Vec::new();
-
-    for block_num in start_block..=end_block {
-        println!("Fetching transactions for block {}", block_num);
-        
-        // Create a new client for each request (inefficient)
-        let client = reqwest::Client::new();
-        
-        match fetch_block_transactions(&client, rpc_url, block_num, target_contract).await {
-            Ok(mut transactions) => {
-                println!("  Found {} transactions", transactions.len());
-                all_transactions.append(&mut transactions);
-            }
-            Err(e) => {
-                eprintln!("  Error fetching block {}: {}", block_num, e);
-            }
-        }
-    }
-
-    Ok(all_transactions)
-}
-
 /// Encode transaction data for Foundry consumption
 fn encode_transactions_for_foundry(transactions: &[FilteredTransaction], output_format: &str) -> String {
     match output_format {
@@ -316,12 +295,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .default_value("simple"),
         )
         .arg(
-            Arg::new("optimized")
-                .long("optimized")
-                .action(clap::ArgAction::SetTrue)
-                .help("Use optimized parallel processing"),
-        )
-        .arg(
             Arg::new("batch-size")
                 .long("batch-size")
                 .value_name("SIZE")
@@ -342,33 +315,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start_block: u64 = matches.get_one::<String>("start-block").unwrap().parse()?;
     let end_block: u64 = matches.get_one::<String>("end-block").unwrap().parse()?;
     let output_format = matches.get_one::<String>("output-format").unwrap();
-    let use_optimized = matches.get_flag("optimized");
     let batch_size: usize = matches.get_one::<String>("batch-size").unwrap().parse()?;
     let max_concurrent: usize = matches.get_one::<String>("max-concurrent").unwrap().parse()?;
 
     println!("TRANSACTION_DATA:START");
     
-    let transactions = if use_optimized {
-        fetch_block_range_transactions_optimized(
-            rpc_url,
-            start_block,
-            end_block,
-            target_contract,
-            batch_size,
-            max_concurrent,
-        ).await?
-    } else {
-        fetch_block_range_transactions(
-            rpc_url,
-            start_block,
-            end_block,
-            target_contract,
-        ).await?
-    };
+    let transactions = fetch_block_range_transactions_optimized(
+        rpc_url,
+        start_block,
+        end_block,
+        target_contract,
+        batch_size,
+        max_concurrent,
+    ).await?;
 
     let encoded_data = encode_transactions_for_foundry(&transactions, output_format);
-    println!("TRANSACTION_DATA:{}", encoded_data);
-    println!("TRANSACTION_DATA:END");
+    print!("TRANSACTION_DATA:{}", encoded_data);
+    print!("TRANSACTION_DATA:END");
 
     Ok(())
 }

@@ -8,12 +8,12 @@ import {BacktestingTypes} from "./BacktestingTypes.sol";
 import {BacktestingUtils} from "./BacktestingUtils.sol";
 
 /// @title Extended CredibleTest with Backtesting
-/// @notice CredibleTest with built-in backtesting functionality - as simple as cl.assertion()!
+/// @notice CredibleTest with built-in backtesting functionality
 /// @dev Users inherit from this instead of CredibleTest directly
 abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     using Strings for uint256;
 
-    /// @notice Execute backtesting with simple interface (like cl.assertion!)
+    /// @notice Execute backtesting with simple interface
     /// @param targetContract Contract to test assertions against
     /// @param endBlock Latest block to test (works backwards)
     /// @param blockRange Number of blocks to test
@@ -57,7 +57,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
 
         if (transactions.length == 0) {
             console.log("No transactions to process");
-            _printResults(startBlock, endBlock);
+            console.log(string.concat("Block range: ", startBlock.toString(), " to ", endBlock.toString()));
             return results;
         }
 
@@ -121,7 +121,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         returns (BacktestingTypes.TransactionData[] memory transactions)
     {
         // Build FFI command with optimized settings
-        string[] memory inputs = new string[](17);
+        string[] memory inputs = new string[](16);
         inputs[0] = "rust-script";
         inputs[1] = "scripts/backtesting/transaction_fetcher.rs";
         inputs[2] = "--rpc-url";
@@ -132,13 +132,12 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         inputs[7] = startBlock.toString();
         inputs[8] = "--end-block";
         inputs[9] = endBlock.toString();
-        inputs[10] = "--optimized";
-        inputs[11] = "--batch-size";
-        inputs[12] = "20"; // Optimized batch size based on performance tests
-        inputs[13] = "--max-concurrent";
-        inputs[14] = "10"; // Optimized concurrency based on performance tests
-        inputs[15] = "--output-format";
-        inputs[16] = "simple";
+        inputs[10] = "--batch-size";
+        inputs[11] = "20"; // Optimized batch size based on performance tests
+        inputs[12] = "--max-concurrent";
+        inputs[13] = "10"; // Optimized concurrency based on performance tests
+        inputs[14] = "--output-format";
+        inputs[15] = "simple";
 
         // Execute FFI
         bytes memory result = vm.ffi(inputs);
@@ -183,9 +182,8 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
                 validation.errorMessage = "Unknown panic";
                 validation.isProtocolViolation = false;
             }
-        } catch (bytes memory lowLevelData) {
+        } catch (bytes memory) {
             validation.result = BacktestingTypes.ValidationResult.UnknownError;
-            validation.errorData = lowLevelData;
             validation.isProtocolViolation = false;
         }
     }
@@ -309,13 +307,5 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
             console.log(string.concat("!!! PROTOCOL VIOLATIONS DETECTED: ", results.assertionFailures.toString()));
         }
         console.log("================================");
-    }
-
-    /// @notice Print results summary (legacy function for backward compatibility)
-    function _printResults(uint256 startBlock, uint256 endBlock) private pure {
-        console.log("");
-        console.log("=== BACKTESTING RESULTS ===");
-        console.log(string.concat("Block Range: ", startBlock.toString(), " - ", endBlock.toString()));
-        console.log("=========================");
     }
 }

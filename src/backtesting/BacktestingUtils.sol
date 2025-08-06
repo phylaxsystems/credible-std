@@ -14,8 +14,11 @@ library BacktestingUtils {
     function extractDataLine(string memory output) internal pure returns (string memory) {
         bytes memory outputBytes = bytes(output);
         bytes memory marker = bytes("TRANSACTION_DATA:");
+        uint256[] memory positions = new uint256[](10); // Max 10 markers
+        uint256 markerCount = 0;
 
-        for (uint256 i = 0; i <= outputBytes.length - marker.length; i++) {
+        // Find all occurrences of the marker
+        for (uint256 i = 0; i <= outputBytes.length - marker.length && markerCount < 10; i++) {
             bool matches = true;
             for (uint256 j = 0; j < marker.length; j++) {
                 if (outputBytes[i + j] != marker[j]) {
@@ -24,14 +27,25 @@ library BacktestingUtils {
                 }
             }
             if (matches) {
-                bytes memory result = new bytes(outputBytes.length - (i + marker.length));
-                for (uint256 k = 0; k < result.length; k++) {
-                    result[k] = outputBytes[i + marker.length + k];
-                }
-                return string(result);
+                positions[markerCount] = i;
+                markerCount++;
             }
         }
-        return "";
+
+        // We need at least 3 markers: START, DATA, END
+        if (markerCount < 3) {
+            return "";
+        }
+
+        // Extract data from the second marker (index 1)
+        uint256 dataStart = positions[1] + marker.length;
+        uint256 dataEnd = positions[2];
+
+        bytes memory result = new bytes(dataEnd - dataStart);
+        for (uint256 k = 0; k < result.length; k++) {
+            result[k] = outputBytes[dataStart + k];
+        }
+        return string(result);
     }
 
     /// @notice Simple pipe-delimited string splitter
@@ -110,25 +124,6 @@ library BacktestingUtils {
     /// @notice Extract function selector from calldata
     function extractFunctionSelector(bytes memory data) internal pure returns (string memory) {
         return data.length >= 4 ? Strings.toHexString(uint32(bytes4(data)), 4) : "N/A";
-    }
-
-    /// @notice Parse transaction data string
-    function parseTransactionData(string memory txDataString)
-        internal
-        pure
-        returns (BacktestingTypes.TransactionData memory txData)
-    {
-        string[] memory parts = splitString(txDataString, "|");
-        require(parts.length >= 8, "Invalid transaction format");
-
-        txData.hash = stringToBytes32(parts[1]);
-        txData.from = stringToAddress(parts[2]);
-        txData.to = stringToAddress(parts[3]);
-        txData.value = stringToUint(parts[4]);
-        txData.data = hexStringToBytes(parts[5]);
-        txData.blockNumber = stringToUint(parts[6]);
-        txData.transactionIndex = stringToUint(parts[7]);
-        if (parts.length > 8) txData.gasPrice = stringToUint(parts[8]);
     }
 
     /// @notice Parse multiple transactions from a single data line
