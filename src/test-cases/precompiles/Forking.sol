@@ -12,11 +12,11 @@ contract TestForking is Assertion {
     function forkSwitchStorage() external {
         //Test fork switching reads from underlying state
         require(TARGET.readStorage() == 2, "postStateValue != 2 (no switch)");
-        ph.forkPreState();
+        ph.forkPreTx();
         uint256 preStateValue = TARGET.readStorage();
         require(preStateValue == 1, "preStateValue != 1");
 
-        ph.forkPostState();
+        ph.forkPostTx();
         //Test fork switching reads from underlying state
         require(TARGET.readStorage() == 2, "postStateValue != 2 (switch)");
     }
@@ -26,18 +26,18 @@ contract TestForking is Assertion {
 
         require(newTarget.code.length != 0, "post state newTarget.code.length should not be 0");
 
-        ph.forkPreState();
+        ph.forkPreTx();
         require(newTarget.code.length == 0, "pre state newTarget.code.length should be 0");
 
-        ph.forkPostState();
+        ph.forkPostTx();
         require(newTarget.code.length != 0, "post state newTarget.code.length should not be 0");
     }
 
     function forkSwitchBalance() external {
         require(address(TARGET).balance == 1000, "balance != 1000");
-        ph.forkPreState();
+        ph.forkPreTx();
         require(address(TARGET).balance == 0, "balance != 0");
-        ph.forkPostState();
+        ph.forkPostTx();
         require(address(TARGET).balance == 1000, "balance != 1000");
     }
 
@@ -48,16 +48,16 @@ contract TestForking is Assertion {
         require(TARGET.readStorage() == 2, "postStateValue != 2 (no switch)");
         sum += TARGET.readStorage();
 
-        ph.forkPreState();
+        ph.forkPreTx();
         require(TARGET.readStorage() == 1, "preStateValue != 1");
 
         sum += TARGET.readStorage();
 
-        ph.forkPostState();
+        ph.forkPostTx();
         require(TARGET.readStorage() == 2, "postStateValue != 2 (switch)");
         sum += TARGET.readStorage();
 
-        ph.forkPreState();
+        ph.forkPreTx();
         require(TARGET.readStorage() == 1, "preStateValue != 1");
         sum += TARGET.readStorage();
 
