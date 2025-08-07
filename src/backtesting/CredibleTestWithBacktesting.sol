@@ -62,7 +62,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
                 console.log("[PASS] VALIDATION PASSED");
             } else {
                 results.failedValidations++;
-                _categorizeAndLogError(i, transactions[i], validation);
+                _categorizeAndLogError(validation);
                 _incrementErrorCounter(results, validation.result);
             }
 
@@ -200,11 +200,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     }
 
     /// @notice Categorize and log error details
-    function _categorizeAndLogError(
-        uint256 txIndex,
-        BacktestingTypes.TransactionData memory txData,
-        BacktestingTypes.ValidationDetails memory validation
-    ) private pure {
+    function _categorizeAndLogError(BacktestingTypes.ValidationDetails memory validation) private pure {
         string memory errorType = _getErrorTypeString(validation.result);
         console.log(string.concat("[", errorType, "] VALIDATION FAILED"));
 
