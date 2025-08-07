@@ -13,14 +13,7 @@ import {BacktestingUtils} from "./BacktestingUtils.sol";
 abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     using Strings for uint256;
 
-    /// @notice Execute backtesting with simple interface
-    /// @param targetContract Contract to test assertions against
-    /// @param endBlock Latest block to test (works backwards)
-    /// @param blockRange Number of blocks to test
-    /// @param assertionCreationCode Bytecode for assertion contract
-    /// @param assertionSelector Function selector to trigger
-    /// @param rpcUrl RPC URL for blockchain access
-    /// @return results Detailed backtesting results with error categorization
+    /// @notice Execute backtesting with detailed logging
     function executeBacktest(
         address targetContract,
         uint256 endBlock,
@@ -29,26 +22,18 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         bytes4 assertionSelector,
         string memory rpcUrl
     ) public returns (BacktestingTypes.BacktestingResults memory results) {
-        // Log configuration at the start
-        console.log("=== BACKTESTING CONFIGURATION ===");
-        console.log(string.concat("Target contract: ", Strings.toHexString(targetContract)));
-        console.log(
-            string.concat(
-                "Block range: ",
-                (endBlock > blockRange ? endBlock - blockRange + 1 : 1).toString(),
-                " to ",
-                endBlock.toString()
-            )
-        );
-        console.log(string.concat("Assertion selector: ", Strings.toHexString(uint32(assertionSelector), 4)));
-        console.log(string.concat("RPC URL: ", rpcUrl));
-        console.log("=================================");
-
-        console.log("=== BACKTESTING START ===");
-        console.log(string.concat("Target contract: ", Strings.toHexString(targetContract)));
-
         uint256 startBlock = endBlock > blockRange ? endBlock - blockRange + 1 : 1;
-        console.log(string.concat("Block range: ", startBlock.toString(), " to ", endBlock.toString()));
+
+        // Print configuration at the start
+        console.log("==========================================");
+        console.log("         BACKTESTING CONFIGURATION");
+        console.log("==========================================");
+        console.log(string.concat("Target Contract: ", Strings.toHexString(targetContract)));
+        console.log(string.concat("Block Range: ", startBlock.toString(), " to ", endBlock.toString()));
+        console.log(string.concat("Assertion Selector: ", Strings.toHexString(uint32(assertionSelector), 4)));
+        console.log(string.concat("RPC URL: ", rpcUrl));
+        console.log("==========================================");
+        console.log("");
 
         BacktestingTypes.TransactionData[] memory transactions =
             _fetchTransactions(targetContract, startBlock, endBlock, rpcUrl);
@@ -62,26 +47,27 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         }
 
         for (uint256 i = 0; i < transactions.length; i++) {
+            // Print transaction start marker
+            console.log("");
+            console.log(string.concat("=== TRANSACTION ", (i + 1).toString(), " ==="));
+            console.log(string.concat("Hash: ", BacktestingUtils.bytes32ToHex(transactions[i].hash)));
+            console.log(string.concat("Function: ", BacktestingUtils.extractFunctionSelector(transactions[i].data)));
+            console.log("---");
+
             BacktestingTypes.ValidationDetails memory validation =
                 _validateTransaction(targetContract, assertionCreationCode, assertionSelector, rpcUrl, transactions[i]);
 
             if (validation.result == BacktestingTypes.ValidationResult.Success) {
                 results.successfulValidations++;
-                console.log(
-                    string.concat(
-                        "[PASS] TX ",
-                        (i + 1).toString(),
-                        " ",
-                        BacktestingUtils.bytes32ToHex(transactions[i].hash),
-                        " ",
-                        BacktestingUtils.extractFunctionSelector(transactions[i].data)
-                    )
-                );
+                console.log("[PASS] VALIDATION PASSED");
             } else {
                 results.failedValidations++;
                 _categorizeAndLogError(i, transactions[i], validation);
                 _incrementErrorCounter(results, validation.result);
             }
+
+            // Print transaction end marker
+            console.log("---");
         }
 
         _printDetailedResults(startBlock, endBlock, results);
@@ -220,25 +206,14 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         BacktestingTypes.ValidationDetails memory validation
     ) private pure {
         string memory errorType = _getErrorTypeString(validation.result);
-        console.log(
-            string.concat(
-                "[",
-                errorType,
-                "] TX ",
-                (txIndex + 1).toString(),
-                " ",
-                BacktestingUtils.bytes32ToHex(txData.hash),
-                " ",
-                BacktestingUtils.extractFunctionSelector(txData.data)
-            )
-        );
+        console.log(string.concat("[", errorType, "] VALIDATION FAILED"));
 
         if (bytes(validation.errorMessage).length > 0) {
             console.log(string.concat("  Error: ", validation.errorMessage));
         }
 
         if (validation.isProtocolViolation) {
-            console.log("  !!! PROTOCOL VIOLATION DETECTED");
+            console.log("  !!! PROTOCOL VIOLATION DETECTED !!!");
         }
     }
 
@@ -283,20 +258,27 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         BacktestingTypes.BacktestingResults memory results
     ) private pure {
         console.log("");
-        console.log("=== DETAILED BACKTESTING RESULTS ===");
+        console.log("==========================================");
+        console.log("           BACKTESTING SUMMARY");
+        console.log("==========================================");
         console.log(string.concat("Block Range: ", startBlock.toString(), " - ", endBlock.toString()));
         console.log(string.concat("Total Transactions: ", results.totalTransactions.toString()));
         console.log(string.concat("Successful Validations: ", results.successfulValidations.toString()));
         console.log(string.concat("Failed Validations: ", results.failedValidations.toString()));
-        console.log("");
-        console.log("=== ERROR BREAKDOWN ===");
-        console.log(string.concat("Protocol Violations (Assertion Failures): ", results.assertionFailures.toString()));
-        console.log(string.concat("Transaction Reverts: ", results.transactionReverts.toString()));
-        console.log(string.concat("Fork Errors: ", results.forkErrors.toString()));
-        console.log(string.concat("Invalid Transactions: ", results.invalidTransactions.toString()));
-        console.log(string.concat("Gas Limit Exceeded: ", results.gasLimitExceeded.toString()));
-        console.log(string.concat("State Mismatches: ", results.stateMismatches.toString()));
-        console.log(string.concat("Unknown Errors: ", results.unknownErrors.toString()));
+
+        if (results.failedValidations > 0) {
+            console.log("");
+            console.log("=== ERROR BREAKDOWN ===");
+            console.log(
+                string.concat("Protocol Violations (Assertion Failures): ", results.assertionFailures.toString())
+            );
+            console.log(string.concat("Transaction Reverts: ", results.transactionReverts.toString()));
+            console.log(string.concat("Fork Errors: ", results.forkErrors.toString()));
+            console.log(string.concat("Invalid Transactions: ", results.invalidTransactions.toString()));
+            console.log(string.concat("Gas Limit Exceeded: ", results.gasLimitExceeded.toString()));
+            console.log(string.concat("State Mismatches: ", results.stateMismatches.toString()));
+            console.log(string.concat("Unknown Errors: ", results.unknownErrors.toString()));
+        }
         console.log("");
 
         uint256 successRate =

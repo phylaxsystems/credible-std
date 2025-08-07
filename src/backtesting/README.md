@@ -6,6 +6,10 @@ Backtesting functionality for credible-std that allows you to test assertions ag
 
 The backtesting module provides a simple interface to validate assertions against real blockchain transactions.
 
+## Performance
+
+100 blocks with a total of 175 transactions takes around 50 seconds to run.
+
 ## Quick Start
 
 ```solidity
@@ -174,11 +178,11 @@ The backtesting system provides this error categorization:
 
 ```
 src/backtesting/
-├── BacktestingTypes.sol          # Type definitions
-├── BacktestingUtils.sol          # Utility functions
+├── BacktestingTypes.sol            # Type definitions
+├── BacktestingUtils.sol            # Utility functions
 ├── CredibleTestWithBacktesting.sol # Main backtesting contract
-└── README.md                     # This file
+└── README.md                       # This file
 
 scripts/backtesting/
-└── transaction_fetcher.rs        # Rust script for transaction fetching
+└── transaction_fetcher.rs          # Rust script for transaction fetching
 ```

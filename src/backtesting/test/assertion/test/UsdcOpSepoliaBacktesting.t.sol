@@ -50,8 +50,7 @@ contract UsdcOpSepoliaBacktestingTest is CredibleTestWithBacktesting {
             endBlock: 8925198, // Recent block on mainnet Sepolia
             blockRange: 10, // 10 blocks before
             assertionCreationCode: type(ERC20Assertion).creationCode,
-            assertionSelector: ERC20Assertion.assertionTransferInvariant.selector,
-            rpcUrl: "https://eth-sepolia.g.alchemy.com/v2/cA7wNaynRKdZ96F6sBZTC"
+            assertionSelector: ERC20Assertion.assertionTransferInvariant.selector
         });
 
         // Results are automatically logged

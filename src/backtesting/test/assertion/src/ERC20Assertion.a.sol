@@ -72,7 +72,6 @@ contract ERC20Assertion is Assertion {
                 require(toPostBalance == toPreBalance + amount, "Receiver balance not increased correctly");
             }
         }
-        console.log("Transfer invariant reached the end");
     }
 
     /// @notice Verifies the transferFrom invariant
