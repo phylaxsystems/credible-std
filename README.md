@@ -123,7 +123,11 @@ The credible-std provides several cheatcodes for assertion validation:
 - `forkPostCall(uint256 id)`: Forks to the state after the call execution for the specified id. `getCallInputs(..)` can be used to get ids to fork to.
 - `load(address target, bytes32 slot)`: Loads a storage slot from an address
 - `getLogs()`: Retrieves logs from the assertion triggering transaction
-- `getCallInputs(address target, bytes4 selector)`: Gets call inputs for a given target and selector. Includes id for call forking.
+- `getAllCallInputs(address target, bytes4 selector)`: Gets all call inputs for a given target and selector.
+- `getCallInputs(address target, bytes4 selector)`: Gets call inputs for a given target and selector. Only includes calls made using 'CALL' opcode.
+- `getStaticCallInputs(address target, bytes4 selector)`: Gets static call inputs for a given target and selector. Only includes calls made using 'STATICCALL' opcode.
+- `getDelegateCallInputs(address target, bytes4 selector)`: Gets delegate call inputs for a given target and selector. Only includes calls made using 'DELEGATECALL' opcode.
+- `getCallCodeInputs(address target, bytes4 selector)`: Gets call code inputs for a given target and selector. Only includes calls made using 'CALLCODE' opcode.
 - `getStateChanges(address contractAddress, bytes32 slot)`: Gets state changes for a given contract and storage slot
 - `getAssertionAdopter()`: Get assertion adopter contract address associated with the assertion triggering transaction
 
