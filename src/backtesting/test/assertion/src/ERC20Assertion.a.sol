@@ -42,11 +42,6 @@ contract ERC20Assertion is Assertion {
 
         // Check each transfer call individually
         for (uint256 i = 0; i < calls.length; i++) {
-            // Skip proxy calls to avoid double counting
-            if (calls[i].bytecode_address == calls[i].target_address) {
-                continue;
-            }
-
             // Decode the transfer parameters
             (address to, uint256 amount) = abi.decode(calls[i].input, (address, uint256));
             address from = calls[i].caller;
@@ -66,7 +61,8 @@ contract ERC20Assertion is Assertion {
                 require(fromPostBalance == fromPreBalance, "Self-transfer changed balance");
             } else {
                 // Verify sender's balance decreased by the correct amount
-                require(fromPostBalance == fromPreBalance - amount, "Sender balance not decreased correctly");
+                // TODO: This is broken on purpose for testing purposes, change it back to - amount
+                require(fromPostBalance == fromPreBalance + amount, "Sender balance not decreased correctly");
 
                 // Verify receiver's balance increased by the correct amount
                 require(toPostBalance == toPreBalance + amount, "Receiver balance not increased correctly");
@@ -99,11 +95,6 @@ contract ERC20Assertion is Assertion {
 
         // Check each transferFrom call individually
         for (uint256 i = 0; i < calls.length; i++) {
-            // Skip proxy calls to avoid double counting
-            if (calls[i].bytecode_address == calls[i].target_address) {
-                continue;
-            }
-
             // Decode the transferFrom parameters
             (address from, address to, uint256 amount) = abi.decode(calls[i].input, (address, address, uint256));
 
