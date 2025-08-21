@@ -28,8 +28,8 @@ library BacktestingTypes {
     /// @notice Detailed validation result with error information
     struct ValidationDetails {
         ValidationResult result;
-        string errorMessage; // Human-readable error description
-        bool isProtocolViolation; // Whether this represents a real protocol issue
+        string errorMessage;
+        bool isProtocolViolation;
     }
 
     /// @notice Configuration for backtesting runs
@@ -48,7 +48,6 @@ library BacktestingTypes {
         uint256 processedTransactions; // Transactions that were actually validated (excluding skipped)
         uint256 successfulValidations;
         uint256 failedValidations;
-        // Detailed breakdown by error type
         uint256 assertionFailures; // Real protocol violations
         uint256 unknownErrors; // Unexpected failures
     }
