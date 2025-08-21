@@ -73,7 +73,17 @@ contract ERC20Assertion is Assertion {
     // Buggy assertion to test reverting assertions
     function assertionTransferInvariantRevert() external {
         MockERC20 token = MockERC20(ph.getAssertionAdopter());
-        require(false, "Reverting assertion");
+
+        // Capture the state before any transfers
+        ph.forkPreTx();
+        uint256 preTotalSupply = token.totalSupply();
+
+        // Capture the state after transfers
+        ph.forkPostTx();
+        uint256 postTotalSupply = token.totalSupply();
+
+        // Ensure total supply never changes during transfers
+        require(postTotalSupply == preTotalSupply, "Total supply changed during transfer");
     }
 
     /// @notice Verifies the transferFrom invariant
