@@ -27,17 +27,8 @@ contract UsdcOpSepoliaBacktestingTest is CredibleTestWithBacktesting {
 
     /// @notice Test ERC20 assertion with setup configuration - ultra clean!
     function testBacktestingWithSetup() public {
-        // Execute backtesting using setup configuration - one line!
-        BacktestingTypes.BacktestingResults memory results = executeBacktest(config);
-
-        // Results are automatically logged
-        console.log("=== SETUP-BASED RESULTS ===");
-        console.log("Total processed:", results.totalTransactions);
-        console.log(
-            "Success rate:",
-            results.totalTransactions > 0 ? (results.successfulValidations * 100) / results.totalTransactions : 0,
-            "%"
-        );
+        // Execute backtesting using setUp() configuration
+        executeBacktest(config);
     }
 
     /// @notice Test USDC on mainnet Sepolia
@@ -45,22 +36,13 @@ contract UsdcOpSepoliaBacktestingTest is CredibleTestWithBacktesting {
         console.log("=== MAINNET SEPOLIA USDC BACKTESTING ===");
 
         // Execute backtesting on mainnet Sepolia USDC
-        BacktestingTypes.BacktestingResults memory results = executeBacktest({
+        executeBacktest({
             targetContract: 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238, // USDC on mainnet Sepolia
             endBlock: 8925198, // Recent block on mainnet Sepolia
             blockRange: 10, // 10 blocks before
             assertionCreationCode: type(ERC20Assertion).creationCode,
             assertionSelector: ERC20Assertion.assertionTransferInvariant.selector
         });
-
-        // Results are automatically logged
-        console.log("=== MAINNET SEPOLIA RESULTS ===");
-        console.log("Total processed:", results.totalTransactions);
-        console.log(
-            "Success rate:",
-            results.totalTransactions > 0 ? (results.successfulValidations * 100) / results.totalTransactions : 0,
-            "%"
-        );
     }
 
     /// @notice Test ERC20 assertion with the new interface
@@ -69,23 +51,14 @@ contract UsdcOpSepoliaBacktestingTest is CredibleTestWithBacktesting {
         try vm.envString("RPC_URL") returns (string memory) {
             console.log("=== SIMPLE BACKTESTING DEMO ===");
 
-            // Execute backtesting with one simple function call!
-            BacktestingTypes.BacktestingResults memory results = executeBacktest({
+            // Execute backtesting with rpc env variable
+            executeBacktest({
                 targetContract: 0x5fd84259d66Cd46123540766Be93DFE6D43130D7, // USDC on Optimism Sepolia
                 endBlock: 31250000, // Recent block
                 blockRange: 100, // Test range
                 assertionCreationCode: type(ERC20Assertion).creationCode,
                 assertionSelector: ERC20Assertion.assertionTransferInvariant.selector
             });
-
-            // Results are automatically logged, but we can also use them
-            console.log("=== FINAL SUMMARY ===");
-            console.log("Total processed:", results.totalTransactions);
-            console.log(
-                "Success rate:",
-                results.totalTransactions > 0 ? (results.successfulValidations * 100) / results.totalTransactions : 0,
-                "%"
-            );
         } catch {
             console.log("WARNING: RPC_URL not provided, skipping backtesting test");
         }
@@ -96,7 +69,7 @@ contract UsdcOpSepoliaBacktestingTest is CredibleTestWithBacktesting {
         console.log("=== SIMPLE BACKTESTING WITH EXPLICIT RPC ===");
 
         // Execute backtesting with explicit RPC
-        BacktestingTypes.BacktestingResults memory results = executeBacktest({
+        executeBacktest({
             targetContract: 0x5fd84259d66Cd46123540766Be93DFE6D43130D7, // USDC on Optimism Sepolia
             endBlock: 31336940, // Known block with transfer
             blockRange: 20, // 20 blocks before
@@ -104,22 +77,17 @@ contract UsdcOpSepoliaBacktestingTest is CredibleTestWithBacktesting {
             assertionSelector: ERC20Assertion.assertionTransferInvariant.selector,
             rpcUrl: "https://sepolia.optimism.io"
         });
+    }
 
-        // Demonstrate how easy it is to use the results
-        if (results.totalTransactions > 0) {
-            uint256 successRate = (results.successfulValidations * 100) / results.totalTransactions;
-            console.log("Backtesting completed with", successRate, "% success rate");
-
-            if (results.failedValidations > 0) {
-                console.log("WARNING:", results.failedValidations, "transactions failed assertions");
-            }
-
-            if (results.assertionFailures > 0) {
-                console.log("ERROR:", results.assertionFailures, "transactions had assertion failures");
-            }
-        } else {
-            console.log("No transactions found in the specified range");
-        }
+    function testRevertingAssertion() public {
+        executeBacktest({
+            targetContract: 0x5fd84259d66Cd46123540766Be93DFE6D43130D7, // USDC on Optimism Sepolia
+            endBlock: 31336940, // Known block with transfer
+            blockRange: 20, // 20 blocks before
+            assertionCreationCode: type(ERC20Assertion).creationCode,
+            assertionSelector: ERC20Assertion.assertionTransferInvariantRevert.selector,
+            rpcUrl: "https://sepolia.optimism.io"
+        });
     }
 
     /// @notice Demonstrate different assertion types

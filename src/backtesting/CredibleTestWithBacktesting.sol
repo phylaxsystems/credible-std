@@ -38,6 +38,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         BacktestingTypes.TransactionData[] memory transactions =
             _fetchTransactions(targetContract, startBlock, endBlock, rpcUrl);
         results.totalTransactions = transactions.length;
+        results.processedTransactions = 0; // Initialize processed transactions counter
         console.log(string.concat("Total transactions found: ", results.totalTransactions.toString()));
 
         if (transactions.length == 0) {
@@ -58,9 +59,18 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
                 _validateTransaction(targetContract, assertionCreationCode, assertionSelector, rpcUrl, transactions[i]);
 
             if (validation.result == BacktestingTypes.ValidationResult.Success) {
+                // This transaction was successfully validated
+                results.processedTransactions++;
                 results.successfulValidations++;
                 console.log("[PASS] VALIDATION PASSED");
+            } else if (validation.result == BacktestingTypes.ValidationResult.Skipped) {
+                // This transaction didn't trigger the assertion, so skip it
+                results.processedTransactions++;
+                results.successfulValidations++;
+                console.log("[SKIP] Assertion not triggered on this transaction");
             } else {
+                // This transaction failed validation
+                results.processedTransactions++;
                 results.failedValidations++;
                 _categorizeAndLogError(validation);
                 _incrementErrorCounter(results, validation.result);
@@ -147,42 +157,6 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         string memory rpcUrl,
         BacktestingTypes.TransactionData memory txData
     ) private returns (BacktestingTypes.ValidationDetails memory validation) {
-        try this._forkAndValidate(targetContract, assertionCreationCode, assertionSelector, rpcUrl, txData) {
-            validation.result = BacktestingTypes.ValidationResult.Success;
-            validation.isProtocolViolation = false;
-        } catch Error(string memory reason) {
-            validation.result = BacktestingTypes.ValidationResult.AssertionFailed;
-            validation.errorMessage = reason;
-            validation.isProtocolViolation = true;
-        } catch Panic(uint256 errorCode) {
-            if (errorCode == 0x01) {
-                validation.result = BacktestingTypes.ValidationResult.AssertionFailed;
-                validation.errorMessage = "Assertion failed";
-                validation.isProtocolViolation = true;
-            } else if (errorCode == 0x11) {
-                validation.result = BacktestingTypes.ValidationResult.GasLimitExceeded;
-                validation.errorMessage = "Gas limit exceeded";
-                validation.isProtocolViolation = false;
-            } else {
-                validation.result = BacktestingTypes.ValidationResult.UnknownError;
-                validation.errorMessage = "Unknown panic";
-                validation.isProtocolViolation = false;
-            }
-        } catch (bytes memory) {
-            validation.result = BacktestingTypes.ValidationResult.UnknownError;
-            validation.isProtocolViolation = false;
-        }
-    }
-
-    /// @notice Fork and validate (external for try/catch)
-    function _forkAndValidate(
-        address targetContract,
-        bytes memory assertionCreationCode,
-        bytes4 assertionSelector,
-        string memory rpcUrl,
-        BacktestingTypes.TransactionData memory txData
-    ) external {
-        // Fork to the block before the transaction
         vm.createSelectFork(rpcUrl, txData.blockNumber - 1);
         vm.fee(0);
 
@@ -195,22 +169,47 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
 
         // Execute the transaction
         vm.prank(txData.from);
-        (bool callSuccess,) = txData.to.call{value: txData.value}(txData.data);
-        require(callSuccess || !callSuccess, "Call completed");
+        (bool callSuccess, bytes memory returnData) = txData.to.call{value: txData.value}(txData.data);
+
+        string memory revertReason = _decodeRevertReason(returnData);
+
+        if (callSuccess) {
+            validation.result = BacktestingTypes.ValidationResult.Success;
+            validation.isProtocolViolation = false;
+        } else if (
+            keccak256(bytes("Expected 1 assertion to be executed, but 0 were executed."))
+                == keccak256(bytes(revertReason))
+        ) {
+            // This transaction doesn't trigger the assertion, so we should skip it
+            // The new testing interface reverts if a transaction doesn't trigger the assertion
+            // We have to handle this specific case, by matching the revert reason.
+            validation.result = BacktestingTypes.ValidationResult.Skipped;
+            validation.errorMessage = revertReason;
+            validation.isProtocolViolation = false;
+        } else {
+            validation.result = BacktestingTypes.ValidationResult.AssertionFailed;
+            validation.errorMessage = revertReason;
+            validation.isProtocolViolation = true;
+        }
+    }
+
+    function _decodeRevertReason(bytes memory data) private pure returns (string memory) {
+        if (data.length < 68) return "Unknown error";
+
+        assembly {
+            // Adjust the data pointer to skip the selector
+            data := add(data, 4)
+            // Adjust the length
+            mstore(data, sub(mload(data), 4))
+        }
+
+        return abi.decode(data, (string));
     }
 
     /// @notice Categorize and log error details
     function _categorizeAndLogError(BacktestingTypes.ValidationDetails memory validation) private pure {
         string memory errorType = _getErrorTypeString(validation.result);
         console.log(string.concat("[", errorType, "] VALIDATION FAILED"));
-
-        if (bytes(validation.errorMessage).length > 0) {
-            console.log(string.concat("  Error: ", validation.errorMessage));
-        }
-
-        if (validation.isProtocolViolation) {
-            console.log("  !!! PROTOCOL VIOLATION DETECTED !!!");
-        }
     }
 
     /// @notice Increment the appropriate error counter
@@ -220,16 +219,6 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     ) private pure {
         if (result == BacktestingTypes.ValidationResult.AssertionFailed) {
             results.assertionFailures++;
-        } else if (result == BacktestingTypes.ValidationResult.TransactionReverted) {
-            results.transactionReverts++;
-        } else if (result == BacktestingTypes.ValidationResult.ForkError) {
-            results.forkErrors++;
-        } else if (result == BacktestingTypes.ValidationResult.InvalidTransaction) {
-            results.invalidTransactions++;
-        } else if (result == BacktestingTypes.ValidationResult.GasLimitExceeded) {
-            results.gasLimitExceeded++;
-        } else if (result == BacktestingTypes.ValidationResult.StateMismatch) {
-            results.stateMismatches++;
         } else if (result == BacktestingTypes.ValidationResult.UnknownError) {
             results.unknownErrors++;
         }
@@ -238,12 +227,8 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     /// @notice Get human-readable error type string
     function _getErrorTypeString(BacktestingTypes.ValidationResult result) private pure returns (string memory) {
         if (result == BacktestingTypes.ValidationResult.Success) return "PASS";
+        if (result == BacktestingTypes.ValidationResult.Skipped) return "SKIP";
         if (result == BacktestingTypes.ValidationResult.AssertionFailed) return "ASSERTION_FAIL";
-        if (result == BacktestingTypes.ValidationResult.TransactionReverted) return "TX_REVERT";
-        if (result == BacktestingTypes.ValidationResult.ForkError) return "FORK_ERROR";
-        if (result == BacktestingTypes.ValidationResult.InvalidTransaction) return "INVALID_TX";
-        if (result == BacktestingTypes.ValidationResult.GasLimitExceeded) return "GAS_LIMIT";
-        if (result == BacktestingTypes.ValidationResult.StateMismatch) return "STATE_MISMATCH";
         return "UNKNOWN_ERROR";
     }
 
@@ -259,6 +244,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         console.log("==========================================");
         console.log(string.concat("Block Range: ", startBlock.toString(), " - ", endBlock.toString()));
         console.log(string.concat("Total Transactions: ", results.totalTransactions.toString()));
+        console.log(string.concat("Processed Transactions: ", results.processedTransactions.toString()));
         console.log(string.concat("Successful Validations: ", results.successfulValidations.toString()));
         console.log(string.concat("Failed Validations: ", results.failedValidations.toString()));
 
@@ -268,17 +254,13 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
             console.log(
                 string.concat("Protocol Violations (Assertion Failures): ", results.assertionFailures.toString())
             );
-            console.log(string.concat("Transaction Reverts: ", results.transactionReverts.toString()));
-            console.log(string.concat("Fork Errors: ", results.forkErrors.toString()));
-            console.log(string.concat("Invalid Transactions: ", results.invalidTransactions.toString()));
-            console.log(string.concat("Gas Limit Exceeded: ", results.gasLimitExceeded.toString()));
-            console.log(string.concat("State Mismatches: ", results.stateMismatches.toString()));
             console.log(string.concat("Unknown Errors: ", results.unknownErrors.toString()));
         }
         console.log("");
 
-        uint256 successRate =
-            results.totalTransactions > 0 ? (results.successfulValidations * 100) / results.totalTransactions : 0;
+        uint256 successRate = results.processedTransactions > 0
+            ? (results.successfulValidations * 100) / results.processedTransactions
+            : 0;
         console.log(string.concat("Success Rate: ", successRate.toString(), "%"));
 
         if (results.assertionFailures > 0) {

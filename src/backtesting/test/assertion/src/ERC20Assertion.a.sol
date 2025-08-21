@@ -15,6 +15,7 @@ contract ERC20Assertion is Assertion {
     function triggers() external view override {
         registerCallTrigger(this.assertionTransferInvariant.selector, MockERC20.transfer.selector);
         registerCallTrigger(this.assertionTransferFromInvariant.selector, MockERC20.transferFrom.selector);
+        registerCallTrigger(this.assertionTransferInvariantRevert.selector, MockERC20.transfer.selector);
     }
 
     /// @notice Verifies the transfer invariant
@@ -61,13 +62,18 @@ contract ERC20Assertion is Assertion {
                 require(fromPostBalance == fromPreBalance, "Self-transfer changed balance");
             } else {
                 // Verify sender's balance decreased by the correct amount
-                // TODO: This is broken on purpose for testing purposes, change it back to - amount
-                require(fromPostBalance == fromPreBalance + amount, "Sender balance not decreased correctly");
+                require(fromPostBalance == fromPreBalance - amount, "Sender balance not decreased correctly");
 
                 // Verify receiver's balance increased by the correct amount
                 require(toPostBalance == toPreBalance + amount, "Receiver balance not increased correctly");
             }
         }
+    }
+
+    // Buggy assertion to test reverting assertions
+    function assertionTransferInvariantRevert() external {
+        MockERC20 token = MockERC20(ph.getAssertionAdopter());
+        require(false, "Reverting assertion");
     }
 
     /// @notice Verifies the transferFrom invariant
