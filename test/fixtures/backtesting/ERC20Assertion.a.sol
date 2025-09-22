@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {Assertion} from "../../../../Assertion.sol";
-import {PhEvm} from "../../../../PhEvm.sol";
-import {console} from "../../../../Console.sol";
-import {MockERC20} from "../../src/MockERC20.sol";
+import {Assertion} from "../../../src/Assertion.sol";
+import {PhEvm} from "../../../src/PhEvm.sol";
+import {console} from "../../../src/Console.sol";
+import {MockERC20} from "./MockERC20.sol";
 
 /// @title ERC20Assertion
 /// @notice Contract containing invariant assertions for ERC20 token transfers

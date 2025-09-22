@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {CredibleTest} from "../CredibleTest.sol";
+import {CredibleTest} from "./CredibleTest.sol";
 import {Test, console} from "forge-std/Test.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
-import {BacktestingTypes} from "./BacktestingTypes.sol";
-import {BacktestingUtils} from "./BacktestingUtils.sol";
+import {BacktestingTypes} from "./utils/BacktestingTypes.sol";
+import {BacktestingUtils} from "./utils/BacktestingUtils.sol";
 
 /// @title Extended CredibleTest with Backtesting
 /// @notice CredibleTest with built-in backtesting functionality

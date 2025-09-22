@@ -2,9 +2,9 @@
 pragma solidity ^0.8.20;
 
 import {Test, console} from "forge-std/Test.sol";
-import {CredibleTestWithBacktesting} from "../../../CredibleTestWithBacktesting.sol";
-import {BacktestingTypes} from "../../../BacktestingTypes.sol";
-import {ERC20Assertion} from "../src/ERC20Assertion.a.sol";
+import {CredibleTestWithBacktesting} from "../../src/CredibleTestWithBacktesting.sol";
+import {BacktestingTypes} from "../../src/utils/BacktestingTypes.sol";
+import {ERC20Assertion} from "../fixtures/backtesting/ERC20Assertion.a.sol";
 
 /// @title Simple Backtesting Test
 /// @notice Demonstrates the backtesting interface
@@ -39,7 +39,7 @@ contract UsdcOpSepoliaBacktestingTest is CredibleTestWithBacktesting {
         executeBacktest({
             targetContract: 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238, // USDC on mainnet Sepolia
             endBlock: 8925198, // Fairly recent block on mainnet Sepolia
-            blockRange: 100, // 100 blocks before
+            blockRange: 10, // 10 blocks before
             assertionCreationCode: type(ERC20Assertion).creationCode,
             assertionSelector: ERC20Assertion.assertionTransferInvariant.selector
         });

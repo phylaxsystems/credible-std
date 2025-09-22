@@ -182,3 +182,109 @@ contract TestOwnableAssertion is CredibleTest, Test {
 ```
 
 For a detailed guide on how to test assertions check out the [Testing Assertions](https://docs.phylax.systems/credible/testing-assertions) section of the documentation.
+
+## Backtesting
+
+The credible-std library includes backtesting functionality that allows you to test your assertions against historical blockchain data. This enables you to validate assertion correctness on real transactions before deploying to production.
+
+### Components
+
+- `CredibleTestWithBacktesting.sol`: Extended test base that provides backtesting functionality
+- `BacktestingTypes.sol`: Type definitions for backtesting configuration and results
+- `BacktestingUtils.sol`: Utility functions for parsing and processing blockchain data
+- `transaction_fetcher.sh`: Bash script for fetching historical transactions (minimal dependencies)
+
+### Setup
+
+**Configure foundry.toml**: Add the backtesting profile to your `foundry.toml`:
+
+```toml
+[profile.backtesting]
+src = "src"
+out = "out"
+libs = ["lib"]
+ffi = true
+gas_limit = 100000000
+timeout = 300
+test = "test"
+```
+
+### Creating Backtesting Tests
+
+Create a test contract that inherits from `CredibleTestWithBacktesting`:
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {CredibleTestWithBacktesting} from "../../src/CredibleTestWithBacktesting.sol";
+import {BacktestingTypes} from "../../src/utils/BacktestingTypes.sol";
+import {ERC20Assertion} from "../fixtures/backtesting/ERC20Assertion.a.sol";
+
+contract MyBacktestingTest is CredibleTestWithBacktesting {
+    function testERC20Backtesting() public {
+        executeBacktest({
+            targetContract: 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238, // USDC on Sepolia
+            endBlock: 8925198,
+            blockRange: 100,
+            assertionCreationCode: type(ERC20Assertion).creationCode,
+            assertionSelector: ERC20Assertion.assertionTransferInvariant.selector,
+            rpcUrl: "https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY"
+        });
+    }
+}
+```
+
+### Configuration Options
+
+The backtesting system accepts several configuration parameters:
+
+- `targetContract`: The contract address to monitor for transactions
+- `endBlock`: The latest block number to include in the test
+- `blockRange`: Number of blocks to test (from `endBlock - blockRange + 1` to `endBlock`)
+- `assertionCreationCode`: The bytecode for creating your assertion contract
+- `assertionSelector`: The function selector of your assertion function
+- `rpcUrl`: The RPC endpoint URL for fetching blockchain data
+
+### Running Backtesting Tests
+
+Use the `pcl` command with the backtesting profile:
+
+```bash
+# Set your RPC URL
+export RPC_URL="https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY"
+
+# Run backtesting tests
+FOUNDRY_PROFILE=backtesting pcl test --match-test testERC20Backtesting -vvv
+
+# Or run all backtesting tests
+FOUNDRY_PROFILE=backtesting pcl test --match-path "**/backtesting/**" -vvv
+```
+
+### Understanding Results
+
+The backtesting system provides detailed results including:
+
+- **Total Transactions**: Number of transactions found in the specified block range
+- **Processed Transactions**: Number of transactions successfully processed
+- **Successful Validations**: Number of transactions that passed assertion validation
+- **Failed Validations**: Number of transactions that failed assertion validation
+- **Success Rate**: Percentage of successful validations
+
+> **⚠️ Important**: If you see any **Failed Validations**, this indicates potential issues with your assertion logic. Check the detailed test output to identify false positives - transactions that should have passed but failed validation.
+
+Example output:
+
+```bash
+==========================================
+           BACKTESTING SUMMARY
+==========================================
+Block Range: 8925189 - 8925198
+Total Transactions: 26
+Processed Transactions: 26
+Successful Validations: 26
+Failed Validations: 0
+
+Success Rate: 100%
+================================
+```
