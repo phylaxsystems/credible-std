@@ -118,8 +118,8 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     {
         // Build FFI command with optimized settings
         string[] memory inputs = new string[](16);
-        inputs[0] = "rust-script";
-        inputs[1] = "scripts/backtesting/transaction_fetcher.rs";
+        inputs[0] = "bash";
+        inputs[1] = "scripts/backtesting/transaction_fetcher.sh";
         inputs[2] = "--rpc-url";
         inputs[3] = rpcUrl;
         inputs[4] = "--target-contract";

@@ -38,8 +38,8 @@ contract UsdcOpSepoliaBacktestingTest is CredibleTestWithBacktesting {
         // Execute backtesting on mainnet Sepolia USDC
         executeBacktest({
             targetContract: 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238, // USDC on mainnet Sepolia
-            endBlock: 8925198, // Recent block on mainnet Sepolia
-            blockRange: 10, // 10 blocks before
+            endBlock: 8925198, // Fairly recent block on mainnet Sepolia
+            blockRange: 100, // 100 blocks before
             assertionCreationCode: type(ERC20Assertion).creationCode,
             assertionSelector: ERC20Assertion.assertionTransferInvariant.selector
         });
