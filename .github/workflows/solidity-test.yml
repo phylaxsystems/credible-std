@@ -10,3 +10,5 @@ jobs:
     uses: phylaxsystems/actions/.github/workflows/solidity-base.yaml@main
     with:
       gas-diff-tolerance: 25
+      forge-test-args: "--no-match-path 'test/backtesting/**'"
+      disable-gas-snapshot: true

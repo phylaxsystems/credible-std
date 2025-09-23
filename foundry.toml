@@ -3,4 +3,17 @@ src = "src"
 out = "out"
 libs = ["lib"]
 
+[profile.backtesting]
+src = "src"
+out = "out"
+libs = ["lib"]
+# Enable FFI for backtesting (required for external script execution)
+ffi = true
+# Increase gas limit for backtesting operations
+gas_limit = 100000000
+# Increase timeout for RPC calls
+timeout = 300
+# Include test directory
+test = "test"
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
