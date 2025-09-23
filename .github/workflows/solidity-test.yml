@@ -11,3 +11,4 @@ jobs:
     with:
       gas-diff-tolerance: 25
       forge-test-args: "--no-match-path 'test/backtesting/**'"
+      disable-gas-snapshot: true
