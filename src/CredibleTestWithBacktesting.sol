@@ -119,7 +119,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         // Build FFI command with optimized settings
         string[] memory inputs = new string[](16);
         inputs[0] = "bash";
-        inputs[1] = "scripts/backtesting/transaction_fetcher.sh";
+        inputs[1] = "pvt/lib/credible-std/scripts/backtesting/transaction_fetcher.sh";
         inputs[2] = "--rpc-url";
         inputs[3] = rpcUrl;
         inputs[4] = "--target-contract";
@@ -207,7 +207,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     }
 
     /// @notice Categorize and log error details
-    function _categorizeAndLogError(BacktestingTypes.ValidationDetails memory validation) private pure {
+    function _categorizeAndLogError(BacktestingTypes.ValidationDetails memory validation) private view {
         string memory errorType = _getErrorTypeString(validation.result);
         console.log(string.concat("[", errorType, "] VALIDATION FAILED"));
     }
@@ -237,7 +237,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         uint256 startBlock,
         uint256 endBlock,
         BacktestingTypes.BacktestingResults memory results
-    ) private pure {
+    ) private view {
         console.log("");
         console.log("==========================================");
         console.log("           BACKTESTING SUMMARY");

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+import {Strings} from "../../lib/openzeppelin-contracts/contracts/utils/Strings.sol";
 import {StdUtils} from "forge-std/StdUtils.sol";
 import {BacktestingTypes} from "./BacktestingTypes.sol";
 
