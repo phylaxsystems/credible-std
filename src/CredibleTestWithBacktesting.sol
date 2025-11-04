@@ -167,7 +167,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         cl.assertion({adopter: targetContract, createData: assertionCreationCode, fnSelector: assertionSelector});
 
         // Execute the transaction
-        vm.prank(txData.from);
+        vm.prank(txData.from, txData.from);
         (bool callSuccess, bytes memory returnData) = txData.to.call{value: txData.value}(txData.data);
 
         string memory revertReason = _decodeRevertReason(returnData);
