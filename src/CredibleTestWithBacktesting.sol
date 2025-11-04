@@ -157,8 +157,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         string memory rpcUrl,
         BacktestingTypes.TransactionData memory txData
     ) private returns (BacktestingTypes.ValidationDetails memory validation) {
-        vm.createSelectFork(rpcUrl, txData.blockNumber - 1);
-        vm.fee(0);
+        vm.createSelectFork(rpcUrl, txData.hash);
 
         // Prepare transaction sender
         vm.stopPrank();
@@ -193,7 +192,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         }
     }
 
-    function _decodeRevertReason(bytes memory data) private pure returns (string memory) {
+    function _decodeRevertReason(bytes memory data) private view returns (string memory) {
         if (data.length < 68) return "Unknown error";
 
         assembly {
@@ -206,10 +205,33 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         return abi.decode(data, (string));
     }
 
+    // Helper function for try-catch
+    function externalDecode(bytes memory data) external pure returns (string memory) {
+        return abi.decode(data, (string));
+    }
+
+    // Helper to convert bytes to hex string
+    function _bytesToHex(bytes memory data) private pure returns (bytes memory) {
+        bytes memory hexChars = "0123456789abcdef";
+        bytes memory result = new bytes(data.length * 2);
+        for (uint256 i = 0; i < data.length; i++) {
+            result[i * 2] = hexChars[uint8(data[i]) >> 4];
+            result[i * 2 + 1] = hexChars[uint8(data[i]) & 0x0f];
+        }
+        return result;
+    }
+
     /// @notice Categorize and log error details
     function _categorizeAndLogError(BacktestingTypes.ValidationDetails memory validation) private view {
         string memory errorType = _getErrorTypeString(validation.result);
         console.log(string.concat("[", errorType, "] VALIDATION FAILED"));
+
+        // Print the actual revert reason
+        if (bytes(validation.errorMessage).length > 0) {
+            console.log(validation.errorMessage);
+        } else {
+            console.log("(No revert reason available)");
+        }
     }
 
     /// @notice Increment the appropriate error counter

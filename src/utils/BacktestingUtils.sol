@@ -90,6 +90,10 @@ library BacktestingUtils {
 
     /// @notice Parse hex address string to address
     function stringToAddress(string memory str) internal pure returns (address) {
+        // Handle empty string (contract creation) as address(0)
+        if (bytes(str).length == 0) {
+            return address(0);
+        }
         return Strings.parseAddress(str);
     }
 
@@ -129,7 +133,7 @@ library BacktestingUtils {
     /// @notice Parse multiple transactions from a single data line
     function parseMultipleTransactions(string memory txDataString)
         internal
-        pure
+        view
         returns (BacktestingTypes.TransactionData[] memory transactions)
     {
         string[] memory parts = splitString(txDataString, "|");
@@ -167,5 +171,18 @@ library BacktestingUtils {
         if (char >= "a" && char <= "f") return uint8(char) - 87;
         if (char >= "A" && char <= "F") return uint8(char) - 55;
         revert("Invalid hex char");
+    }
+
+    /// @notice Helper to get substring for debugging
+    function substring(string memory str, uint256 start, uint256 len) private pure returns (string memory) {
+        bytes memory strBytes = bytes(str);
+        if (start >= strBytes.length) return "";
+        uint256 end = start + len;
+        if (end > strBytes.length) end = strBytes.length;
+        bytes memory result = new bytes(end - start);
+        for (uint256 i = 0; i < result.length; i++) {
+            result[i] = strBytes[start + i];
+        }
+        return string(result);
     }
 }
