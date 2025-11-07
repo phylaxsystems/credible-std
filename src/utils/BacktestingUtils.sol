@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+import {Strings} from "../../lib/openzeppelin-contracts/contracts/utils/Strings.sol";
 import {StdUtils} from "forge-std/StdUtils.sol";
 import {BacktestingTypes} from "./BacktestingTypes.sol";
 
@@ -90,6 +90,10 @@ library BacktestingUtils {
 
     /// @notice Parse hex address string to address
     function stringToAddress(string memory str) internal pure returns (address) {
+        // Handle empty string (contract creation) as address(0)
+        if (bytes(str).length == 0) {
+            return address(0);
+        }
         return Strings.parseAddress(str);
     }
 
@@ -129,7 +133,7 @@ library BacktestingUtils {
     /// @notice Parse multiple transactions from a single data line
     function parseMultipleTransactions(string memory txDataString)
         internal
-        pure
+        view
         returns (BacktestingTypes.TransactionData[] memory transactions)
     {
         string[] memory parts = splitString(txDataString, "|");
@@ -167,5 +171,67 @@ library BacktestingUtils {
         if (char >= "a" && char <= "f") return uint8(char) - 87;
         if (char >= "A" && char <= "F") return uint8(char) - 55;
         revert("Invalid hex char");
+    }
+
+    /// @notice Helper to get substring for debugging
+    function substring(string memory str, uint256 start, uint256 len) private pure returns (string memory) {
+        bytes memory strBytes = bytes(str);
+        if (start >= strBytes.length) return "";
+        uint256 end = start + len;
+        if (end > strBytes.length) end = strBytes.length;
+        bytes memory result = new bytes(end - start);
+        for (uint256 i = 0; i < result.length; i++) {
+            result[i] = strBytes[start + i];
+        }
+        return string(result);
+    }
+
+    /// @notice Decode revert reason from error data
+    /// @param data The error data from a failed call
+    /// @return The decoded revert reason string
+    function decodeRevertReason(bytes memory data) internal pure returns (string memory) {
+        if (data.length < 68) return "Unknown error";
+
+        assembly {
+            // Adjust the data pointer to skip the selector
+            data := add(data, 4)
+            // Adjust the length
+            mstore(data, sub(mload(data), 4))
+        }
+
+        return abi.decode(data, (string));
+    }
+
+    /// @notice Convert bytes to hex string
+    /// @param data The bytes to convert
+    /// @return The hex string representation
+    function bytesToHex(bytes memory data) internal pure returns (bytes memory) {
+        bytes memory hexChars = "0123456789abcdef";
+        bytes memory result = new bytes(data.length * 2);
+        for (uint256 i = 0; i < data.length; i++) {
+            result[i * 2] = hexChars[uint8(data[i]) >> 4];
+            result[i * 2 + 1] = hexChars[uint8(data[i]) & 0x0f];
+        }
+        return result;
+    }
+
+    /// @notice Get human-readable error type string from validation result
+    /// @param result The validation result enum
+    /// @return The human-readable string representation
+    function getErrorTypeString(BacktestingTypes.ValidationResult result) internal pure returns (string memory) {
+        if (result == BacktestingTypes.ValidationResult.Success) return "PASS";
+        if (result == BacktestingTypes.ValidationResult.Skipped) return "SKIP";
+        if (result == BacktestingTypes.ValidationResult.AssertionFailed) return "ASSERTION_FAIL";
+        return "UNKNOWN_ERROR";
+    }
+
+    /// @notice Get the standard search paths for transaction_fetcher.sh
+    /// @return Array of paths to check, in order of preference
+    function getDefaultScriptSearchPaths() internal pure returns (string[] memory) {
+        string[] memory paths = new string[](3);
+        paths[0] = "lib/credible-std/scripts/backtesting/transaction_fetcher.sh";
+        paths[1] = "dependencies/credible-std/scripts/backtesting/transaction_fetcher.sh";
+        paths[2] = "../credible-std/scripts/backtesting/transaction_fetcher.sh";
+        return paths;
     }
 }

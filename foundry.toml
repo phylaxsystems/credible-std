@@ -11,8 +11,6 @@ libs = ["lib"]
 ffi = true
 # Increase gas limit for backtesting operations
 gas_limit = 100000000
-# Increase timeout for RPC calls
-timeout = 300
 # Include test directory
 test = "test"
 
