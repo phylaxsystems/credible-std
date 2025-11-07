@@ -15,6 +15,12 @@ DETECT_INTERNAL_CALLS=false
 TEMP_DIR=""
 START_TIME=""
 
+# RPC call counters
+RPC_CALL_COUNT=0
+RPC_BLOCK_FETCH_COUNT=0
+RPC_RECEIPT_FETCH_COUNT=0
+RPC_DETAILED_BLOCK_COUNT=0
+
 # Cleanup function
 cleanup() {
     if [[ -n "$TEMP_DIR" && -d "$TEMP_DIR" ]]; then
@@ -160,6 +166,8 @@ fetch_block_transactions() {
 
     # Make the request
     local response
+    RPC_CALL_COUNT=$((RPC_CALL_COUNT + 1))
+    RPC_BLOCK_FETCH_COUNT=$((RPC_BLOCK_FETCH_COUNT + 1))
     if ! response=$(curl -s -X POST \
         -H "Content-Type: application/json" \
         -d "$rpc_request" \
@@ -245,6 +253,8 @@ fetch_block_transactions() {
                 }')
 
             local receipt_response
+            RPC_CALL_COUNT=$((RPC_CALL_COUNT + 1))
+            RPC_RECEIPT_FETCH_COUNT=$((RPC_RECEIPT_FETCH_COUNT + 1))
             receipt_response=$(curl -s -X POST \
                 -H "Content-Type: application/json" \
                 -d "$receipt_request" \
@@ -530,6 +540,19 @@ main() {
         echo "Average: $blocks_per_sec blocks/sec, $tx_per_sec transactions/sec" >&2
     fi
 
+    # Display RPC call statistics
+    echo "" >&2
+    echo "=== RPC CALL STATISTICS ===" >&2
+    echo "Total RPC calls: $RPC_CALL_COUNT" >&2
+    echo "  - Block fetches: $RPC_BLOCK_FETCH_COUNT" >&2
+    echo "  - Receipt fetches: $RPC_RECEIPT_FETCH_COUNT" >&2
+    echo "  - Detailed block fetches: $RPC_DETAILED_BLOCK_COUNT" >&2
+    if [[ $duration -gt 0 ]]; then
+        local rpc_per_sec=$((RPC_CALL_COUNT / duration))
+        echo "Average: $rpc_per_sec RPC calls/sec" >&2
+    fi
+    echo "===========================" >&2
+
     # Output results
     echo "TRANSACTION_DATA:START"
     echo -n "TRANSACTION_DATA:"
@@ -555,6 +578,8 @@ main() {
         # Get total tx count for each block and format output
         for ((block = start_block; block <= end_block; block++)); do
             local block_hex=$(printf "0x%x" "$block")
+            RPC_CALL_COUNT=$((RPC_CALL_COUNT + 1))
+            RPC_DETAILED_BLOCK_COUNT=$((RPC_DETAILED_BLOCK_COUNT + 1))
             local total_tx_count=$(curl -s -X POST "$rpc_url" \
                 -H "Content-Type: application/json" \
                 -d "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getBlockByNumber\",\"params\":[\"$block_hex\", false],\"id\":1}" \
