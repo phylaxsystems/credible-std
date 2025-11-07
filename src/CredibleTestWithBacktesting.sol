@@ -135,9 +135,10 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     }
 
     /// @notice Execute backtesting with config struct
-    function executeBacktest(
-        BacktestingTypes.BacktestingConfig memory config
-    ) public returns (BacktestingTypes.BacktestingResults memory results) {
+    function executeBacktest(BacktestingTypes.BacktestingConfig memory config)
+        public
+        returns (BacktestingTypes.BacktestingResults memory results)
+    {
         return executeBacktest(
             config.targetContract,
             config.endBlock,
@@ -218,12 +219,10 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     }
 
     /// @notice Fetch transactions using FFI
-    function _fetchTransactions(
-        address targetContract,
-        uint256 startBlock,
-        uint256 endBlock,
-        string memory rpcUrl
-    ) private returns (BacktestingTypes.TransactionData[] memory transactions) {
+    function _fetchTransactions(address targetContract, uint256 startBlock, uint256 endBlock, string memory rpcUrl)
+        private
+        returns (BacktestingTypes.TransactionData[] memory transactions)
+    {
         // Determine the script path relative to project root
         // The script is located at: credible-std/scripts/backtesting/transaction_fetcher.sh
         // We need to find where credible-std is installed (could be in lib/ or pvt/lib/)
@@ -298,9 +297,11 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     }
 
     /// @notice Parse transactions from FFI output
-    function _parseTransactionsFromOutput(
-        bytes memory ffiOutput
-    ) private view returns (BacktestingTypes.TransactionData[] memory) {
+    function _parseTransactionsFromOutput(bytes memory ffiOutput)
+        private
+        view
+        returns (BacktestingTypes.TransactionData[] memory)
+    {
         string memory output = string(ffiOutput);
         string memory dataLine = BacktestingUtils.extractDataLine(output);
 
@@ -449,9 +450,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     }
 
     /// @notice Categorize and log error details
-    function _categorizeAndLogError(
-        BacktestingTypes.ValidationDetails memory validation
-    ) private view {
+    function _categorizeAndLogError(BacktestingTypes.ValidationDetails memory validation) private view {
         string memory errorType = BacktestingUtils.getErrorTypeString(validation.result);
         console.log(string.concat("[", errorType, "] VALIDATION FAILED"));
 
