@@ -10,7 +10,6 @@ library BacktestingTypes {
         Skipped, // Transaction not expected to trigger the assertion
         AssertionFailed, // Assertion logic failed (actual protocol violation)
         UnknownError // Unexpected error during validation
-
     }
 
     /// @notice Transaction data from blockchain
