@@ -10,6 +10,7 @@ set -eo pipefail
 OUTPUT_FORMAT="simple"
 BATCH_SIZE=10
 MAX_CONCURRENT=5
+DETAILED_BLOCKS=false
 TEMP_DIR=""
 START_TIME=""
 
@@ -428,6 +429,10 @@ main() {
                 MAX_CONCURRENT="$2"
                 shift 2
                 ;;
+            --detailed-blocks)
+                DETAILED_BLOCKS=true
+                shift
+                ;;
             -h|--help)
                 usage
                 exit 0
@@ -516,6 +521,48 @@ main() {
     echo -n "TRANSACTION_DATA:"
     format_transactions "$OUTPUT_FORMAT" "$all_transactions_file"
     echo -n "TRANSACTION_DATA:END"
+
+    # Output formatted block summaries if detailed blocks is enabled
+    if [[ "$DETAILED_BLOCKS" = true ]]; then
+        echo "BLOCK_SUMMARY_FORMATTED:START"
+
+        # Count triggered transactions per block by parsing the transactions file
+        declare -A triggered_per_block
+
+        if [[ -f "$all_transactions_file" && -s "$all_transactions_file" ]]; then
+            while IFS='|' read -r hash from to value data block_num rest; do
+                # Extract block number from transaction line (format: hash|from|to|value|data|block_number|...)
+                if [[ -n "$block_num" ]]; then
+                    triggered_per_block[$block_num]=$((${triggered_per_block[$block_num]:-0} + 1))
+                fi
+            done < "$all_transactions_file"
+        fi
+
+        # Get total tx count for each block and format output
+        for ((block = start_block; block <= end_block; block++)); do
+            local block_hex=$(printf "0x%x" "$block")
+            local total_tx_count=$(curl -s -X POST "$rpc_url" \
+                -H "Content-Type: application/json" \
+                -d "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getBlockByNumber\",\"params\":[\"$block_hex\", false],\"id\":1}" \
+                | jq -r '.result.transactions | length')
+
+            if [[ -z "$total_tx_count" || "$total_tx_count" == "null" ]]; then
+                total_tx_count=0
+            fi
+
+            local triggered_count=${triggered_per_block[$block]:-0}
+            local not_triggered=$((total_tx_count - triggered_count))
+
+            # Format output line
+            if [[ $triggered_count -gt 0 ]]; then
+                echo "=== BLOCK $block SUMMARY | Triggered: $triggered_count | Not Triggered: $not_triggered | Total: $total_tx_count ==="
+            else
+                echo "=== BLOCK $block | Total TXs: $total_tx_count ==="
+            fi
+        done
+
+        echo "BLOCK_SUMMARY_FORMATTED:END"
+    fi
 }
 
 # Run main function
