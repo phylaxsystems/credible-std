@@ -17,6 +17,9 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     string private _cachedScriptPath;
 
     /// @notice Execute backtesting with detailed logging
+    /// @param useTxHashFork If true, forks at exact transaction state (slow but accurate).
+    ///                      If false, forks at block start (fast but may have state differences).
+    ///                      Default: false. Use true only when investigating specific failures.
     function executeBacktest(
         address targetContract,
         uint256 endBlock,
@@ -24,7 +27,8 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         bytes memory assertionCreationCode,
         bytes4 assertionSelector,
         string memory rpcUrl,
-        bool detailedBlocks
+        bool detailedBlocks,
+        bool useTxHashFork
     ) public returns (BacktestingTypes.BacktestingResults memory results) {
         uint256 startBlock = endBlock > blockRange ? endBlock - blockRange + 1 : 1;
 
@@ -59,8 +63,9 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
             console.log(string.concat("Function: ", BacktestingUtils.extractFunctionSelector(transactions[i].data)));
             console.log("---");
 
-            BacktestingTypes.ValidationDetails memory validation =
-                _validateTransaction(targetContract, assertionCreationCode, assertionSelector, rpcUrl, transactions[i]);
+            BacktestingTypes.ValidationDetails memory validation = _validateTransaction(
+                targetContract, assertionCreationCode, assertionSelector, rpcUrl, transactions[i], useTxHashFork
+            );
 
             if (validation.result == BacktestingTypes.ValidationResult.Success) {
                 // This transaction was successfully validated
@@ -93,7 +98,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         return results;
     }
 
-    /// @notice Backward compatible wrapper without detailedBlocks parameter
+    /// @notice Backward compatible wrapper without detailedBlocks and useTxHashFork parameters
     function executeBacktest(
         address targetContract,
         uint256 endBlock,
@@ -102,10 +107,31 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         bytes4 assertionSelector,
         string memory rpcUrl
     ) public returns (BacktestingTypes.BacktestingResults memory results) {
-        return
-            executeBacktest(
-                targetContract, endBlock, blockRange, assertionCreationCode, assertionSelector, rpcUrl, false
-            );
+        return executeBacktest(
+            targetContract, endBlock, blockRange, assertionCreationCode, assertionSelector, rpcUrl, false, false
+        );
+    }
+
+    /// @notice Backward compatible wrapper without useTxHashFork parameter
+    function executeBacktest(
+        address targetContract,
+        uint256 endBlock,
+        uint256 blockRange,
+        bytes memory assertionCreationCode,
+        bytes4 assertionSelector,
+        string memory rpcUrl,
+        bool detailedBlocks
+    ) public returns (BacktestingTypes.BacktestingResults memory results) {
+        return executeBacktest(
+            targetContract,
+            endBlock,
+            blockRange,
+            assertionCreationCode,
+            assertionSelector,
+            rpcUrl,
+            detailedBlocks,
+            false
+        );
     }
 
     /// @notice Execute backtesting with config struct
@@ -119,6 +145,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
             config.assertionCreationCode,
             config.assertionSelector,
             config.rpcUrl,
+            false,
             false
         );
     }
@@ -132,10 +159,9 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         bytes4 assertionSelector
     ) public returns (BacktestingTypes.BacktestingResults memory results) {
         string memory rpcUrl = vm.envString("RPC_URL");
-        return
-            executeBacktest(
-                targetContract, endBlock, blockRange, assertionCreationCode, assertionSelector, rpcUrl, false
-            );
+        return executeBacktest(
+            targetContract, endBlock, blockRange, assertionCreationCode, assertionSelector, rpcUrl, false, false
+        );
     }
 
     /// @notice Get the standard search paths for transaction_fetcher.sh
@@ -375,9 +401,19 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         bytes memory assertionCreationCode,
         bytes4 assertionSelector,
         string memory rpcUrl,
-        BacktestingTypes.TransactionData memory txData
+        BacktestingTypes.TransactionData memory txData,
+        bool useTxHashFork
     ) private returns (BacktestingTypes.ValidationDetails memory validation) {
-        vm.createSelectFork(rpcUrl, txData.hash);
+        // Choose fork strategy based on flag
+        if (useTxHashFork) {
+            // Slow but accurate: fork at exact transaction state
+            // Replays all prior transactions in the block
+            vm.createSelectFork(rpcUrl, txData.hash);
+        } else {
+            // Fast: fork at start of block
+            // State is at beginning of block, before any transactions
+            vm.createSelectFork(rpcUrl, txData.blockNumber);
+        }
 
         // Prepare transaction sender
         vm.stopPrank();
