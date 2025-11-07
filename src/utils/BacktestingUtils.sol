@@ -185,4 +185,53 @@ library BacktestingUtils {
         }
         return string(result);
     }
+
+    /// @notice Decode revert reason from error data
+    /// @param data The error data from a failed call
+    /// @return The decoded revert reason string
+    function decodeRevertReason(bytes memory data) internal pure returns (string memory) {
+        if (data.length < 68) return "Unknown error";
+
+        assembly {
+            // Adjust the data pointer to skip the selector
+            data := add(data, 4)
+            // Adjust the length
+            mstore(data, sub(mload(data), 4))
+        }
+
+        return abi.decode(data, (string));
+    }
+
+    /// @notice Convert bytes to hex string
+    /// @param data The bytes to convert
+    /// @return The hex string representation
+    function bytesToHex(bytes memory data) internal pure returns (bytes memory) {
+        bytes memory hexChars = "0123456789abcdef";
+        bytes memory result = new bytes(data.length * 2);
+        for (uint256 i = 0; i < data.length; i++) {
+            result[i * 2] = hexChars[uint8(data[i]) >> 4];
+            result[i * 2 + 1] = hexChars[uint8(data[i]) & 0x0f];
+        }
+        return result;
+    }
+
+    /// @notice Get human-readable error type string from validation result
+    /// @param result The validation result enum
+    /// @return The human-readable string representation
+    function getErrorTypeString(BacktestingTypes.ValidationResult result) internal pure returns (string memory) {
+        if (result == BacktestingTypes.ValidationResult.Success) return "PASS";
+        if (result == BacktestingTypes.ValidationResult.Skipped) return "SKIP";
+        if (result == BacktestingTypes.ValidationResult.AssertionFailed) return "ASSERTION_FAIL";
+        return "UNKNOWN_ERROR";
+    }
+
+    /// @notice Get the standard search paths for transaction_fetcher.sh
+    /// @return Array of paths to check, in order of preference
+    function getDefaultScriptSearchPaths() internal pure returns (string[] memory) {
+        string[] memory paths = new string[](3);
+        paths[0] = "lib/credible-std/scripts/backtesting/transaction_fetcher.sh";
+        paths[1] = "dependencies/credible-std/scripts/backtesting/transaction_fetcher.sh";
+        paths[2] = "../credible-std/scripts/backtesting/transaction_fetcher.sh";
+        return paths;
+    }
 }

@@ -13,6 +13,9 @@ import {BacktestingUtils} from "./utils/BacktestingUtils.sol";
 abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     using Strings for uint256;
 
+    // Cached script path to avoid repeated lookups
+    string private _cachedScriptPath;
+
     /// @notice Execute backtesting with detailed logging
     function executeBacktest(
         address targetContract,
@@ -111,15 +114,73 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         return executeBacktest(targetContract, endBlock, blockRange, assertionCreationCode, assertionSelector, rpcUrl);
     }
 
+    /// @notice Get the standard search paths for transaction_fetcher.sh
+    /// @dev Override this in your test contract to add custom search paths
+    /// @return Array of paths to check, in order of preference
+    function _getScriptSearchPaths() internal view virtual returns (string[] memory) {
+        return BacktestingUtils.getDefaultScriptSearchPaths();
+    }
+
+    /// @notice Find the transaction_fetcher.sh script path
+    /// @dev Checks environment variable first, then searches common locations
+    ///      Override _getScriptSearchPaths() to customize search locations
+    /// @return The path to transaction_fetcher.sh
+    function _findScriptPath() internal virtual returns (string memory) {
+        // Return cached path if already found
+        if (bytes(_cachedScriptPath).length > 0) {
+            return _cachedScriptPath;
+        }
+
+        // Check for environment variable override first
+        try vm.envString("CREDIBLE_STD_PATH") returns (string memory envPath) {
+            if (bytes(envPath).length > 0) {
+                _cachedScriptPath = string.concat(envPath, "/scripts/backtesting/transaction_fetcher.sh");
+                return _cachedScriptPath;
+            }
+        } catch {
+            // Environment variable not set, continue with search
+        }
+
+        // Search standard locations
+        string[] memory testPaths = _getScriptSearchPaths();
+        for (uint256 i = 0; i < testPaths.length; i++) {
+            string[] memory testCmd = new string[](3);
+            testCmd[0] = "test";
+            testCmd[1] = "-f";
+            testCmd[2] = testPaths[i];
+
+            try vm.ffi(testCmd) {
+                // File exists, cache and return this path
+                _cachedScriptPath = testPaths[i];
+                return _cachedScriptPath;
+            } catch {
+                // File doesn't exist, try next path
+                continue;
+            }
+        }
+
+        // No valid path found - provide helpful error message
+        revert(
+            "transaction_fetcher.sh not found. "
+            "Set CREDIBLE_STD_PATH environment variable or override _getScriptSearchPaths(). "
+            "Standard locations checked: lib/credible-std/..., dependencies/credible-std/..., ../credible-std/..."
+        );
+    }
+
     /// @notice Fetch transactions using FFI
     function _fetchTransactions(address targetContract, uint256 startBlock, uint256 endBlock, string memory rpcUrl)
         private
         returns (BacktestingTypes.TransactionData[] memory transactions)
     {
+        // Determine the script path relative to project root
+        // The script is located at: credible-std/scripts/backtesting/transaction_fetcher.sh
+        // We need to find where credible-std is installed (could be in lib/ or pvt/lib/)
+        string memory scriptPath = _findScriptPath();
+
         // Build FFI command with optimized settings
         string[] memory inputs = new string[](16);
         inputs[0] = "bash";
-        inputs[1] = "pvt/lib/credible-std/scripts/backtesting/transaction_fetcher.sh";
+        inputs[1] = scriptPath;
         inputs[2] = "--rpc-url";
         inputs[3] = rpcUrl;
         inputs[4] = "--target-contract";
@@ -170,7 +231,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         vm.prank(txData.from, txData.from);
         (bool callSuccess, bytes memory returnData) = txData.to.call{value: txData.value}(txData.data);
 
-        string memory revertReason = _decodeRevertReason(returnData);
+        string memory revertReason = BacktestingUtils.decodeRevertReason(returnData);
 
         if (callSuccess) {
             validation.result = BacktestingTypes.ValidationResult.Success;
@@ -180,7 +241,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
                 == keccak256(bytes(revertReason))
         ) {
             // This transaction doesn't trigger the assertion, so we should skip it
-            // The new testing interface reverts if a transaction doesn't trigger the assertion
+            // The assertion testing interface reverts if a transaction to the assertion adopter doesn't trigger the assertion
             // We have to handle this specific case, by matching the revert reason.
             validation.result = BacktestingTypes.ValidationResult.Skipped;
             validation.errorMessage = revertReason;
@@ -192,46 +253,13 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         }
     }
 
-    function _decodeRevertReason(bytes memory data) private view returns (string memory) {
-        if (data.length < 68) return "Unknown error";
-
-        assembly {
-            // Adjust the data pointer to skip the selector
-            data := add(data, 4)
-            // Adjust the length
-            mstore(data, sub(mload(data), 4))
-        }
-
-        return abi.decode(data, (string));
-    }
-
-    // Helper function for try-catch
-    function externalDecode(bytes memory data) external pure returns (string memory) {
-        return abi.decode(data, (string));
-    }
-
-    // Helper to convert bytes to hex string
-    function _bytesToHex(bytes memory data) private pure returns (bytes memory) {
-        bytes memory hexChars = "0123456789abcdef";
-        bytes memory result = new bytes(data.length * 2);
-        for (uint256 i = 0; i < data.length; i++) {
-            result[i * 2] = hexChars[uint8(data[i]) >> 4];
-            result[i * 2 + 1] = hexChars[uint8(data[i]) & 0x0f];
-        }
-        return result;
-    }
-
     /// @notice Categorize and log error details
     function _categorizeAndLogError(BacktestingTypes.ValidationDetails memory validation) private view {
-        string memory errorType = _getErrorTypeString(validation.result);
+        string memory errorType = BacktestingUtils.getErrorTypeString(validation.result);
         console.log(string.concat("[", errorType, "] VALIDATION FAILED"));
 
-        // Print the actual revert reason
-        if (bytes(validation.errorMessage).length > 0) {
-            console.log(validation.errorMessage);
-        } else {
-            console.log("(No revert reason available)");
-        }
+        // Note: Revert reason is already printed by the credible framework
+        // so we don't print it again here to avoid duplication
     }
 
     /// @notice Increment the appropriate error counter
@@ -244,14 +272,6 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         } else if (result == BacktestingTypes.ValidationResult.UnknownError) {
             results.unknownErrors++;
         }
-    }
-
-    /// @notice Get human-readable error type string
-    function _getErrorTypeString(BacktestingTypes.ValidationResult result) private pure returns (string memory) {
-        if (result == BacktestingTypes.ValidationResult.Success) return "PASS";
-        if (result == BacktestingTypes.ValidationResult.Skipped) return "SKIP";
-        if (result == BacktestingTypes.ValidationResult.AssertionFailed) return "ASSERTION_FAIL";
-        return "UNKNOWN_ERROR";
     }
 
     /// @notice Print detailed results with error categorization

@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Transaction Fetcher - Bash Implementation (Free Tier RPC Compatible)
+# Transaction Fetcher - Bash Implementation
 # Fetches blockchain transactions for backtesting
-# Uses transaction receipts (logs) to detect internal calls - works with free tier RPCs!
+# Uses transaction receipts (logs) to detect internal calls
 
 set -eo pipefail
 
@@ -31,7 +31,8 @@ usage() {
     cat << EOF
 Usage: $0 [OPTIONS]
 
-Fetches blockchain transactions for backtesting
+Fetches blockchain transactions for backtesting. This script detects both direct calls
+and internal calls to the target contract by checking transaction receipt logs.
 
 OPTIONS:
     --rpc-url URL              RPC endpoint URL (required)
@@ -43,8 +44,56 @@ OPTIONS:
     --max-concurrent COUNT     Maximum concurrent requests (default: 5)
     -h, --help                 Show this help message
 
-NOTE: This script detects both direct calls and internal calls to the target contract
-      by checking transaction receipt logs. Works with free tier RPC endpoints!
+EXAMPLES:
+    # Fetch all transactions to Uniswap V2 Router in block range
+    $0 --rpc-url https://eth.llamarpc.com \\
+       --target-contract 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D \\
+       --start-block 10000000 \\
+       --end-block 10000100
+
+    # Fetch with custom concurrency settings for faster processing
+    $0 --rpc-url \$MAINNET_RPC_URL \\
+       --target-contract 0xBA12222222228d8Ba445958a75a0704d566BF2C8 \\
+       --start-block 23717632 \\
+       --end-block 23717632 \\
+       --batch-size 20 \\
+       --max-concurrent 10
+
+    # Output in JSON format
+    $0 --rpc-url \$MAINNET_RPC_URL \\
+       --target-contract 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D \\
+       --start-block 15000000 \\
+       --end-block 15000010 \\
+       --output-format json
+
+INTEGRATION WITH FOUNDRY:
+    This script is typically called from CredibleTestWithBacktesting contracts via FFI.
+
+    The script path is auto-detected from these locations:
+      - lib/credible-std/scripts/backtesting/transaction_fetcher.sh
+      - dependencies/credible-std/scripts/backtesting/transaction_fetcher.sh
+      - ../credible-std/scripts/backtesting/transaction_fetcher.sh
+
+    For custom paths, set the environment variable:
+      export CREDIBLE_STD_PATH=/path/to/credible-std
+
+    Or override _getScriptSearchPaths() in your test contract.
+
+PERFORMANCE TUNING:
+    --batch-size       Number of blocks to process in parallel batches
+                       Higher = faster but more memory. Try 10-50.
+
+    --max-concurrent   Number of concurrent RPC requests per batch
+                       Higher = faster but may hit rate limits. Try 5-20.
+
+    For best performance, balance these based on your RPC provider's rate limits.
+
+OUTPUT FORMAT:
+    simple: count|hash|from|to|value|data|blockNumber|txIndex|gasPrice|...
+    json:   Array of transaction objects with labeled fields
+
+NOTE: Internal call detection works by checking transaction logs for events emitted
+      by the target contract, which works with standard RPC endpoints.
 
 EOF
 }
@@ -78,7 +127,7 @@ hex_to_decimal() {
     fi
 }
 
-# Fetch transactions from a single block (detects internal calls via receipt logs)
+# Fetch transactions from a single block
 fetch_block_transactions() {
     local rpc_url="$1"
     local block_number="$2"
@@ -172,7 +221,7 @@ fetch_block_transactions() {
         fi
 
         # Method 2: Check transaction receipt logs for events from target contract
-        # This catches internal calls! Works with free tier RPCs (no debug_trace needed)
+        # This catches internal calls without requiring debug_trace* methods
         if [[ "$matches_target" == "false" ]]; then
             local receipt_request=$(jq -n \
                 --arg method "eth_getTransactionReceipt" \
@@ -415,7 +464,7 @@ main() {
     # Start timing
     START_TIME=$(date +%s)
 
-    echo "Starting optimized fetch with internal call detection (free tier RPC compatible)" >&2
+    echo "Starting transaction fetch with internal call detection" >&2
     echo "Blocks: $start_block to $end_block (batch size: $BATCH_SIZE, max concurrent: $MAX_CONCURRENT)" >&2
 
     # Process blocks in batches
