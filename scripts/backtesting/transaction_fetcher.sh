@@ -11,6 +11,7 @@ OUTPUT_FORMAT="simple"
 BATCH_SIZE=10
 MAX_CONCURRENT=5
 DETAILED_BLOCKS=false
+DETECT_INTERNAL_CALLS=false
 TEMP_DIR=""
 START_TIME=""
 
@@ -32,18 +33,20 @@ usage() {
     cat << EOF
 Usage: $0 [OPTIONS]
 
-Fetches blockchain transactions for backtesting. This script detects both direct calls
-and internal calls to the target contract by checking transaction receipt logs.
+Fetches blockchain transactions for backtesting. By default, detects only direct calls
+to the target contract. Use --detect-internal-calls to also find internal calls.
 
 OPTIONS:
-    --rpc-url URL              RPC endpoint URL (required)
-    --target-contract ADDRESS  Contract address to filter transactions for (required)
-    --start-block NUMBER       Starting block number (required)
-    --end-block NUMBER         Ending block number (required)
-    --output-format FORMAT     Output format: simple or json (default: simple)
-    --batch-size SIZE          Batch size for processing (default: 10)
-    --max-concurrent COUNT     Maximum concurrent requests (default: 5)
-    -h, --help                 Show this help message
+    --rpc-url URL                 RPC endpoint URL (required)
+    --target-contract ADDRESS     Contract address to filter transactions for (required)
+    --start-block NUMBER          Starting block number (required)
+    --end-block NUMBER            Ending block number (required)
+    --output-format FORMAT        Output format: simple or json (default: simple)
+    --batch-size SIZE             Batch size for processing (default: 10)
+    --max-concurrent COUNT        Maximum concurrent requests (default: 5)
+    --detect-internal-calls       Enable detection of internal calls via receipts (slow, default: false)
+    --detailed-blocks             Enable detailed per-block summaries (default: false)
+    -h, --help                    Show this help message
 
 EXAMPLES:
     # Fetch all transactions to Uniswap V2 Router in block range
@@ -93,8 +96,14 @@ OUTPUT FORMAT:
     simple: count|hash|from|to|value|data|blockNumber|txIndex|gasPrice|...
     json:   Array of transaction objects with labeled fields
 
-NOTE: Internal call detection works by checking transaction logs for events emitted
-      by the target contract, which works with standard RPC endpoints.
+INTERNAL CALL DETECTION:
+    By default, only direct calls (tx.to == target) are detected for performance.
+
+    Use --detect-internal-calls to also detect internal calls by checking transaction
+    receipts for events from the target contract. Note: This is significantly slower
+    (adds 1 RPC call per non-matching transaction) but works with standard RPC endpoints.
+
+    For production use, consider using debug_traceTransaction instead for better performance.
 
 EOF
 }
@@ -223,7 +232,8 @@ fetch_block_transactions() {
 
         # Method 2: Check transaction receipt logs for events from target contract
         # This catches internal calls without requiring debug_trace* methods
-        if [[ "$matches_target" == "false" ]]; then
+        # Note: This is expensive (1 RPC call per non-matching tx), only enable if needed
+        if [[ "$matches_target" == "false" && "$DETECT_INTERNAL_CALLS" == "true" ]]; then
             local receipt_request=$(jq -n \
                 --arg method "eth_getTransactionReceipt" \
                 --arg tx_hash "$tx_hash" \
@@ -431,6 +441,10 @@ main() {
                 ;;
             --detailed-blocks)
                 DETAILED_BLOCKS=true
+                shift
+                ;;
+            --detect-internal-calls)
+                DETECT_INTERNAL_CALLS=true
                 shift
                 ;;
             -h|--help)
