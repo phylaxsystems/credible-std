@@ -17,13 +17,18 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     string private _cachedScriptPath;
 
     /// @notice Execute backtesting with detailed logging
+    /// @param useTxHashFork If true, forks at exact transaction state (slow but accurate).
+    ///                      If false, forks at block start (fast but may have state differences).
+    ///                      Default: false. Use true only when investigating specific failures.
     function executeBacktest(
         address targetContract,
         uint256 endBlock,
         uint256 blockRange,
         bytes memory assertionCreationCode,
         bytes4 assertionSelector,
-        string memory rpcUrl
+        string memory rpcUrl,
+        bool detailedBlocks,
+        bool useTxHashFork
     ) public returns (BacktestingTypes.BacktestingResults memory results) {
         uint256 startBlock = endBlock > blockRange ? endBlock - blockRange + 1 : 1;
 
@@ -58,8 +63,9 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
             console.log(string.concat("Function: ", BacktestingUtils.extractFunctionSelector(transactions[i].data)));
             console.log("---");
 
-            BacktestingTypes.ValidationDetails memory validation =
-                _validateTransaction(targetContract, assertionCreationCode, assertionSelector, rpcUrl, transactions[i]);
+            BacktestingTypes.ValidationDetails memory validation = _validateTransaction(
+                targetContract, assertionCreationCode, assertionSelector, rpcUrl, transactions[i], useTxHashFork
+            );
 
             if (validation.result == BacktestingTypes.ValidationResult.Success) {
                 // This transaction was successfully validated
@@ -83,8 +89,49 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
             console.log("---");
         }
 
+        // Print formatted block summaries from bash if detailed blocks enabled
+        if (detailedBlocks) {
+            _printFormattedBlockSummaries(targetContract, startBlock, endBlock, rpcUrl);
+        }
+
         _printDetailedResults(startBlock, endBlock, results);
         return results;
+    }
+
+    /// @notice Backward compatible wrapper without detailedBlocks and useTxHashFork parameters
+    function executeBacktest(
+        address targetContract,
+        uint256 endBlock,
+        uint256 blockRange,
+        bytes memory assertionCreationCode,
+        bytes4 assertionSelector,
+        string memory rpcUrl
+    ) public returns (BacktestingTypes.BacktestingResults memory results) {
+        return executeBacktest(
+            targetContract, endBlock, blockRange, assertionCreationCode, assertionSelector, rpcUrl, false, false
+        );
+    }
+
+    /// @notice Backward compatible wrapper without useTxHashFork parameter
+    function executeBacktest(
+        address targetContract,
+        uint256 endBlock,
+        uint256 blockRange,
+        bytes memory assertionCreationCode,
+        bytes4 assertionSelector,
+        string memory rpcUrl,
+        bool detailedBlocks
+    ) public returns (BacktestingTypes.BacktestingResults memory results) {
+        return executeBacktest(
+            targetContract,
+            endBlock,
+            blockRange,
+            assertionCreationCode,
+            assertionSelector,
+            rpcUrl,
+            detailedBlocks,
+            false
+        );
     }
 
     /// @notice Execute backtesting with config struct
@@ -98,7 +145,9 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
             config.blockRange,
             config.assertionCreationCode,
             config.assertionSelector,
-            config.rpcUrl
+            config.rpcUrl,
+            false,
+            false
         );
     }
 
@@ -111,7 +160,9 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         bytes4 assertionSelector
     ) public returns (BacktestingTypes.BacktestingResults memory results) {
         string memory rpcUrl = vm.envString("RPC_URL");
-        return executeBacktest(targetContract, endBlock, blockRange, assertionCreationCode, assertionSelector, rpcUrl);
+        return executeBacktest(
+            targetContract, endBlock, blockRange, assertionCreationCode, assertionSelector, rpcUrl, false, false
+        );
     }
 
     /// @notice Get the standard search paths for transaction_fetcher.sh
@@ -210,15 +261,160 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         transactions = BacktestingUtils.parseMultipleTransactions(dataLine);
     }
 
+    /// @notice Fetch transactions with raw FFI output (for detailed blocks)
+    function _fetchTransactionsRaw(
+        address targetContract,
+        uint256 startBlock,
+        uint256 endBlock,
+        string memory rpcUrl,
+        bool withDetailedBlocks
+    ) private returns (bytes memory) {
+        string memory scriptPath = _findScriptPath();
+
+        uint256 inputSize = withDetailedBlocks ? 17 : 16;
+        string[] memory inputs = new string[](inputSize);
+        inputs[0] = "bash";
+        inputs[1] = scriptPath;
+        inputs[2] = "--rpc-url";
+        inputs[3] = rpcUrl;
+        inputs[4] = "--target-contract";
+        inputs[5] = Strings.toHexString(targetContract);
+        inputs[6] = "--start-block";
+        inputs[7] = startBlock.toString();
+        inputs[8] = "--end-block";
+        inputs[9] = endBlock.toString();
+        inputs[10] = "--batch-size";
+        inputs[11] = "20";
+        inputs[12] = "--max-concurrent";
+        inputs[13] = "10";
+        inputs[14] = "--output-format";
+        inputs[15] = "simple";
+        if (withDetailedBlocks) {
+            inputs[16] = "--detailed-blocks";
+        }
+
+        return vm.ffi(inputs);
+    }
+
+    /// @notice Parse transactions from FFI output
+    function _parseTransactionsFromOutput(bytes memory ffiOutput)
+        private
+        view
+        returns (BacktestingTypes.TransactionData[] memory)
+    {
+        string memory output = string(ffiOutput);
+        string memory dataLine = BacktestingUtils.extractDataLine(output);
+
+        if (bytes(dataLine).length == 0 || keccak256(bytes(dataLine)) == keccak256(bytes("0"))) {
+            return new BacktestingTypes.TransactionData[](0);
+        }
+
+        return BacktestingUtils.parseMultipleTransactions(dataLine);
+    }
+
+    /// @notice Print formatted block summaries from bash output
+    function _printFormattedBlockSummaries(
+        address targetContract,
+        uint256 startBlock,
+        uint256 endBlock,
+        string memory rpcUrl
+    ) private {
+        // Fetch output with detailed blocks flag
+        bytes memory ffiOutput = _fetchTransactionsRaw(targetContract, startBlock, endBlock, rpcUrl, true);
+        string memory output = string(ffiOutput);
+        bytes memory outputBytes = bytes(output);
+
+        // Find "BLOCK_SUMMARY_FORMATTED:START"
+        bytes memory startMarker = bytes("BLOCK_SUMMARY_FORMATTED:START");
+        uint256 startPos = 0;
+        bool foundStart = false;
+
+        for (uint256 i = 0; i <= outputBytes.length - startMarker.length; i++) {
+            bool matches = true;
+            for (uint256 j = 0; j < startMarker.length; j++) {
+                if (outputBytes[i + j] != startMarker[j]) {
+                    matches = false;
+                    break;
+                }
+            }
+            if (matches) {
+                startPos = i + startMarker.length + 1; // +1 to skip newline
+                foundStart = true;
+                break;
+            }
+        }
+
+        if (!foundStart) return;
+
+        // Find "BLOCK_SUMMARY_FORMATTED:END"
+        bytes memory endMarker = bytes("BLOCK_SUMMARY_FORMATTED:END");
+        uint256 endPos = 0;
+        bool foundEnd = false;
+
+        for (uint256 i = startPos; i <= outputBytes.length - endMarker.length; i++) {
+            bool matches = true;
+            for (uint256 j = 0; j < endMarker.length; j++) {
+                if (outputBytes[i + j] != endMarker[j]) {
+                    matches = false;
+                    break;
+                }
+            }
+            if (matches) {
+                endPos = i;
+                foundEnd = true;
+                break;
+            }
+        }
+
+        if (!foundEnd) return;
+
+        // Print each line between markers
+        console.log("==========================================");
+        console.log("           BLOCK SUMMARIES");
+        console.log("==========================================");
+
+        uint256 lineStart = startPos;
+        for (uint256 i = startPos; i < endPos; i++) {
+            if (outputBytes[i] == bytes1("\n") || i == endPos - 1) {
+                // Found end of line or end of content
+                uint256 lineEnd = (i == endPos - 1) ? i + 1 : i;
+                uint256 lineLength = lineEnd - lineStart;
+
+                if (lineLength > 0) {
+                    // Extract and print the line
+                    bytes memory lineBytes = new bytes(lineLength);
+                    for (uint256 j = 0; j < lineLength; j++) {
+                        lineBytes[j] = outputBytes[lineStart + j];
+                    }
+                    console.log(string(lineBytes));
+                }
+
+                lineStart = i + 1; // Start of next line
+            }
+        }
+
+        console.log("==========================================");
+    }
+
     /// @notice Validate a single transaction with detailed error categorization
     function _validateTransaction(
         address targetContract,
         bytes memory assertionCreationCode,
         bytes4 assertionSelector,
         string memory rpcUrl,
-        BacktestingTypes.TransactionData memory txData
+        BacktestingTypes.TransactionData memory txData,
+        bool useTxHashFork
     ) private returns (BacktestingTypes.ValidationDetails memory validation) {
-        vm.createSelectFork(rpcUrl, txData.hash);
+        // Choose fork strategy based on flag
+        if (useTxHashFork) {
+            // Slow but accurate: fork at exact transaction state
+            // Replays all prior transactions in the block
+            vm.createSelectFork(rpcUrl, txData.hash);
+        } else {
+            // Fast: fork at start of block
+            // State is at beginning of block, before any transactions
+            vm.createSelectFork(rpcUrl, txData.blockNumber);
+        }
 
         // Prepare transaction sender
         vm.stopPrank();
@@ -241,8 +437,8 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
                 == keccak256(bytes(revertReason))
         ) {
             // This transaction doesn't trigger the assertion, so we should skip it
-            // The assertion testing interface reverts if a transaction to the assertion adopter doesn't trigger the assertion
-            // We have to handle this specific case, by matching the revert reason.
+            // The assertion testing interface reverts if a transaction to the assertion adopter doesn't trigger the
+            // assertion We have to handle this specific case, by matching the revert reason.
             validation.result = BacktestingTypes.ValidationResult.Skipped;
             validation.errorMessage = revertReason;
             validation.isProtocolViolation = false;

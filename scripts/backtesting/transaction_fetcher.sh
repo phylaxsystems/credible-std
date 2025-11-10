@@ -10,8 +10,13 @@ set -eo pipefail
 OUTPUT_FORMAT="simple"
 BATCH_SIZE=10
 MAX_CONCURRENT=5
+DETAILED_BLOCKS=false
+DETECT_INTERNAL_CALLS=false
 TEMP_DIR=""
 START_TIME=""
+
+# RPC call counter files (for aggregating across subprocesses)
+RPC_COUNTER_DIR=""
 
 # Cleanup function
 cleanup() {
@@ -25,24 +30,28 @@ trap cleanup EXIT
 
 # Create temporary directory for parallel processing
 TEMP_DIR=$(mktemp -d)
+RPC_COUNTER_DIR="$TEMP_DIR/rpc_counters"
+mkdir -p "$RPC_COUNTER_DIR"
 
 # Usage function
 usage() {
     cat << EOF
 Usage: $0 [OPTIONS]
 
-Fetches blockchain transactions for backtesting. This script detects both direct calls
-and internal calls to the target contract by checking transaction receipt logs.
+Fetches blockchain transactions for backtesting. By default, detects only direct calls
+to the target contract. Use --detect-internal-calls to also find internal calls.
 
 OPTIONS:
-    --rpc-url URL              RPC endpoint URL (required)
-    --target-contract ADDRESS  Contract address to filter transactions for (required)
-    --start-block NUMBER       Starting block number (required)
-    --end-block NUMBER         Ending block number (required)
-    --output-format FORMAT     Output format: simple or json (default: simple)
-    --batch-size SIZE          Batch size for processing (default: 10)
-    --max-concurrent COUNT     Maximum concurrent requests (default: 5)
-    -h, --help                 Show this help message
+    --rpc-url URL                 RPC endpoint URL (required)
+    --target-contract ADDRESS     Contract address to filter transactions for (required)
+    --start-block NUMBER          Starting block number (required)
+    --end-block NUMBER            Ending block number (required)
+    --output-format FORMAT        Output format: simple or json (default: simple)
+    --batch-size SIZE             Batch size for processing (default: 10)
+    --max-concurrent COUNT        Maximum concurrent requests (default: 5)
+    --detect-internal-calls       Enable detection of internal calls via receipts (slow, default: false)
+    --detailed-blocks             Enable detailed per-block summaries (default: false)
+    -h, --help                    Show this help message
 
 EXAMPLES:
     # Fetch all transactions to Uniswap V2 Router in block range
@@ -92,8 +101,14 @@ OUTPUT FORMAT:
     simple: count|hash|from|to|value|data|blockNumber|txIndex|gasPrice|...
     json:   Array of transaction objects with labeled fields
 
-NOTE: Internal call detection works by checking transaction logs for events emitted
-      by the target contract, which works with standard RPC endpoints.
+INTERNAL CALL DETECTION:
+    By default, only direct calls (tx.to == target) are detected for performance.
+
+    Use --detect-internal-calls to also detect internal calls by checking transaction
+    receipts for events from the target contract. Note: This is significantly slower
+    (adds 1 RPC call per non-matching transaction) but works with standard RPC endpoints.
+
+    For production use, consider using debug_traceTransaction instead for better performance.
 
 EOF
 }
@@ -150,6 +165,7 @@ fetch_block_transactions() {
 
     # Make the request
     local response
+    echo "1" >> "$RPC_COUNTER_DIR/block_fetch.count"
     if ! response=$(curl -s -X POST \
         -H "Content-Type: application/json" \
         -d "$rpc_request" \
@@ -222,7 +238,8 @@ fetch_block_transactions() {
 
         # Method 2: Check transaction receipt logs for events from target contract
         # This catches internal calls without requiring debug_trace* methods
-        if [[ "$matches_target" == "false" ]]; then
+        # Note: This is expensive (1 RPC call per non-matching tx), only enable if needed
+        if [[ "$matches_target" == "false" && "$DETECT_INTERNAL_CALLS" == "true" ]]; then
             local receipt_request=$(jq -n \
                 --arg method "eth_getTransactionReceipt" \
                 --arg tx_hash "$tx_hash" \
@@ -234,6 +251,7 @@ fetch_block_transactions() {
                 }')
 
             local receipt_response
+            echo "1" >> "$RPC_COUNTER_DIR/receipt_fetch.count"
             receipt_response=$(curl -s -X POST \
                 -H "Content-Type: application/json" \
                 -d "$receipt_request" \
@@ -428,6 +446,14 @@ main() {
                 MAX_CONCURRENT="$2"
                 shift 2
                 ;;
+            --detailed-blocks)
+                DETAILED_BLOCKS=true
+                shift
+                ;;
+            --detect-internal-calls)
+                DETECT_INTERNAL_CALLS=true
+                shift
+                ;;
             -h|--help)
                 usage
                 exit 0
@@ -511,11 +537,83 @@ main() {
         echo "Average: $blocks_per_sec blocks/sec, $tx_per_sec transactions/sec" >&2
     fi
 
+    # Display RPC call statistics
+    local block_fetch_count=0
+    local receipt_fetch_count=0
+    local detailed_block_count=0
+
+    if [[ -f "$RPC_COUNTER_DIR/block_fetch.count" ]]; then
+        block_fetch_count=$(wc -l < "$RPC_COUNTER_DIR/block_fetch.count" | tr -d ' ')
+    fi
+    if [[ -f "$RPC_COUNTER_DIR/receipt_fetch.count" ]]; then
+        receipt_fetch_count=$(wc -l < "$RPC_COUNTER_DIR/receipt_fetch.count" | tr -d ' ')
+    fi
+    if [[ -f "$RPC_COUNTER_DIR/detailed_block.count" ]]; then
+        detailed_block_count=$(wc -l < "$RPC_COUNTER_DIR/detailed_block.count" | tr -d ' ')
+    fi
+
+    local total_rpc_calls=$((block_fetch_count + receipt_fetch_count + detailed_block_count))
+
+    echo "" >&2
+    echo "=== RPC CALL STATISTICS ===" >&2
+    echo "Total RPC calls: $total_rpc_calls" >&2
+    echo "  - Block fetches: $block_fetch_count" >&2
+    echo "  - Receipt fetches: $receipt_fetch_count" >&2
+    echo "  - Detailed block fetches: $detailed_block_count" >&2
+    if [[ $duration -gt 0 && $total_rpc_calls -gt 0 ]]; then
+        local rpc_per_sec=$((total_rpc_calls / duration))
+        echo "Average: $rpc_per_sec RPC calls/sec" >&2
+    fi
+    echo "===========================" >&2
+
     # Output results
     echo "TRANSACTION_DATA:START"
     echo -n "TRANSACTION_DATA:"
     format_transactions "$OUTPUT_FORMAT" "$all_transactions_file"
     echo -n "TRANSACTION_DATA:END"
+
+    # Output formatted block summaries if detailed blocks is enabled
+    if [[ "$DETAILED_BLOCKS" = true ]]; then
+        echo "BLOCK_SUMMARY_FORMATTED:START"
+
+        # Count triggered transactions per block by parsing the transactions file
+        declare -A triggered_per_block
+
+        if [[ -f "$all_transactions_file" && -s "$all_transactions_file" ]]; then
+            while IFS='|' read -r hash from to value data block_num rest; do
+                # Extract block number from transaction line (format: hash|from|to|value|data|block_number|...)
+                if [[ -n "$block_num" ]]; then
+                    triggered_per_block[$block_num]=$((${triggered_per_block[$block_num]:-0} + 1))
+                fi
+            done < "$all_transactions_file"
+        fi
+
+        # Get total tx count for each block and format output
+        for ((block = start_block; block <= end_block; block++)); do
+            local block_hex=$(printf "0x%x" "$block")
+            echo "1" >> "$RPC_COUNTER_DIR/detailed_block.count"
+            local total_tx_count=$(curl -s -X POST "$rpc_url" \
+                -H "Content-Type: application/json" \
+                -d "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getBlockByNumber\",\"params\":[\"$block_hex\", false],\"id\":1}" \
+                | jq -r '.result.transactions | length')
+
+            if [[ -z "$total_tx_count" || "$total_tx_count" == "null" ]]; then
+                total_tx_count=0
+            fi
+
+            local triggered_count=${triggered_per_block[$block]:-0}
+            local not_triggered=$((total_tx_count - triggered_count))
+
+            # Format output line
+            if [[ $triggered_count -gt 0 ]]; then
+                echo "=== BLOCK $block SUMMARY | Triggered: $triggered_count | Not Triggered: $not_triggered | Total: $total_tx_count ==="
+            else
+                echo "=== BLOCK $block | Total TXs: $total_tx_count ==="
+            fi
+        done
+
+        echo "BLOCK_SUMMARY_FORMATTED:END"
+    fi
 }
 
 # Run main function
