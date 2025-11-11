@@ -21,7 +21,10 @@ contract UsdcOpSepoliaBacktestingTest is CredibleTestWithBacktesting {
             blockRange: 20, // 20 blocks before
             assertionCreationCode: type(ERC20Assertion).creationCode,
             assertionSelector: ERC20Assertion.assertionTransferInvariant.selector,
-            rpcUrl: "https://sepolia.optimism.io"
+            rpcUrl: "https://sepolia.optimism.io",
+            detailedBlocks: false,
+            useTraceFilter: false,
+            forkByTxHash: false
         });
     }
 
@@ -36,28 +39,40 @@ contract UsdcOpSepoliaBacktestingTest is CredibleTestWithBacktesting {
         console.log("=== MAINNET SEPOLIA USDC BACKTESTING ===");
 
         // Execute backtesting on mainnet Sepolia USDC
-        executeBacktest({
-            targetContract: 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238, // USDC on mainnet Sepolia
-            endBlock: 8925198, // Fairly recent block on mainnet Sepolia
-            blockRange: 10, // 10 blocks before
-            assertionCreationCode: type(ERC20Assertion).creationCode,
-            assertionSelector: ERC20Assertion.assertionTransferInvariant.selector
-        });
+        executeBacktest(
+            BacktestingTypes.BacktestingConfig({
+                targetContract: 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238, // USDC on mainnet Sepolia
+                endBlock: 8925198, // Fairly recent block on mainnet Sepolia
+                blockRange: 10, // 10 blocks before
+                assertionCreationCode: type(ERC20Assertion).creationCode,
+                assertionSelector: ERC20Assertion.assertionTransferInvariant.selector,
+                rpcUrl: vm.envString("MAINNET_SEPOLIA_RPC_URL"),
+                detailedBlocks: false,
+                useTraceFilter: false,
+                forkByTxHash: false
+            })
+        );
     }
 
     /// @notice Test ERC20 assertion with rpc env variable
     function testSimpleERC20Backtesting() public {
         // Skip if RPC_URL not provided
-        try vm.envString("RPC_URL") returns (string memory) {
+        try vm.envString("RPC_URL") returns (string memory rpcUrl) {
             console.log("=== SIMPLE BACKTESTING DEMO ===");
 
-            executeBacktest({
-                targetContract: 0x5fd84259d66Cd46123540766Be93DFE6D43130D7, // USDC on Optimism Sepolia
-                endBlock: 31250000, // Recent block
-                blockRange: 100, // Test range
-                assertionCreationCode: type(ERC20Assertion).creationCode,
-                assertionSelector: ERC20Assertion.assertionTransferInvariant.selector
-            });
+            executeBacktest(
+                BacktestingTypes.BacktestingConfig({
+                    targetContract: 0x5fd84259d66Cd46123540766Be93DFE6D43130D7, // USDC on Optimism Sepolia
+                    endBlock: 31250000, // Recent block
+                    blockRange: 100, // Test range
+                    assertionCreationCode: type(ERC20Assertion).creationCode,
+                    assertionSelector: ERC20Assertion.assertionTransferInvariant.selector,
+                    rpcUrl: rpcUrl,
+                    detailedBlocks: false,
+                    useTraceFilter: false,
+                    forkByTxHash: false
+                })
+            );
         } catch {
             console.log("WARNING: RPC_URL not provided, skipping backtesting test");
         }
@@ -67,24 +82,34 @@ contract UsdcOpSepoliaBacktestingTest is CredibleTestWithBacktesting {
     function testSimpleBacktestingWithRPC() public {
         console.log("=== SIMPLE BACKTESTING WITH EXPLICIT RPC ===");
 
-        executeBacktest({
-            targetContract: 0x5fd84259d66Cd46123540766Be93DFE6D43130D7, // USDC on Optimism Sepolia
-            endBlock: 31336940, // Known block with transfer
-            blockRange: 20, // 20 blocks before
-            assertionCreationCode: type(ERC20Assertion).creationCode,
-            assertionSelector: ERC20Assertion.assertionTransferInvariant.selector,
-            rpcUrl: "https://sepolia.optimism.io"
-        });
+        executeBacktest(
+            BacktestingTypes.BacktestingConfig({
+                targetContract: 0x5fd84259d66Cd46123540766Be93DFE6D43130D7, // USDC on Optimism Sepolia
+                endBlock: 31336940, // Known block with transfer
+                blockRange: 20, // 20 blocks before
+                assertionCreationCode: type(ERC20Assertion).creationCode,
+                assertionSelector: ERC20Assertion.assertionTransferInvariant.selector,
+                rpcUrl: "https://sepolia.optimism.io",
+                detailedBlocks: false,
+                useTraceFilter: false,
+                forkByTxHash: false
+            })
+        );
     }
 
     function testRevertingAssertion() public {
-        executeBacktest({
-            targetContract: 0x5fd84259d66Cd46123540766Be93DFE6D43130D7, // USDC on Optimism Sepolia
-            endBlock: 31336940, // Known block with transfer
-            blockRange: 20, // 20 blocks before
-            assertionCreationCode: type(ERC20Assertion).creationCode,
-            assertionSelector: ERC20Assertion.assertionTransferInvariantRevert.selector,
-            rpcUrl: "https://sepolia.optimism.io"
-        });
+        executeBacktest(
+            BacktestingTypes.BacktestingConfig({
+                targetContract: 0x5fd84259d66Cd46123540766Be93DFE6D43130D7, // USDC on Optimism Sepolia
+                endBlock: 31336940, // Known block with transfer
+                blockRange: 20, // 20 blocks before
+                assertionCreationCode: type(ERC20Assertion).creationCode,
+                assertionSelector: ERC20Assertion.assertionTransferInvariantRevert.selector,
+                rpcUrl: "https://sepolia.optimism.io",
+                detailedBlocks: false,
+                useTraceFilter: false,
+                forkByTxHash: false
+            })
+        );
     }
 }
