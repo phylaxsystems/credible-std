@@ -39,6 +39,9 @@ library BacktestingTypes {
         bytes assertionCreationCode;
         bytes4 assertionSelector;
         string rpcUrl;
+        bool detailedBlocks; // Enable detailed block summaries in output
+        bool useTraceFilter; // Use trace_filter (fast) instead of debug_traceTransaction (slow)
+        bool forkByTxHash; // Fork by transaction hash instead of block number (more accurate but slower)
     }
 
     /// @notice Enhanced backtesting results with detailed categorization
