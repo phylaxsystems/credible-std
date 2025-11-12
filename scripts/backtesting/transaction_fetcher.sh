@@ -231,41 +231,79 @@ fetch_transactions_trace_filter() {
     fi
 
     # Parse traces and group by transaction
-    # Get top-level trace for each transaction (traceAddress == [])
-    # If no top-level trace exists, use the first trace
-    local transactions=$(echo "$trace_response" | jq -r '
+    # Extract unique transaction hashes that involve the target contract
+    # We'll fetch full transaction data separately to avoid issues with internal calls
+    local tx_hashes=$(echo "$trace_response" | jq -r '
         .result
         | group_by(.transactionHash)
-        | map(
-            # Try to get top-level trace (empty traceAddress)
-            (map(select(.traceAddress | length == 0)) | .[0])
-            // .[0]  # Fallback to first trace if no top-level
-          )
-        | map(
-            # Extract fields: hash|from|to|value|data|blockNumber|txIndex|gasPrice
-            [
-              .transactionHash,
-              .action.from,
-              .action.to,
-              .action.value // "0x0",
-              .action.input // "0x",
-              (.blockNumber | tostring),
-              (.transactionPosition | tostring),
-              "0x0"  # gasPrice not available in traces
-            ] | join("|")
-          )
-        | .[]  # Output each transaction on a separate line
+        | map(.[0])
+        | map({
+            hash: .transactionHash,
+            blockNumber: .blockNumber,
+            transactionPosition: .transactionPosition
+          })
+        | .[]
+        | [.hash, (.blockNumber | tostring), (.transactionPosition | tostring)] | join("|")
     ')
 
-    # Count transactions and write to output file (one per line)
+    # Fetch full transaction data for each transaction hash and filter by receipt status
     local tx_count=0
-    if [[ -n "$transactions" ]]; then
-        while IFS= read -r tx_line; do
-            if [[ -n "$tx_line" ]]; then
-                echo "$tx_line" >> "$output_file"
-                ((tx_count++))
+    if [[ -n "$tx_hashes" ]]; then
+        while IFS='|' read -r tx_hash block_num tx_index; do
+            if [[ -n "$tx_hash" ]]; then
+                # Fetch actual transaction data using eth_getTransactionByHash
+                local tx_request=$(jq -n \
+                    --arg tx_hash "$tx_hash" \
+                    '{
+                        "jsonrpc": "2.0",
+                        "method": "eth_getTransactionByHash",
+                        "params": [$tx_hash],
+                        "id": 1
+                    }')
+
+                echo "1" >> "$RPC_COUNTER_DIR/tx_fetch.count"
+                local tx_response=$(retry_with_backoff 5 curl -s -X POST \
+                    -H "Content-Type: application/json" \
+                    -d "$tx_request" \
+                    --max-time 30 \
+                    "$rpc_url")
+
+                local tx_data=$(echo "$tx_response" | jq -r '.result')
+
+                if [[ -n "$tx_data" && "$tx_data" != "null" ]]; then
+                    local tx_from=$(echo "$tx_data" | jq -r '.from')
+                    local tx_to=$(echo "$tx_data" | jq -r '.to // empty')
+                    local tx_value=$(echo "$tx_data" | jq -r '.value')
+                    local tx_input=$(echo "$tx_data" | jq -r '.input')
+                    local tx_gas_price=$(echo "$tx_data" | jq -r '.gasPrice')
+
+                    # Check if transaction succeeded on-chain
+                    local receipt_request=$(jq -n \
+                        --arg tx_hash "$tx_hash" \
+                        '{
+                            "jsonrpc": "2.0",
+                            "method": "eth_getTransactionReceipt",
+                            "params": [$tx_hash],
+                            "id": 1
+                        }')
+
+                    echo "1" >> "$RPC_COUNTER_DIR/receipt_fetch.count"
+                    local receipt_response=$(retry_with_backoff 5 curl -s -X POST \
+                        -H "Content-Type: application/json" \
+                        -d "$receipt_request" \
+                        --max-time 30 \
+                        "$rpc_url")
+
+                    local tx_status=$(echo "$receipt_response" | jq -r '.result.status // empty')
+
+                    # Only output transaction if it succeeded (status == "0x1")
+                    if [[ "$tx_status" == "0x1" ]]; then
+                        echo "$tx_hash|$tx_from|$tx_to|$tx_value|$tx_input|$block_num|$tx_index|$tx_gas_price" >> "$output_file"
+                        ((tx_count++))
+                    fi
+                fi
             fi
-        done <<< "$transactions"
+        done <<< "$tx_hashes"
     fi
 
     echo "  Found $tx_count transactions in blocks $start_block-$end_block" >&2
@@ -362,18 +400,39 @@ fetch_block_transactions() {
         if [[ -n "$tx_to" ]]; then
             local tx_to_lower=$(echo "$tx_to" | tr '[:upper:]' '[:lower:]')
             if [[ "$tx_to_lower" == "$target_contract_lower" ]]; then
-                # Direct call found - output transaction
-                local tx_from=$(echo "$tx" | jq -r '.from')
-                local tx_value=$(echo "$tx" | jq -r '.value')
-                local tx_input=$(echo "$tx" | jq -r '.input')
-                local tx_index_hex=$(echo "$tx" | jq -r '.transactionIndex')
-                local tx_gas_price=$(echo "$tx" | jq -r '.gasPrice')
+                # Direct call found - check if transaction succeeded on-chain
+                local receipt_request=$(jq -n \
+                    --arg tx_hash "$tx_hash" \
+                    '{
+                        "jsonrpc": "2.0",
+                        "method": "eth_getTransactionReceipt",
+                        "params": [$tx_hash],
+                        "id": 1
+                    }')
 
-                # Convert transaction index to decimal
-                local tx_index_decimal=$(hex_to_decimal "$tx_index_hex")
+                echo "1" >> "$rpc_counter_dir/receipt_fetch.count"
+                local receipt_response=$(retry_with_backoff 5 curl -s -X POST \
+                    -H "Content-Type: application/json" \
+                    -d "$receipt_request" \
+                    --max-time 30 \
+                    "$rpc_url")
 
-                # Output transaction in the format: hash|from|to|value|data|blockNumber|txIndex|gasPrice
-                echo "$tx_hash|$tx_from|$tx_to|$tx_value|$tx_input|$block_num_decimal|$tx_index_decimal|$tx_gas_price" >> "$output_file"
+                local tx_status=$(echo "$receipt_response" | jq -r '.result.status // empty')
+
+                # Only output transaction if it succeeded (status == "0x1")
+                if [[ "$tx_status" == "0x1" ]]; then
+                    local tx_from=$(echo "$tx" | jq -r '.from')
+                    local tx_value=$(echo "$tx" | jq -r '.value')
+                    local tx_input=$(echo "$tx" | jq -r '.input')
+                    local tx_index_hex=$(echo "$tx" | jq -r '.transactionIndex')
+                    local tx_gas_price=$(echo "$tx" | jq -r '.gasPrice')
+
+                    # Convert transaction index to decimal
+                    local tx_index_decimal=$(hex_to_decimal "$tx_index_hex")
+
+                    # Output transaction in the format: hash|from|to|value|data|blockNumber|txIndex|gasPrice
+                    echo "$tx_hash|$tx_from|$tx_to|$tx_value|$tx_input|$block_num_decimal|$tx_index_decimal|$tx_gas_price" >> "$output_file"
+                fi
             fi
         fi
     done <<< "$transactions"
@@ -647,8 +706,10 @@ main() {
     local block_fetch_count=$(count_rpc_calls "block_fetch")
     local detailed_block_count=$(count_rpc_calls "detailed_block")
     local trace_filter_count=$(count_rpc_calls "trace_filter")
+    local tx_fetch_count=$(count_rpc_calls "tx_fetch")
+    local receipt_fetch_count=$(count_rpc_calls "receipt_fetch")
 
-    local total_rpc_calls=$((block_fetch_count + detailed_block_count + trace_filter_count))
+    local total_rpc_calls=$((block_fetch_count + detailed_block_count + trace_filter_count + tx_fetch_count + receipt_fetch_count))
 
     echo "" >&2
     echo "=== RPC CALL STATISTICS ===" >&2
@@ -656,6 +717,12 @@ main() {
     echo "  - Block fetches: $block_fetch_count" >&2
     if [[ $trace_filter_count -gt 0 ]]; then
         echo "  - trace_filter calls: $trace_filter_count" >&2
+    fi
+    if [[ $tx_fetch_count -gt 0 ]]; then
+        echo "  - Transaction fetches (eth_getTransactionByHash): $tx_fetch_count" >&2
+    fi
+    if [[ $receipt_fetch_count -gt 0 ]]; then
+        echo "  - Receipt fetches (status checks): $receipt_fetch_count" >&2
     fi
     if [[ $detailed_block_count -gt 0 ]]; then
         echo "  - Detailed block fetches: $detailed_block_count" >&2
