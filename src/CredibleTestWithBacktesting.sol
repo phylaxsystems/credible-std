@@ -17,9 +17,10 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     string private _cachedScriptPath;
 
     /// @notice Execute backtesting with config struct
-    function executeBacktest(
-        BacktestingTypes.BacktestingConfig memory config
-    ) public returns (BacktestingTypes.BacktestingResults memory results) {
+    function executeBacktest(BacktestingTypes.BacktestingConfig memory config)
+        public
+        returns (BacktestingTypes.BacktestingResults memory results)
+    {
         uint256 startBlock = config.endBlock > config.blockRange ? config.endBlock - config.blockRange + 1 : 1;
 
         // Print configuration at the start
@@ -249,9 +250,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     }
 
     /// @notice Categorize and log error details
-    function _categorizeAndLogError(
-        BacktestingTypes.ValidationDetails memory validation
-    ) private view {
+    function _categorizeAndLogError(BacktestingTypes.ValidationDetails memory validation) private view {
         string memory errorType = BacktestingUtils.getErrorTypeString(validation.result);
 
         if (validation.result == BacktestingTypes.ValidationResult.NeedsReview) {
