@@ -17,10 +17,9 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     string private _cachedScriptPath;
 
     /// @notice Execute backtesting with config struct
-    function executeBacktest(BacktestingTypes.BacktestingConfig memory config)
-        public
-        returns (BacktestingTypes.BacktestingResults memory results)
-    {
+    function executeBacktest(
+        BacktestingTypes.BacktestingConfig memory config
+    ) public returns (BacktestingTypes.BacktestingResults memory results) {
         uint256 startBlock = config.endBlock > config.blockRange ? config.endBlock - config.blockRange + 1 : 1;
 
         // Print configuration at the start
@@ -219,33 +218,47 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         // Execute the transaction
         vm.prank(txData.from, txData.from);
         (bool callSuccess, bytes memory returnData) = txData.to.call{value: txData.value}(txData.data);
-
-        string memory revertReason = BacktestingUtils.decodeRevertReason(returnData);
+        console.log(string.concat("Transaction status: ", callSuccess ? "Success" : "Failure"));
 
         if (callSuccess) {
+            // Transaction succeeded - assume assertion passed
             validation.result = BacktestingTypes.ValidationResult.Success;
             validation.isProtocolViolation = false;
-        } else if (
-            keccak256(bytes("Expected 1 assertion to be executed, but 0 were executed."))
-                == keccak256(bytes(revertReason))
-        ) {
-            // This transaction doesn't trigger the assertion, so we should skip it
-            // The assertion testing interface reverts if a transaction to the assertion adopter doesn't trigger the
-            // assertion We have to handle this specific case, by matching the revert reason.
-            validation.result = BacktestingTypes.ValidationResult.Skipped;
-            validation.errorMessage = revertReason;
-            validation.isProtocolViolation = false;
         } else {
-            validation.result = BacktestingTypes.ValidationResult.AssertionFailed;
-            validation.errorMessage = revertReason;
-            validation.isProtocolViolation = true;
+            // Transaction reverted - check if it's because assertion wasn't executed
+            string memory revertReason = BacktestingUtils.decodeRevertReason(returnData);
+
+            if (
+                keccak256(bytes("Expected 1 assertion to be executed, but 0 were executed."))
+                    == keccak256(bytes(revertReason))
+            ) {
+                // TODO: Once PCL provides distinct error messages, split this into:
+                // - Skipped: Transaction succeeded but didn't call monitored function selector
+                // - ReplayFailure: Transaction reverted before assertion could execute (prestate issues)
+                // For now, mark as NEEDS_REVIEW for manual investigation
+                validation.result = BacktestingTypes.ValidationResult.NeedsReview;
+                validation.errorMessage =
+                "Assertion not executed - either function selector mismatch or replay failure (try forkByTxHash)";
+                validation.isProtocolViolation = false;
+            } else {
+                validation.result = BacktestingTypes.ValidationResult.AssertionFailed;
+                validation.errorMessage = revertReason;
+                validation.isProtocolViolation = true;
+            }
         }
     }
 
     /// @notice Categorize and log error details
-    function _categorizeAndLogError(BacktestingTypes.ValidationDetails memory validation) private view {
+    function _categorizeAndLogError(
+        BacktestingTypes.ValidationDetails memory validation
+    ) private view {
         string memory errorType = BacktestingUtils.getErrorTypeString(validation.result);
-        console.log(string.concat("[", errorType, "] VALIDATION FAILED"));
+
+        if (validation.result == BacktestingTypes.ValidationResult.NeedsReview) {
+            console.log(string.concat("[WARNING: ", errorType, "] ", validation.errorMessage));
+        } else {
+            console.log(string.concat("[", errorType, "] VALIDATION FAILED"));
+        }
 
         // Note: Revert reason is already printed by the credible framework
         // so we don't print it again here to avoid duplication
@@ -258,6 +271,10 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     ) private pure {
         if (result == BacktestingTypes.ValidationResult.AssertionFailed) {
             results.assertionFailures++;
+        } else if (result == BacktestingTypes.ValidationResult.NeedsReview) {
+            results.needsReview++;
+        } else if (result == BacktestingTypes.ValidationResult.ReplayFailure) {
+            results.replayFailures++;
         } else if (result == BacktestingTypes.ValidationResult.UnknownError) {
             results.unknownErrors++;
         }
@@ -285,7 +302,19 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
             console.log(
                 string.concat("Protocol Violations (Assertion Failures): ", results.assertionFailures.toString())
             );
-            console.log(string.concat("Unknown Errors: ", results.unknownErrors.toString()));
+            if (results.needsReview > 0) {
+                console.log(
+                    string.concat(
+                        "Needs Review (Selector Mismatch or Prestate Issues): ", results.needsReview.toString()
+                    )
+                );
+            }
+            if (results.replayFailures > 0) {
+                console.log(string.concat("Replay Failures (Context Issues): ", results.replayFailures.toString()));
+            }
+            if (results.unknownErrors > 0) {
+                console.log(string.concat("Unknown Errors: ", results.unknownErrors.toString()));
+            }
         }
         console.log("");
 

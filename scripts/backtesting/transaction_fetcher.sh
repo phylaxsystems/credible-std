@@ -248,9 +248,16 @@ fetch_transactions_trace_filter() {
 
     # Fetch full transaction data for each transaction hash and filter by receipt status
     local tx_count=0
+    local tx_processed=0
     if [[ -n "$tx_hashes" ]]; then
         while IFS='|' read -r tx_hash block_num tx_index; do
             if [[ -n "$tx_hash" ]]; then
+                # Add small delay every 5 transactions to avoid rate limiting
+                if [[ $((tx_processed % 5)) -eq 0 && $tx_processed -gt 0 ]]; then
+                    sleep 0.1
+                fi
+                ((tx_processed++))
+
                 # Fetch actual transaction data using eth_getTransactionByHash
                 local tx_request=$(jq -n \
                     --arg tx_hash "$tx_hash" \

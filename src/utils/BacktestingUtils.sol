@@ -11,7 +11,9 @@ library BacktestingUtils {
     using Strings for uint256;
 
     /// @notice Extract transaction data from fetcher output
-    function extractDataLine(string memory output) internal pure returns (string memory) {
+    function extractDataLine(
+        string memory output
+    ) internal pure returns (string memory) {
         bytes memory outputBytes = bytes(output);
         bytes memory marker = bytes("TRANSACTION_DATA:");
         uint256[] memory positions = new uint256[](10); // Max 10 markers
@@ -49,7 +51,10 @@ library BacktestingUtils {
     }
 
     /// @notice Simple pipe-delimited string splitter
-    function splitString(string memory str, string memory) internal pure returns (string[] memory) {
+    function splitString(
+        string memory str,
+        string memory
+    ) internal pure returns (string[] memory) {
         bytes memory strBytes = bytes(str);
 
         // Count pipes
@@ -76,7 +81,9 @@ library BacktestingUtils {
     }
 
     /// @notice Parse hex or decimal string to uint256
-    function stringToUint(string memory str) internal pure returns (uint256) {
+    function stringToUint(
+        string memory str
+    ) internal pure returns (uint256) {
         bytes memory b = bytes(str);
         if (b.length >= 2 && b[0] == "0" && b[1] == "x") {
             uint256 result = 0;
@@ -89,7 +96,9 @@ library BacktestingUtils {
     }
 
     /// @notice Parse hex address string to address
-    function stringToAddress(string memory str) internal pure returns (address) {
+    function stringToAddress(
+        string memory str
+    ) internal pure returns (address) {
         // Handle empty string (contract creation) as address(0)
         if (bytes(str).length == 0) {
             return address(0);
@@ -98,7 +107,9 @@ library BacktestingUtils {
     }
 
     /// @notice Parse hex string to bytes32
-    function stringToBytes32(string memory str) internal pure returns (bytes32) {
+    function stringToBytes32(
+        string memory str
+    ) internal pure returns (bytes32) {
         bytes memory b = bytes(str);
         require(b.length == 66 && b[0] == "0" && b[1] == "x", "Invalid bytes32 hex");
 
@@ -110,7 +121,9 @@ library BacktestingUtils {
     }
 
     /// @notice Parse hex string to bytes
-    function hexStringToBytes(string memory str) internal pure returns (bytes memory) {
+    function hexStringToBytes(
+        string memory str
+    ) internal pure returns (bytes memory) {
         bytes memory b = bytes(str);
         uint256 start = (b.length >= 2 && b[0] == "0" && b[1] == "x") ? 2 : 0;
         bytes memory result = new bytes((b.length - start) / 2);
@@ -121,21 +134,23 @@ library BacktestingUtils {
     }
 
     /// @notice Convert bytes32 to hex string
-    function bytes32ToHex(bytes32 data) internal pure returns (string memory) {
+    function bytes32ToHex(
+        bytes32 data
+    ) internal pure returns (string memory) {
         return Strings.toHexString(uint256(data), 32);
     }
 
     /// @notice Extract function selector from calldata
-    function extractFunctionSelector(bytes memory data) internal pure returns (string memory) {
+    function extractFunctionSelector(
+        bytes memory data
+    ) internal pure returns (string memory) {
         return data.length >= 4 ? Strings.toHexString(uint32(bytes4(data)), 4) : "N/A";
     }
 
     /// @notice Parse multiple transactions from a single data line
-    function parseMultipleTransactions(string memory txDataString)
-        internal
-        view
-        returns (BacktestingTypes.TransactionData[] memory transactions)
-    {
+    function parseMultipleTransactions(
+        string memory txDataString
+    ) internal view returns (BacktestingTypes.TransactionData[] memory transactions) {
         string[] memory parts = splitString(txDataString, "|");
         require(parts.length >= 9, "Invalid transaction data format");
 
@@ -166,7 +181,9 @@ library BacktestingUtils {
     }
 
     /// @notice Convert hex character to uint8
-    function _hexCharToUint8(bytes1 char) private pure returns (uint8) {
+    function _hexCharToUint8(
+        bytes1 char
+    ) private pure returns (uint8) {
         if (char >= "0" && char <= "9") return uint8(char) - 48;
         if (char >= "a" && char <= "f") return uint8(char) - 87;
         if (char >= "A" && char <= "F") return uint8(char) - 55;
@@ -174,7 +191,11 @@ library BacktestingUtils {
     }
 
     /// @notice Helper to get substring for debugging
-    function substring(string memory str, uint256 start, uint256 len) private pure returns (string memory) {
+    function substring(
+        string memory str,
+        uint256 start,
+        uint256 len
+    ) private pure returns (string memory) {
         bytes memory strBytes = bytes(str);
         if (start >= strBytes.length) return "";
         uint256 end = start + len;
@@ -189,7 +210,9 @@ library BacktestingUtils {
     /// @notice Decode revert reason from error data
     /// @param data The error data from a failed call
     /// @return The decoded revert reason string
-    function decodeRevertReason(bytes memory data) internal pure returns (string memory) {
+    function decodeRevertReason(
+        bytes memory data
+    ) internal pure returns (string memory) {
         if (data.length < 68) return "Unknown error";
 
         assembly {
@@ -205,7 +228,9 @@ library BacktestingUtils {
     /// @notice Convert bytes to hex string
     /// @param data The bytes to convert
     /// @return The hex string representation
-    function bytesToHex(bytes memory data) internal pure returns (bytes memory) {
+    function bytesToHex(
+        bytes memory data
+    ) internal pure returns (bytes memory) {
         bytes memory hexChars = "0123456789abcdef";
         bytes memory result = new bytes(data.length * 2);
         for (uint256 i = 0; i < data.length; i++) {
@@ -218,9 +243,13 @@ library BacktestingUtils {
     /// @notice Get human-readable error type string from validation result
     /// @param result The validation result enum
     /// @return The human-readable string representation
-    function getErrorTypeString(BacktestingTypes.ValidationResult result) internal pure returns (string memory) {
+    function getErrorTypeString(
+        BacktestingTypes.ValidationResult result
+    ) internal pure returns (string memory) {
         if (result == BacktestingTypes.ValidationResult.Success) return "PASS";
         if (result == BacktestingTypes.ValidationResult.Skipped) return "SKIP";
+        if (result == BacktestingTypes.ValidationResult.NeedsReview) return "NEEDS_REVIEW";
+        if (result == BacktestingTypes.ValidationResult.ReplayFailure) return "REPLAY_FAIL";
         if (result == BacktestingTypes.ValidationResult.AssertionFailed) return "ASSERTION_FAIL";
         return "UNKNOWN_ERROR";
     }
