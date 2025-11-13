@@ -221,6 +221,8 @@ library BacktestingUtils {
     function getErrorTypeString(BacktestingTypes.ValidationResult result) internal pure returns (string memory) {
         if (result == BacktestingTypes.ValidationResult.Success) return "PASS";
         if (result == BacktestingTypes.ValidationResult.Skipped) return "SKIP";
+        if (result == BacktestingTypes.ValidationResult.NeedsReview) return "NEEDS_REVIEW";
+        if (result == BacktestingTypes.ValidationResult.ReplayFailure) return "REPLAY_FAIL";
         if (result == BacktestingTypes.ValidationResult.AssertionFailed) return "ASSERTION_FAIL";
         return "UNKNOWN_ERROR";
     }

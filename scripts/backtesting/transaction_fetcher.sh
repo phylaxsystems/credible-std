@@ -11,7 +11,8 @@ OUTPUT_FORMAT="simple"
 BATCH_SIZE=10
 MAX_CONCURRENT=5
 DETAILED_BLOCKS=false
-DETECT_INTERNAL_CALLS=false
+USE_TRACE_FILTER=false
+TRACE_FILTER_BATCH_SIZE=100
 TEMP_DIR=""
 START_TIME=""
 
@@ -38,79 +39,109 @@ usage() {
     cat << EOF
 Usage: $0 [OPTIONS]
 
-Fetches blockchain transactions for backtesting. By default, detects only direct calls
-to the target contract. Use --detect-internal-calls to also find internal calls.
+Fetches blockchain transactions for backtesting.
 
 OPTIONS:
-    --rpc-url URL                 RPC endpoint URL (required)
-    --target-contract ADDRESS     Contract address to filter transactions for (required)
-    --start-block NUMBER          Starting block number (required)
-    --end-block NUMBER            Ending block number (required)
-    --output-format FORMAT        Output format: simple or json (default: simple)
-    --batch-size SIZE             Batch size for processing (default: 10)
-    --max-concurrent COUNT        Maximum concurrent requests (default: 5)
-    --detect-internal-calls       Enable detection of internal calls via receipts (slow, default: false)
-    --detailed-blocks             Enable detailed per-block summaries (default: false)
-    -h, --help                    Show this help message
+    --rpc-url URL                  RPC endpoint URL (required)
+    --target-contract ADDRESS      Contract address to filter transactions for (required)
+    --start-block NUMBER           Starting block number (required)
+    --end-block NUMBER             Ending block number (required)
+    --output-format FORMAT         Output format: simple or json (default: simple)
+    --batch-size SIZE              Batch size for processing (default: 10)
+    --max-concurrent COUNT         Maximum concurrent requests (default: 5)
+    --use-trace-filter             Use trace_filter for fast internal call detection (default: false)
+    --trace-filter-batch-size SIZE Batch size for trace_filter (default: 100)
+    --detailed-blocks              Enable detailed per-block summaries (default: false)
+    -h, --help                     Show this help message
 
 EXAMPLES:
-    # Fetch all transactions to Uniswap V2 Router in block range
+    # Basic usage - fetch direct calls only
     $0 --rpc-url https://eth.llamarpc.com \\
        --target-contract 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D \\
        --start-block 10000000 \\
        --end-block 10000100
 
-    # Fetch with custom concurrency settings for faster processing
+    # Use trace_filter for fast internal call detection
     $0 --rpc-url \$MAINNET_RPC_URL \\
        --target-contract 0xBA12222222228d8Ba445958a75a0704d566BF2C8 \\
        --start-block 23717632 \\
        --end-block 23717632 \\
-       --batch-size 20 \\
-       --max-concurrent 10
+       --use-trace-filter
 
-    # Output in JSON format
-    $0 --rpc-url \$MAINNET_RPC_URL \\
-       --target-contract 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D \\
-       --start-block 15000000 \\
-       --end-block 15000010 \\
-       --output-format json
+PERFORMANCE:
+    --batch-size: Blocks to process in parallel (default: 10, try 10-50)
+    --max-concurrent: Concurrent RPC requests (default: 5, try 5-20)
+    --trace-filter-batch-size: Blocks per trace_filter call (default: 100)
 
-INTEGRATION WITH FOUNDRY:
-    This script is typically called from CredibleTestWithBacktesting contracts via FFI.
+    Balance these based on your RPC provider's rate limits.
 
-    The script path is auto-detected from these locations:
-      - lib/credible-std/scripts/backtesting/transaction_fetcher.sh
-      - dependencies/credible-std/scripts/backtesting/transaction_fetcher.sh
-      - ../credible-std/scripts/backtesting/transaction_fetcher.sh
-
-    For custom paths, set the environment variable:
-      export CREDIBLE_STD_PATH=/path/to/credible-std
-
-    Or override _getScriptSearchPaths() in your test contract.
-
-PERFORMANCE TUNING:
-    --batch-size       Number of blocks to process in parallel batches
-                       Higher = faster but more memory. Try 10-50.
-
-    --max-concurrent   Number of concurrent RPC requests per batch
-                       Higher = faster but may hit rate limits. Try 5-20.
-
-    For best performance, balance these based on your RPC provider's rate limits.
-
-OUTPUT FORMAT:
+OUTPUT:
     simple: count|hash|from|to|value|data|blockNumber|txIndex|gasPrice|...
     json:   Array of transaction objects with labeled fields
 
-INTERNAL CALL DETECTION:
-    By default, only direct calls (tx.to == target) are detected for performance.
-
-    Use --detect-internal-calls to also detect internal calls by checking transaction
-    receipts for events from the target contract. Note: This is significantly slower
-    (adds 1 RPC call per non-matching transaction) but works with standard RPC endpoints.
-
-    For production use, consider using debug_traceTransaction instead for better performance.
-
 EOF
+}
+
+# Exponential backoff retry function
+# Usage: retry_with_backoff <max_retries> <curl_command...>
+retry_with_backoff() {
+    local max_retries="$1"
+    shift
+    local attempt=0
+    local response=""
+
+    while [[ $attempt -lt $max_retries ]]; do
+        # Execute the curl command
+        response=$("$@" 2>/dev/null || echo "")
+
+        # Check if response is empty
+        if [[ -z "$response" ]]; then
+            attempt=$((attempt + 1))
+            if [[ $attempt -lt $max_retries ]]; then
+                local wait_time=$((2 ** attempt))
+                local jitter=$((RANDOM % 1000))
+                local total_wait=$((wait_time * 1000 + jitter))
+                local max_wait=64000
+                if [[ $total_wait -gt $max_wait ]]; then
+                    total_wait=$max_wait
+                fi
+                sleep $(awk "BEGIN {print $total_wait/1000}")
+                continue
+            fi
+        fi
+
+        # Check for 429 error
+        local error_code=$(echo "$response" | jq -r '.error.code // empty' 2>/dev/null)
+        if [[ "$error_code" == "429" ]]; then
+            attempt=$((attempt + 1))
+            if [[ $attempt -lt $max_retries ]]; then
+                # Exponential backoff: 2^n seconds + random jitter (0-1000ms)
+                local wait_time=$((2 ** attempt))
+                local jitter=$((RANDOM % 1000))
+                local total_wait=$((wait_time * 1000 + jitter))
+
+                # Cap at maximum backoff of 64 seconds
+                local max_wait=64000
+                if [[ $total_wait -gt $max_wait ]]; then
+                    total_wait=$max_wait
+                fi
+
+                echo "Rate limit hit (429), retrying after $(awk "BEGIN {print $total_wait/1000}")s (attempt $attempt/$max_retries)" >&2
+                sleep $(awk "BEGIN {print $total_wait/1000}")
+                continue
+            else
+                echo "Max retries reached for rate-limited request" >&2
+            fi
+        fi
+
+        # Success or non-retryable error
+        echo "$response"
+        return 0
+    done
+
+    # All retries exhausted
+    echo "$response"
+    return 1
 }
 
 # Check if required tools are available
@@ -142,12 +173,157 @@ hex_to_decimal() {
     fi
 }
 
+# Count RPC calls from counter file
+count_rpc_calls() {
+    local counter_name="$1"
+    local file="$RPC_COUNTER_DIR/${counter_name}.count"
+    if [[ -f "$file" ]]; then
+        wc -l < "$file" | tr -d ' '
+    else
+        echo "0"
+    fi
+}
+
+# Fetch transactions using trace_filter (much faster for internal calls)
+fetch_transactions_trace_filter() {
+    local rpc_url="$1"
+    local start_block="$2"
+    local end_block="$3"
+    local target_contract="$4"
+    local output_file="$5"
+
+    # Convert block numbers to hex
+    local start_hex=$(printf "0x%x" "$start_block")
+    local end_hex=$(printf "0x%x" "$end_block")
+
+    echo "Fetching traces for blocks $start_block to $end_block using trace_filter" >&2
+
+    # Prepare trace_filter request
+    local trace_request=$(jq -n \
+        --arg start_hex "$start_hex" \
+        --arg end_hex "$end_hex" \
+        --arg target "$target_contract" \
+        '{
+            "jsonrpc": "2.0",
+            "method": "trace_filter",
+            "params": [{
+                "fromBlock": $start_hex,
+                "toBlock": $end_hex,
+                "toAddress": [$target]
+            }],
+            "id": 1
+        }')
+
+    # Make RPC call with retry logic
+    echo "1" >> "$RPC_COUNTER_DIR/trace_filter.count"
+    local trace_response
+    trace_response=$(retry_with_backoff 5 curl -s -X POST \
+        -H "Content-Type: application/json" \
+        -d "$trace_request" \
+        --max-time 60 \
+        "$rpc_url")
+
+    # Check for errors
+    if [[ -z "$trace_response" ]] || echo "$trace_response" | jq -e '.error' > /dev/null 2>&1; then
+        local error_msg=$(echo "$trace_response" | jq -r '.error.message // "Unknown error"')
+        echo "Error: trace_filter failed: $error_msg" >&2
+        return 1
+    fi
+
+    # Parse traces and group by transaction
+    # Extract unique transaction hashes that involve the target contract
+    # We'll fetch full transaction data separately to avoid issues with internal calls
+    local tx_hashes=$(echo "$trace_response" | jq -r '
+        .result
+        | group_by(.transactionHash)
+        | map(.[0])
+        | map({
+            hash: .transactionHash,
+            blockNumber: .blockNumber,
+            transactionPosition: .transactionPosition
+          })
+        | .[]
+        | [.hash, (.blockNumber | tostring), (.transactionPosition | tostring)] | join("|")
+    ')
+
+    # Fetch full transaction data for each transaction hash and filter by receipt status
+    local tx_count=0
+    local tx_processed=0
+    if [[ -n "$tx_hashes" ]]; then
+        while IFS='|' read -r tx_hash block_num tx_index; do
+            if [[ -n "$tx_hash" ]]; then
+                # Add small delay every 5 transactions to avoid rate limiting
+                if [[ $((tx_processed % 5)) -eq 0 && $tx_processed -gt 0 ]]; then
+                    sleep 0.1
+                fi
+                ((tx_processed++))
+
+                # Fetch actual transaction data using eth_getTransactionByHash
+                local tx_request=$(jq -n \
+                    --arg tx_hash "$tx_hash" \
+                    '{
+                        "jsonrpc": "2.0",
+                        "method": "eth_getTransactionByHash",
+                        "params": [$tx_hash],
+                        "id": 1
+                    }')
+
+                echo "1" >> "$RPC_COUNTER_DIR/tx_fetch.count"
+                local tx_response=$(retry_with_backoff 5 curl -s -X POST \
+                    -H "Content-Type: application/json" \
+                    -d "$tx_request" \
+                    --max-time 30 \
+                    "$rpc_url")
+
+                local tx_data=$(echo "$tx_response" | jq -r '.result')
+
+                if [[ -n "$tx_data" && "$tx_data" != "null" ]]; then
+                    local tx_from=$(echo "$tx_data" | jq -r '.from')
+                    local tx_to=$(echo "$tx_data" | jq -r '.to // empty')
+                    local tx_value=$(echo "$tx_data" | jq -r '.value')
+                    local tx_input=$(echo "$tx_data" | jq -r '.input')
+                    local tx_gas_price=$(echo "$tx_data" | jq -r '.gasPrice')
+
+                    # Check if transaction succeeded on-chain
+                    local receipt_request=$(jq -n \
+                        --arg tx_hash "$tx_hash" \
+                        '{
+                            "jsonrpc": "2.0",
+                            "method": "eth_getTransactionReceipt",
+                            "params": [$tx_hash],
+                            "id": 1
+                        }')
+
+                    echo "1" >> "$RPC_COUNTER_DIR/receipt_fetch.count"
+                    local receipt_response=$(retry_with_backoff 5 curl -s -X POST \
+                        -H "Content-Type: application/json" \
+                        -d "$receipt_request" \
+                        --max-time 30 \
+                        "$rpc_url")
+
+                    local tx_status=$(echo "$receipt_response" | jq -r '.result.status // empty')
+
+                    # Only output transaction if it succeeded (status == "0x1")
+                    if [[ "$tx_status" == "0x1" ]]; then
+                        echo "$tx_hash|$tx_from|$tx_to|$tx_value|$tx_input|$block_num|$tx_index|$tx_gas_price" >> "$output_file"
+                        ((tx_count++))
+                    fi
+                fi
+            fi
+        done <<< "$tx_hashes"
+    fi
+
+    echo "  Found $tx_count transactions in blocks $start_block-$end_block" >&2
+    echo "$tx_count"
+}
+
 # Fetch transactions from a single block
 fetch_block_transactions() {
     local rpc_url="$1"
     local block_number="$2"
     local target_contract="$3"
     local output_file="$4"
+    local rpc_counter_dir="$5"
 
     # Convert block number to hex
     local block_hex=$(printf "0x%x" "$block_number")
@@ -163,15 +339,17 @@ fetch_block_transactions() {
             "id": 1
         }')
 
-    # Make the request
+    # Make the request with retry logic (max 5 retries)
     local response
-    echo "1" >> "$RPC_COUNTER_DIR/block_fetch.count"
-    if ! response=$(curl -s -X POST \
+    echo "1" >> "$rpc_counter_dir/block_fetch.count"
+    response=$(retry_with_backoff 5 curl -s -X POST \
         -H "Content-Type: application/json" \
         -d "$rpc_request" \
         --max-time 30 \
-        "$rpc_url"); then
-        echo "Error: Failed to fetch block $block_number" >&2
+        "$rpc_url")
+
+    if [[ -z "$response" ]]; then
+        echo "Error: Failed to fetch block $block_number after retries" >&2
         return 1
     fi
 
@@ -218,77 +396,51 @@ fetch_block_transactions() {
     # Filter transactions that interact with the target contract
     local target_contract_lower=$(echo "$target_contract" | tr '[:upper:]' '[:lower:]')
 
-    # Process each transaction
+    # Process each transaction - only check direct calls (tx.to == target)
     while IFS= read -r tx; do
         [[ -z "$tx" ]] && continue
 
         local tx_hash=$(echo "$tx" | jq -r '.hash')
         local tx_to=$(echo "$tx" | jq -r '.to // empty')
 
-        # Check if this transaction interacts with the target contract
-        local matches_target=false
-
-        # Method 1: Check direct call (to address matches target)
+        # Check if this is a direct call to target contract
         if [[ -n "$tx_to" ]]; then
             local tx_to_lower=$(echo "$tx_to" | tr '[:upper:]' '[:lower:]')
             if [[ "$tx_to_lower" == "$target_contract_lower" ]]; then
-                matches_target=true
-            fi
-        fi
+                # Direct call found - check if transaction succeeded on-chain
+                local receipt_request=$(jq -n \
+                    --arg tx_hash "$tx_hash" \
+                    '{
+                        "jsonrpc": "2.0",
+                        "method": "eth_getTransactionReceipt",
+                        "params": [$tx_hash],
+                        "id": 1
+                    }')
 
-        # Method 2: Check transaction receipt logs for events from target contract
-        # This catches internal calls without requiring debug_trace* methods
-        # Note: This is expensive (1 RPC call per non-matching tx), only enable if needed
-        if [[ "$matches_target" == "false" && "$DETECT_INTERNAL_CALLS" == "true" ]]; then
-            local receipt_request=$(jq -n \
-                --arg method "eth_getTransactionReceipt" \
-                --arg tx_hash "$tx_hash" \
-                '{
-                    "jsonrpc": "2.0",
-                    "method": $method,
-                    "params": [$tx_hash],
-                    "id": 1
-                }')
+                echo "1" >> "$rpc_counter_dir/receipt_fetch.count"
+                local receipt_response=$(retry_with_backoff 5 curl -s -X POST \
+                    -H "Content-Type: application/json" \
+                    -d "$receipt_request" \
+                    --max-time 30 \
+                    "$rpc_url")
 
-            local receipt_response
-            echo "1" >> "$RPC_COUNTER_DIR/receipt_fetch.count"
-            receipt_response=$(curl -s -X POST \
-                -H "Content-Type: application/json" \
-                -d "$receipt_request" \
-                --max-time 15 \
-                "$rpc_url" 2>/dev/null || echo "")
+                local tx_status=$(echo "$receipt_response" | jq -r '.result.status // empty')
 
-            # Check if any log is from the target contract
-            # This indicates the target contract was involved in the transaction
-            if [[ -n "$receipt_response" ]]; then
-                local has_target_log=$(echo "$receipt_response" | \
-                    jq -r --arg target "$target_contract_lower" '
-                        .result.logs[]? |
-                        select(.address != null) |
-                        .address |
-                        ascii_downcase |
-                        select(. == $target)
-                    ' 2>/dev/null | head -1)
+                # Only output transaction if it succeeded (status == "0x1")
+                if [[ "$tx_status" == "0x1" ]]; then
+                    local tx_from=$(echo "$tx" | jq -r '.from')
+                    local tx_value=$(echo "$tx" | jq -r '.value')
+                    local tx_input=$(echo "$tx" | jq -r '.input')
+                    local tx_index_hex=$(echo "$tx" | jq -r '.transactionIndex')
+                    local tx_gas_price=$(echo "$tx" | jq -r '.gasPrice')
 
-                if [[ -n "$has_target_log" ]]; then
-                    matches_target=true
+                    # Convert transaction index to decimal
+                    local tx_index_decimal=$(hex_to_decimal "$tx_index_hex")
+
+                    # Output transaction in the format: hash|from|to|value|data|blockNumber|txIndex|gasPrice
+                    echo "$tx_hash|$tx_from|$tx_to|$tx_value|$tx_input|$block_num_decimal|$tx_index_decimal|$tx_gas_price" >> "$output_file"
                 fi
             fi
-        fi
-
-        # If this transaction interacts with the target, output it
-        if [[ "$matches_target" == "true" ]]; then
-            local tx_from=$(echo "$tx" | jq -r '.from')
-            local tx_value=$(echo "$tx" | jq -r '.value')
-            local tx_input=$(echo "$tx" | jq -r '.input')
-            local tx_index_hex=$(echo "$tx" | jq -r '.transactionIndex')
-            local tx_gas_price=$(echo "$tx" | jq -r '.gasPrice')
-
-            # Convert transaction index to decimal
-            local tx_index_decimal=$(hex_to_decimal "$tx_index_hex")
-
-            # Output transaction in the format: hash|from|to|value|data|blockNumber|txIndex|gasPrice
-            echo "$tx_hash|$tx_from|$tx_to|$tx_value|$tx_input|$block_num_decimal|$tx_index_decimal|$tx_gas_price" >> "$output_file"
         fi
     done <<< "$transactions"
 }
@@ -321,7 +473,7 @@ process_batch() {
         # Start new jobs up to the concurrency limit
         while [[ ${#pids[@]} -lt $max_concurrent && $block_index -lt ${#blocks[@]} ]]; do
             local block_num="${blocks[$block_index]}"
-            fetch_block_transactions "$rpc_url" "$block_num" "$target_contract" "$batch_output" &
+            fetch_block_transactions "$rpc_url" "$block_num" "$target_contract" "$batch_output" "$RPC_COUNTER_DIR" &
             pids+=($!)
             ((block_index++))
         done
@@ -362,6 +514,7 @@ format_transactions() {
         return
     fi
 
+    # Count transactions (one per line)
     local tx_count=$(wc -l < "$all_transactions_file" | tr -d ' ')
 
     case "$output_format" in
@@ -450,9 +603,13 @@ main() {
                 DETAILED_BLOCKS=true
                 shift
                 ;;
-            --detect-internal-calls)
-                DETECT_INTERNAL_CALLS=true
+            --use-trace-filter)
+                USE_TRACE_FILTER=true
                 shift
+                ;;
+            --trace-filter-batch-size)
+                TRACE_FILTER_BATCH_SIZE="$2"
+                shift 2
                 ;;
             -h|--help)
                 usage
@@ -490,9 +647,6 @@ main() {
     # Start timing
     START_TIME=$(date +%s)
 
-    echo "Starting transaction fetch with internal call detection" >&2
-    echo "Blocks: $start_block to $end_block (batch size: $BATCH_SIZE, max concurrent: $MAX_CONCURRENT)" >&2
-
     # Process blocks in batches
     local all_transactions_file="$TEMP_DIR/all_transactions.txt"
     touch "$all_transactions_file"
@@ -501,19 +655,38 @@ main() {
     local total_transactions_found=0
     local batch_id=0
 
-    for ((batch_start=start_block; batch_start<=end_block; batch_start+=BATCH_SIZE)); do
-        local batch_end=$((batch_start + BATCH_SIZE - 1))
+    # Choose processing method and batch size
+    local batch_size
+    if [[ "$USE_TRACE_FILTER" == "true" ]]; then
+        echo "Starting transaction fetch using trace_filter (includes internal calls)" >&2
+        echo "Blocks: $start_block to $end_block (trace_filter batch size: $TRACE_FILTER_BATCH_SIZE)" >&2
+        batch_size=$TRACE_FILTER_BATCH_SIZE
+    else
+        echo "Starting transaction fetch (direct calls only)" >&2
+        echo "Blocks: $start_block to $end_block (batch size: $BATCH_SIZE, max concurrent: $MAX_CONCURRENT)" >&2
+        batch_size=$BATCH_SIZE
+    fi
+
+    # Unified batch processing loop
+    for ((batch_start=start_block; batch_start<=end_block; batch_start+=batch_size)); do
+        local batch_end=$((batch_start + batch_size - 1))
         if [[ $batch_end -gt $end_block ]]; then
             batch_end=$end_block
         fi
 
-        local tx_count=$(process_batch "$rpc_url" "$batch_start" "$batch_end" "$target_contract" "$batch_id" "$MAX_CONCURRENT")
+        local batch_file="$TEMP_DIR/batch_$batch_id.txt"
+        touch "$batch_file"
 
-        # Ensure tx_count is a valid number
+        # Call appropriate processing function
+        local tx_count
+        if [[ "$USE_TRACE_FILTER" == "true" ]]; then
+            tx_count=$(fetch_transactions_trace_filter "$rpc_url" "$batch_start" "$batch_end" "$target_contract" "$batch_file")
+        else
+            tx_count=$(process_batch "$rpc_url" "$batch_start" "$batch_end" "$target_contract" "$batch_id" "$MAX_CONCURRENT")
+        fi
         tx_count=${tx_count:-0}
 
         # Collect results from this batch
-        local batch_file="$TEMP_DIR/batch_$batch_id.txt"
         if [[ -f "$batch_file" && -s "$batch_file" ]]; then
             cat "$batch_file" >> "$all_transactions_file"
             total_transactions_found=$((total_transactions_found + tx_count))
@@ -521,7 +694,6 @@ main() {
 
         total_blocks_processed=$((total_blocks_processed + batch_end - batch_start + 1))
         batch_id=$((batch_id + 1))
-
     done
 
     # Calculate timing
@@ -538,28 +710,30 @@ main() {
     fi
 
     # Display RPC call statistics
-    local block_fetch_count=0
-    local receipt_fetch_count=0
-    local detailed_block_count=0
+    local block_fetch_count=$(count_rpc_calls "block_fetch")
+    local detailed_block_count=$(count_rpc_calls "detailed_block")
+    local trace_filter_count=$(count_rpc_calls "trace_filter")
+    local tx_fetch_count=$(count_rpc_calls "tx_fetch")
+    local receipt_fetch_count=$(count_rpc_calls "receipt_fetch")
 
-    if [[ -f "$RPC_COUNTER_DIR/block_fetch.count" ]]; then
-        block_fetch_count=$(wc -l < "$RPC_COUNTER_DIR/block_fetch.count" | tr -d ' ')
-    fi
-    if [[ -f "$RPC_COUNTER_DIR/receipt_fetch.count" ]]; then
-        receipt_fetch_count=$(wc -l < "$RPC_COUNTER_DIR/receipt_fetch.count" | tr -d ' ')
-    fi
-    if [[ -f "$RPC_COUNTER_DIR/detailed_block.count" ]]; then
-        detailed_block_count=$(wc -l < "$RPC_COUNTER_DIR/detailed_block.count" | tr -d ' ')
-    fi
-
-    local total_rpc_calls=$((block_fetch_count + receipt_fetch_count + detailed_block_count))
+    local total_rpc_calls=$((block_fetch_count + detailed_block_count + trace_filter_count + tx_fetch_count + receipt_fetch_count))
 
     echo "" >&2
     echo "=== RPC CALL STATISTICS ===" >&2
     echo "Total RPC calls: $total_rpc_calls" >&2
     echo "  - Block fetches: $block_fetch_count" >&2
-    echo "  - Receipt fetches: $receipt_fetch_count" >&2
-    echo "  - Detailed block fetches: $detailed_block_count" >&2
+    if [[ $trace_filter_count -gt 0 ]]; then
+        echo "  - trace_filter calls: $trace_filter_count" >&2
+    fi
+    if [[ $tx_fetch_count -gt 0 ]]; then
+        echo "  - Transaction fetches (eth_getTransactionByHash): $tx_fetch_count" >&2
+    fi
+    if [[ $receipt_fetch_count -gt 0 ]]; then
+        echo "  - Receipt fetches (status checks): $receipt_fetch_count" >&2
+    fi
+    if [[ $detailed_block_count -gt 0 ]]; then
+        echo "  - Detailed block fetches: $detailed_block_count" >&2
+    fi
     if [[ $duration -gt 0 && $total_rpc_calls -gt 0 ]]; then
         local rpc_per_sec=$((total_rpc_calls / duration))
         echo "Average: $rpc_per_sec RPC calls/sec" >&2
