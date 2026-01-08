@@ -17,10 +17,9 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     string private _cachedScriptPath;
 
     /// @notice Execute backtesting with config struct
-    function executeBacktest(BacktestingTypes.BacktestingConfig memory config)
-        public
-        returns (BacktestingTypes.BacktestingResults memory results)
-    {
+    function executeBacktest(
+        BacktestingTypes.BacktestingConfig memory config
+    ) public returns (BacktestingTypes.BacktestingResults memory results) {
         uint256 startBlock = config.endBlock > config.blockRange ? config.endBlock - config.blockRange + 1 : 1;
 
         // Print configuration at the start
@@ -34,9 +33,8 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         console.log("==========================================");
         console.log("");
 
-        BacktestingTypes.TransactionData[] memory transactions = _fetchTransactions(
-            config.targetContract, startBlock, config.endBlock, config.rpcUrl, config.useTraceFilter
-        );
+        BacktestingTypes.TransactionData[] memory transactions =
+            _fetchTransactions(config.targetContract, startBlock, config.endBlock, config.rpcUrl, config.useTraceFilter);
         results.totalTransactions = transactions.length;
         results.processedTransactions = 0; // Initialize processed transactions counter
         console.log(string.concat("Total transactions found: ", results.totalTransactions.toString()));
@@ -249,7 +247,9 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     }
 
     /// @notice Categorize and log error details
-    function _categorizeAndLogError(BacktestingTypes.ValidationDetails memory validation) private pure {
+    function _categorizeAndLogError(
+        BacktestingTypes.ValidationDetails memory validation
+    ) private pure {
         string memory errorType = BacktestingUtils.getErrorTypeString(validation.result);
         console.log(string.concat("[", errorType, "] ", validation.errorMessage));
     }
@@ -280,7 +280,9 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
                 string.concat("Protocol Violations (Assertion Failures): ", results.assertionFailures.toString())
             );
             if (results.replayFailures > 0) {
-                console.log(string.concat("Replay Failures (Tx reverted before assertion): ", results.replayFailures.toString()));
+                console.log(
+                    string.concat("Replay Failures (Tx reverted before assertion): ", results.replayFailures.toString())
+                );
             }
             if (results.unknownErrors > 0) {
                 console.log(string.concat("Unknown Errors: ", results.unknownErrors.toString()));
@@ -290,9 +292,8 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
 
         // Calculate success rate excluding skipped transactions
         uint256 validatedTransactions = results.successfulValidations + failedValidations;
-        uint256 successRate = validatedTransactions > 0
-            ? (results.successfulValidations * 100) / validatedTransactions
-            : 0;
+        uint256 successRate =
+            validatedTransactions > 0 ? (results.successfulValidations * 100) / validatedTransactions : 0;
         console.log(string.concat("Success Rate: ", successRate.toString(), "%"));
 
         if (results.assertionFailures > 0) {
