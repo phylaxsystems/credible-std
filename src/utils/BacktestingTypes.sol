@@ -7,16 +7,11 @@ library BacktestingTypes {
     /// @notice Validation result categories for detailed error analysis
     enum ValidationResult {
         Success, // Transaction passed all assertions
-        Skipped, // Transaction not expected to trigger the assertion (function selector mismatch)
-        NeedsReview, // Assertion not executed - could be selector mismatch OR replay failure (see TODO below)
+        Skipped, // Transaction didn't trigger the assertion (function selector mismatch)
         ReplayFailure, // Transaction reverted during replay before assertion could execute
         AssertionFailed, // Assertion logic failed (actual protocol violation)
         UnknownError // Unexpected error during validation
     }
-
-    // TODO: Once PCL provides distinct error messages, split NeedsReview into:
-    // - Skipped: Transaction succeeded but didn't call monitored function selector
-    // - ReplayFailure: Transaction reverted before assertion could execute (prestate issues)
 
     /// @notice Transaction data from blockchain
     struct TransactionData {
@@ -53,12 +48,11 @@ library BacktestingTypes {
     /// @notice Enhanced backtesting results with detailed categorization
     struct BacktestingResults {
         uint256 totalTransactions;
-        uint256 processedTransactions; // Transactions that were actually validated (excluding skipped)
+        uint256 processedTransactions; // Transactions that were actually processed
         uint256 successfulValidations;
-        uint256 failedValidations;
+        uint256 skippedTransactions; // Transactions where assertion wasn't triggered (selector mismatch)
         uint256 assertionFailures; // Real protocol violations
-        uint256 needsReview; // Assertion not executed - needs manual review (selector mismatch or prestate issues)
-        uint256 replayFailures; // Transactions that reverted during replay (context issues)
+        uint256 replayFailures; // Transactions that reverted during replay before assertion
         uint256 unknownErrors; // Unexpected failures
     }
 }

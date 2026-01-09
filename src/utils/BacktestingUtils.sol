@@ -133,7 +133,7 @@ library BacktestingUtils {
     /// @notice Parse multiple transactions from a single data line
     function parseMultipleTransactions(string memory txDataString)
         internal
-        view
+        pure
         returns (BacktestingTypes.TransactionData[] memory transactions)
     {
         string[] memory parts = splitString(txDataString, "|");
@@ -221,10 +221,23 @@ library BacktestingUtils {
     function getErrorTypeString(BacktestingTypes.ValidationResult result) internal pure returns (string memory) {
         if (result == BacktestingTypes.ValidationResult.Success) return "PASS";
         if (result == BacktestingTypes.ValidationResult.Skipped) return "SKIP";
-        if (result == BacktestingTypes.ValidationResult.NeedsReview) return "NEEDS_REVIEW";
         if (result == BacktestingTypes.ValidationResult.ReplayFailure) return "REPLAY_FAIL";
         if (result == BacktestingTypes.ValidationResult.AssertionFailed) return "ASSERTION_FAIL";
         return "UNKNOWN_ERROR";
+    }
+
+    /// @notice Check if a string starts with a prefix
+    /// @param str The string to check
+    /// @param prefix The prefix to look for
+    /// @return True if str starts with prefix
+    function startsWith(string memory str, string memory prefix) internal pure returns (bool) {
+        bytes memory strBytes = bytes(str);
+        bytes memory prefixBytes = bytes(prefix);
+        if (prefixBytes.length > strBytes.length) return false;
+        for (uint256 i = 0; i < prefixBytes.length; i++) {
+            if (strBytes[i] != prefixBytes[i]) return false;
+        }
+        return true;
     }
 
     /// @notice Get the standard search paths for transaction_fetcher.sh

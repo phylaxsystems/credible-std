@@ -64,22 +64,23 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
                 config.forkByTxHash
             );
 
+            results.processedTransactions++;
+
             if (validation.result == BacktestingTypes.ValidationResult.Success) {
-                // This transaction was successfully validated
-                results.processedTransactions++;
                 results.successfulValidations++;
                 console.log("[PASS] VALIDATION PASSED");
             } else if (validation.result == BacktestingTypes.ValidationResult.Skipped) {
-                // This transaction didn't trigger the assertion, so skip it
-                results.processedTransactions++;
-                results.successfulValidations++;
+                results.skippedTransactions++;
                 console.log("[SKIP] Assertion not triggered on this transaction");
-            } else {
-                // This transaction failed validation
-                results.processedTransactions++;
-                results.failedValidations++;
+            } else if (validation.result == BacktestingTypes.ValidationResult.ReplayFailure) {
+                results.replayFailures++;
                 _categorizeAndLogError(validation);
-                _incrementErrorCounter(results, validation.result);
+            } else if (validation.result == BacktestingTypes.ValidationResult.AssertionFailed) {
+                results.assertionFailures++;
+                _categorizeAndLogError(validation);
+            } else {
+                results.unknownErrors++;
+                _categorizeAndLogError(validation);
             }
 
             // Print transaction end marker
@@ -211,7 +212,6 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
 
         // Prepare transaction sender
         vm.stopPrank();
-        vm.deal(txData.from, 10 ether);
 
         // Setup assertion
         cl.assertion({adopter: targetContract, createData: assertionCreationCode, fnSelector: assertionSelector});
@@ -222,26 +222,25 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         console.log(string.concat("Transaction status: ", callSuccess ? "Success" : "Failure"));
 
         if (callSuccess) {
-            // Transaction succeeded - assume assertion passed
+            // Transaction succeeded - assertion passed
             validation.result = BacktestingTypes.ValidationResult.Success;
             validation.isProtocolViolation = false;
         } else {
-            // Transaction reverted - check if it's because assertion wasn't executed
+            // Transaction reverted - categorize the error
             string memory revertReason = BacktestingUtils.decodeRevertReason(returnData);
 
-            if (
-                keccak256(bytes("Expected 1 assertion to be executed, but 0 were executed."))
-                    == keccak256(bytes(revertReason))
-            ) {
-                // TODO: Once PCL provides distinct error messages, split this into:
-                // - Skipped: Transaction succeeded but didn't call monitored function selector
-                // - ReplayFailure: Transaction reverted before assertion could execute (prestate issues)
-                // For now, mark as NEEDS_REVIEW for manual investigation
-                validation.result = BacktestingTypes.ValidationResult.NeedsReview;
-                validation.errorMessage =
-                "Assertion not executed - either function selector mismatch or replay failure (try forkByTxHash)";
+            if (BacktestingUtils.startsWith(revertReason, "Mock Transaction Reverted:")) {
+                // Transaction reverted before assertions could execute (prestate/context issues)
+                validation.result = BacktestingTypes.ValidationResult.ReplayFailure;
+                validation.errorMessage = revertReason;
+                validation.isProtocolViolation = false;
+            } else if (BacktestingUtils.startsWith(revertReason, "Expected 1 assertion to be executed, but 0")) {
+                // Transaction succeeded but didn't trigger the monitored function selector
+                validation.result = BacktestingTypes.ValidationResult.Skipped;
+                validation.errorMessage = "Function selector not triggered by this transaction";
                 validation.isProtocolViolation = false;
             } else {
+                // Actual assertion failure (protocol violation)
                 validation.result = BacktestingTypes.ValidationResult.AssertionFailed;
                 validation.errorMessage = revertReason;
                 validation.isProtocolViolation = true;
@@ -250,33 +249,9 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     }
 
     /// @notice Categorize and log error details
-    function _categorizeAndLogError(BacktestingTypes.ValidationDetails memory validation) private view {
+    function _categorizeAndLogError(BacktestingTypes.ValidationDetails memory validation) private pure {
         string memory errorType = BacktestingUtils.getErrorTypeString(validation.result);
-
-        if (validation.result == BacktestingTypes.ValidationResult.NeedsReview) {
-            console.log(string.concat("[WARNING: ", errorType, "] ", validation.errorMessage));
-        } else {
-            console.log(string.concat("[", errorType, "] VALIDATION FAILED"));
-        }
-
-        // Note: Revert reason is already printed by the credible framework
-        // so we don't print it again here to avoid duplication
-    }
-
-    /// @notice Increment the appropriate error counter
-    function _incrementErrorCounter(
-        BacktestingTypes.BacktestingResults memory results,
-        BacktestingTypes.ValidationResult result
-    ) private pure {
-        if (result == BacktestingTypes.ValidationResult.AssertionFailed) {
-            results.assertionFailures++;
-        } else if (result == BacktestingTypes.ValidationResult.NeedsReview) {
-            results.needsReview++;
-        } else if (result == BacktestingTypes.ValidationResult.ReplayFailure) {
-            results.replayFailures++;
-        } else if (result == BacktestingTypes.ValidationResult.UnknownError) {
-            results.unknownErrors++;
-        }
+        console.log(string.concat("[", errorType, "] ", validation.errorMessage));
     }
 
     /// @notice Print detailed results with error categorization
@@ -284,7 +259,10 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         uint256 startBlock,
         uint256 endBlock,
         BacktestingTypes.BacktestingResults memory results
-    ) private view {
+    ) private pure {
+        uint256 failedValidations =
+            results.assertionFailures + results.replayFailures + results.unknownErrors;
+
         console.log("");
         console.log("==========================================");
         console.log("           BACKTESTING SUMMARY");
@@ -293,23 +271,19 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         console.log(string.concat("Total Transactions: ", results.totalTransactions.toString()));
         console.log(string.concat("Processed Transactions: ", results.processedTransactions.toString()));
         console.log(string.concat("Successful Validations: ", results.successfulValidations.toString()));
-        console.log(string.concat("Failed Validations: ", results.failedValidations.toString()));
+        console.log(string.concat("Skipped Transactions: ", results.skippedTransactions.toString()));
+        console.log(string.concat("Failed Validations: ", failedValidations.toString()));
 
-        if (results.failedValidations > 0) {
+        if (failedValidations > 0) {
             console.log("");
             console.log("=== ERROR BREAKDOWN ===");
             console.log(
                 string.concat("Protocol Violations (Assertion Failures): ", results.assertionFailures.toString())
             );
-            if (results.needsReview > 0) {
-                console.log(
-                    string.concat(
-                        "Needs Review (Selector Mismatch or Prestate Issues): ", results.needsReview.toString()
-                    )
-                );
-            }
             if (results.replayFailures > 0) {
-                console.log(string.concat("Replay Failures (Context Issues): ", results.replayFailures.toString()));
+                console.log(
+                    string.concat("Replay Failures (Tx reverted before assertion): ", results.replayFailures.toString())
+                );
             }
             if (results.unknownErrors > 0) {
                 console.log(string.concat("Unknown Errors: ", results.unknownErrors.toString()));
@@ -317,9 +291,10 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         }
         console.log("");
 
-        uint256 successRate = results.processedTransactions > 0
-            ? (results.successfulValidations * 100) / results.processedTransactions
-            : 0;
+        // Calculate success rate excluding skipped transactions
+        uint256 validatedTransactions = results.successfulValidations + failedValidations;
+        uint256 successRate =
+            validatedTransactions > 0 ? (results.successfulValidations * 100) / validatedTransactions : 0;
         console.log(string.concat("Success Rate: ", successRate.toString(), "%"));
 
         if (results.assertionFailures > 0) {
