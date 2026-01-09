@@ -11,7 +11,6 @@ library BacktestingTypes {
         ReplayFailure, // Transaction reverted during replay before assertion could execute
         AssertionFailed, // Assertion logic failed (actual protocol violation)
         UnknownError // Unexpected error during validation
-
     }
 
     /// @notice Transaction data from blockchain

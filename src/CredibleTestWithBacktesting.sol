@@ -34,8 +34,9 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         console.log("==========================================");
         console.log("");
 
-        BacktestingTypes.TransactionData[] memory transactions =
-            _fetchTransactions(config.targetContract, startBlock, config.endBlock, config.rpcUrl, config.useTraceFilter);
+        BacktestingTypes.TransactionData[] memory transactions = _fetchTransactions(
+            config.targetContract, startBlock, config.endBlock, config.rpcUrl, config.useTraceFilter
+        );
         results.totalTransactions = transactions.length;
         results.processedTransactions = 0; // Initialize processed transactions counter
         console.log(string.concat("Total transactions found: ", results.totalTransactions.toString()));
@@ -259,7 +260,8 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         uint256 endBlock,
         BacktestingTypes.BacktestingResults memory results
     ) private pure {
-        uint256 failedValidations = results.assertionFailures + results.replayFailures + results.unknownErrors;
+        uint256 failedValidations =
+            results.assertionFailures + results.replayFailures + results.unknownErrors;
 
         console.log("");
         console.log("==========================================");
