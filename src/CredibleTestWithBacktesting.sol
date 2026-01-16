@@ -236,8 +236,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         bool callSuccess;
         bytes memory returnData;
         if (txData.gasLimit > 0) {
-            (callSuccess, returnData) =
-                txData.to.call{value: txData.value, gas: txData.gasLimit}(txData.data);
+            (callSuccess, returnData) = txData.to.call{value: txData.value, gas: txData.gasLimit}(txData.data);
         } else {
             (callSuccess, returnData) = txData.to.call{value: txData.value}(txData.data);
         }
@@ -261,9 +260,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
                 validation.result = BacktestingTypes.ValidationResult.Skipped;
                 validation.errorMessage = "Function selector not triggered by this transaction";
                 validation.isProtocolViolation = false;
-            } else if (
-                BacktestingUtils.startsWith(revertReason, "Assertion Executor Error: ForkTxExecutionError")
-            ) {
+            } else if (BacktestingUtils.startsWith(revertReason, "Assertion Executor Error: ForkTxExecutionError")) {
                 // Replay failed before assertion execution (e.g., insufficient funds for max fee)
                 validation.result = BacktestingTypes.ValidationResult.ReplayFailure;
                 validation.errorMessage = revertReason;

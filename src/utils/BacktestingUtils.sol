@@ -150,14 +150,10 @@ library BacktestingUtils {
         uint256 extendedFieldsPerTransaction = 11;
         uint256 legacyExpectedParts = 1 + (count * legacyFieldsPerTransaction); // +1 for count at beginning
         uint256 extendedExpectedParts = 1 + (count * extendedFieldsPerTransaction);
-        uint256 fieldsPerTransaction = parts.length >= extendedExpectedParts
-            ? extendedFieldsPerTransaction
-            : legacyFieldsPerTransaction;
+        uint256 fieldsPerTransaction =
+            parts.length >= extendedExpectedParts ? extendedFieldsPerTransaction : legacyFieldsPerTransaction;
 
-        require(
-            parts.length >= legacyExpectedParts,
-            "Insufficient transaction data"
-        );
+        require(parts.length >= legacyExpectedParts, "Insufficient transaction data");
 
         for (uint256 i = 0; i < count; i++) {
             uint256 startIndex = 1 + (i * fieldsPerTransaction); // Skip count at beginning
