@@ -225,6 +225,17 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
             vm.txGasPrice(gasPrice);
         }
 
+        // Ensure the sender can cover max-fee checks even when the tx gas limit defaults to 2^24.
+        uint256 feeGasPrice = gasPrice > 0 ? gasPrice : block.basefee;
+        if (feeGasPrice > 0) {
+            uint256 defaultGasLimit = 1 << 24;
+            uint256 effectiveGasLimit = txData.gasLimit > defaultGasLimit ? txData.gasLimit : defaultGasLimit;
+            uint256 minBalance = (effectiveGasLimit * feeGasPrice) + txData.value;
+            if (txData.from.balance < minBalance) {
+                vm.deal(txData.from, minBalance);
+            }
+        }
+
         vm.prank(txData.from, txData.from);
         bool callSuccess;
         bytes memory returnData;
