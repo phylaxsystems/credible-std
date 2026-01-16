@@ -76,7 +76,7 @@ PERFORMANCE:
     Balance these based on your RPC provider's rate limits.
 
 OUTPUT:
-    simple: count|hash|from|to|value|data|blockNumber|txIndex|gasPrice|...
+    simple: count|hash|from|to|value|data|blockNumber|txIndex|gasPrice|gasLimit|maxFeePerGas|maxPriorityFeePerGas|...
     json:   Array of transaction objects with labeled fields
 
 EOF
@@ -282,7 +282,10 @@ fetch_transactions_trace_filter() {
                     local tx_to=$(echo "$tx_data" | jq -r '.to // empty')
                     local tx_value=$(echo "$tx_data" | jq -r '.value')
                     local tx_input=$(echo "$tx_data" | jq -r '.input')
-                    local tx_gas_price=$(echo "$tx_data" | jq -r '.gasPrice')
+                    local tx_gas_price=$(echo "$tx_data" | jq -r '.gasPrice // "0x0"')
+                    local tx_gas_limit=$(echo "$tx_data" | jq -r '.gas // "0x0"')
+                    local tx_max_fee_per_gas=$(echo "$tx_data" | jq -r '.maxFeePerGas // "0x0"')
+                    local tx_max_priority_fee_per_gas=$(echo "$tx_data" | jq -r '.maxPriorityFeePerGas // "0x0"')
 
                     # Check if transaction succeeded on-chain
                     local receipt_request=$(jq -n \
@@ -305,7 +308,7 @@ fetch_transactions_trace_filter() {
 
                     # Only output transaction if it succeeded (status == "0x1")
                     if [[ "$tx_status" == "0x1" ]]; then
-                        echo "$tx_hash|$tx_from|$tx_to|$tx_value|$tx_input|$block_num|$tx_index|$tx_gas_price" >> "$output_file"
+                        echo "$tx_hash|$tx_from|$tx_to|$tx_value|$tx_input|$block_num|$tx_index|$tx_gas_price|$tx_gas_limit|$tx_max_fee_per_gas|$tx_max_priority_fee_per_gas" >> "$output_file"
                         ((tx_count++))
                     fi
                 fi
@@ -432,13 +435,16 @@ fetch_block_transactions() {
                     local tx_value=$(echo "$tx" | jq -r '.value')
                     local tx_input=$(echo "$tx" | jq -r '.input')
                     local tx_index_hex=$(echo "$tx" | jq -r '.transactionIndex')
-                    local tx_gas_price=$(echo "$tx" | jq -r '.gasPrice')
+                    local tx_gas_price=$(echo "$tx" | jq -r '.gasPrice // "0x0"')
+                    local tx_gas_limit=$(echo "$tx" | jq -r '.gas // "0x0"')
+                    local tx_max_fee_per_gas=$(echo "$tx" | jq -r '.maxFeePerGas // "0x0"')
+                    local tx_max_priority_fee_per_gas=$(echo "$tx" | jq -r '.maxPriorityFeePerGas // "0x0"')
 
                     # Convert transaction index to decimal
                     local tx_index_decimal=$(hex_to_decimal "$tx_index_hex")
 
-                    # Output transaction in the format: hash|from|to|value|data|blockNumber|txIndex|gasPrice
-                    echo "$tx_hash|$tx_from|$tx_to|$tx_value|$tx_input|$block_num_decimal|$tx_index_decimal|$tx_gas_price" >> "$output_file"
+                    # Output transaction in the format: hash|from|to|value|data|blockNumber|txIndex|gasPrice|gasLimit|maxFeePerGas|maxPriorityFeePerGas
+                    echo "$tx_hash|$tx_from|$tx_to|$tx_value|$tx_input|$block_num_decimal|$tx_index_decimal|$tx_gas_price|$tx_gas_limit|$tx_max_fee_per_gas|$tx_max_priority_fee_per_gas" >> "$output_file"
                 fi
             fi
         fi
@@ -522,7 +528,7 @@ format_transactions() {
             # Convert to JSON format
             echo "["
             local first=true
-            while IFS='|' read -r hash from to value data block_number tx_index gas_price; do
+            while IFS='|' read -r hash from to value data block_number tx_index gas_price gas_limit max_fee_per_gas max_priority_fee_per_gas; do
                 if [[ "$first" == "true" ]]; then
                     first=false
                 else
@@ -537,6 +543,9 @@ format_transactions() {
                     --arg block_number "$block_number" \
                     --arg tx_index "$tx_index" \
                     --arg gas_price "$gas_price" \
+                    --arg gas_limit "$gas_limit" \
+                    --arg max_fee_per_gas "$max_fee_per_gas" \
+                    --arg max_priority_fee_per_gas "$max_priority_fee_per_gas" \
                     '{
                         hash: $hash,
                         from: $from,
@@ -545,17 +554,20 @@ format_transactions() {
                         data: $data,
                         block_number: $block_number,
                         transaction_index: $tx_index,
-                        gas_price: $gas_price
+                        gas_price: $gas_price,
+                        gas_limit: $gas_limit,
+                        max_fee_per_gas: $max_fee_per_gas,
+                        max_priority_fee_per_gas: $max_priority_fee_per_gas
                     }' | tr -d '\n'
             done < "$all_transactions_file"
             echo
             echo "]"
             ;;
         *)
-            # Simple format: count|hash|from|to|value|data|blockNumber|txIndex|gasPrice|...
+            # Simple format: count|hash|from|to|value|data|blockNumber|txIndex|gasPrice|gasLimit|maxFeePerGas|maxPriorityFeePerGas|...
             echo -n "$tx_count"
-            while IFS='|' read -r hash from to value data block_number tx_index gas_price; do
-                echo -n "|$hash|$from|$to|$value|$data|$block_number|$tx_index|$gas_price"
+            while IFS='|' read -r hash from to value data block_number tx_index gas_price gas_limit max_fee_per_gas max_priority_fee_per_gas; do
+                echo -n "|$hash|$from|$to|$value|$data|$block_number|$tx_index|$gas_price|$gas_limit|$max_fee_per_gas|$max_priority_fee_per_gas"
             done < "$all_transactions_file"
             ;;
     esac

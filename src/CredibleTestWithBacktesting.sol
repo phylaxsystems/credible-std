@@ -217,8 +217,23 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         cl.assertion({adopter: targetContract, createData: assertionCreationCode, fnSelector: assertionSelector});
 
         // Execute the transaction
+        uint256 gasPrice = txData.gasPrice;
+        if (txData.maxFeePerGas > 0) {
+            gasPrice = txData.maxFeePerGas;
+        }
+        if (gasPrice > 0) {
+            vm.txGasPrice(gasPrice);
+        }
+
         vm.prank(txData.from, txData.from);
-        (bool callSuccess, bytes memory returnData) = txData.to.call{value: txData.value}(txData.data);
+        bool callSuccess;
+        bytes memory returnData;
+        if (txData.gasLimit > 0) {
+            (callSuccess, returnData) =
+                txData.to.call{value: txData.value, gas: txData.gasLimit}(txData.data);
+        } else {
+            (callSuccess, returnData) = txData.to.call{value: txData.value}(txData.data);
+        }
         console.log(string.concat("Transaction status: ", callSuccess ? "Success" : "Failure"));
 
         if (callSuccess) {
@@ -238,6 +253,13 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
                 // Transaction succeeded but didn't trigger the monitored function selector
                 validation.result = BacktestingTypes.ValidationResult.Skipped;
                 validation.errorMessage = "Function selector not triggered by this transaction";
+                validation.isProtocolViolation = false;
+            } else if (
+                BacktestingUtils.startsWith(revertReason, "Assertion Executor Error: ForkTxExecutionError")
+            ) {
+                // Replay failed before assertion execution (e.g., insufficient funds for max fee)
+                validation.result = BacktestingTypes.ValidationResult.ReplayFailure;
+                validation.errorMessage = revertReason;
                 validation.isProtocolViolation = false;
             } else {
                 // Actual assertion failure (protocol violation)

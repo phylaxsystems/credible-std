@@ -23,6 +23,9 @@ library BacktestingTypes {
         uint256 blockNumber;
         uint256 transactionIndex;
         uint256 gasPrice;
+        uint256 gasLimit;
+        uint256 maxFeePerGas;
+        uint256 maxPriorityFeePerGas;
     }
 
     /// @notice Detailed validation result with error information
