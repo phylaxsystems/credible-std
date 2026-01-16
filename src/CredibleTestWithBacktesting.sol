@@ -203,12 +203,11 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         BacktestingTypes.TransactionData memory txData,
         bool forkByTxHash
     ) private returns (BacktestingTypes.ValidationDetails memory validation) {
-        // Fork at the transaction's block, or by tx hash if requested
-        if (forkByTxHash) {
-            vm.createSelectFork(rpcUrl, txData.hash);
-        } else {
-            vm.createSelectFork(rpcUrl, txData.blockNumber);
+        // Always fork by tx hash to ensure pre-transaction state; block forks are post-state.
+        if (!forkByTxHash) {
+            // Keep the flag for compatibility, but avoid unsafe post-state replays.
         }
+        vm.createSelectFork(rpcUrl, txData.hash);
 
         // Prepare transaction sender
         vm.stopPrank();
