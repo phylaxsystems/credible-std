@@ -99,36 +99,49 @@ retry_with_backoff() {
         if [[ -z "$response" ]]; then
             attempt=$((attempt + 1))
             if [[ $attempt -lt $max_retries ]]; then
-                local wait_time=$((2 ** attempt))
-                local jitter=$((RANDOM % 1000))
-                local total_wait=$((wait_time * 1000 + jitter))
-                local max_wait=64000
+                local wait_time
+                local jitter
+                local total_wait
+                local max_wait
+                local wait_seconds
+                wait_time=$((2 ** attempt))
+                jitter=$((RANDOM % 1000))
+                total_wait=$((wait_time * 1000 + jitter))
+                max_wait=64000
                 if [[ $total_wait -gt $max_wait ]]; then
                     total_wait=$max_wait
                 fi
-                sleep $(awk "BEGIN {print $total_wait/1000}")
+                wait_seconds=$(awk "BEGIN {print $total_wait/1000}")
+                sleep "$wait_seconds"
                 continue
             fi
         fi
 
         # Check for 429 error
-        local error_code=$(echo "$response" | jq -r '.error.code // empty' 2>/dev/null)
+        local error_code
+        error_code=$(echo "$response" | jq -r '.error.code // empty' 2>/dev/null)
         if [[ "$error_code" == "429" ]]; then
             attempt=$((attempt + 1))
             if [[ $attempt -lt $max_retries ]]; then
                 # Exponential backoff: 2^n seconds + random jitter (0-1000ms)
-                local wait_time=$((2 ** attempt))
-                local jitter=$((RANDOM % 1000))
-                local total_wait=$((wait_time * 1000 + jitter))
+                local wait_time
+                local jitter
+                local total_wait
+                local max_wait
+                local wait_seconds
+                wait_time=$((2 ** attempt))
+                jitter=$((RANDOM % 1000))
+                total_wait=$((wait_time * 1000 + jitter))
 
                 # Cap at maximum backoff of 64 seconds
-                local max_wait=64000
+                max_wait=64000
                 if [[ $total_wait -gt $max_wait ]]; then
                     total_wait=$max_wait
                 fi
 
-                echo "Rate limit hit (429), retrying after $(awk "BEGIN {print $total_wait/1000}")s (attempt $attempt/$max_retries)" >&2
-                sleep $(awk "BEGIN {print $total_wait/1000}")
+                wait_seconds=$(awk "BEGIN {print $total_wait/1000}")
+                echo "Rate limit hit (429), retrying after ${wait_seconds}s (attempt $attempt/$max_retries)" >&2
+                sleep "$wait_seconds"
                 continue
             else
                 echo "Max retries reached for rate-limited request" >&2
@@ -320,13 +333,16 @@ fetch_transactions_trace_filter() {
     local output_file="$5"
 
     # Convert block numbers to hex
-    local start_hex=$(printf "0x%x" "$start_block")
-    local end_hex=$(printf "0x%x" "$end_block")
+    local start_hex
+    local end_hex
+    start_hex=$(printf "0x%x" "$start_block")
+    end_hex=$(printf "0x%x" "$end_block")
 
     echo "Fetching traces for blocks $start_block to $end_block using trace_filter" >&2
 
     # Prepare trace_filter request
-    local trace_request=$(jq -n \
+    local trace_request
+    trace_request=$(jq -n \
         --arg start_hex "$start_hex" \
         --arg end_hex "$end_hex" \
         --arg target "$target_contract" \
@@ -566,10 +582,12 @@ fetch_block_transactions() {
     local rpc_counter_dir="$5"
 
     # Convert block number to hex
-    local block_hex=$(printf "0x%x" "$block_number")
+    local block_hex
+    block_hex=$(printf "0x%x" "$block_number")
 
     # Prepare RPC request
-    local rpc_request=$(jq -n \
+    local rpc_request
+    rpc_request=$(jq -n \
         --arg method "eth_getBlockByNumber" \
         --arg block_hex "$block_hex" \
         '{
@@ -631,24 +649,30 @@ fetch_block_transactions() {
     fi
 
     # Convert block number to decimal
-    local block_num_decimal=$(hex_to_decimal "$block_num_hex")
+    local block_num_decimal
+    block_num_decimal=$(hex_to_decimal "$block_num_hex")
 
     # Filter transactions that interact with the target contract
-    local target_contract_lower=$(echo "$target_contract" | tr '[:upper:]' '[:lower:]')
+    local target_contract_lower
+    target_contract_lower=$(echo "$target_contract" | tr '[:upper:]' '[:lower:]')
 
     # Process each transaction - only check direct calls (tx.to == target)
     while IFS= read -r tx; do
         [[ -z "$tx" ]] && continue
 
-        local tx_hash=$(echo "$tx" | jq -r '.hash')
-        local tx_to=$(echo "$tx" | jq -r '.to // empty')
+        local tx_hash
+        local tx_to
+        tx_hash=$(echo "$tx" | jq -r '.hash')
+        tx_to=$(echo "$tx" | jq -r '.to // empty')
 
         # Check if this is a direct call to target contract
         if [[ -n "$tx_to" ]]; then
-            local tx_to_lower=$(echo "$tx_to" | tr '[:upper:]' '[:lower:]')
+            local tx_to_lower
+            tx_to_lower=$(echo "$tx_to" | tr '[:upper:]' '[:lower:]')
             if [[ "$tx_to_lower" == "$target_contract_lower" ]]; then
                 # Direct call found - check if transaction succeeded on-chain
-                local receipt_request=$(jq -n \
+                local receipt_request
+                receipt_request=$(jq -n \
                     --arg tx_hash "$tx_hash" \
                     '{
                         "jsonrpc": "2.0",
@@ -658,27 +682,38 @@ fetch_block_transactions() {
                     }')
 
                 echo "1" >> "$rpc_counter_dir/receipt_fetch.count"
-                local receipt_response=$(retry_with_backoff 5 curl -s -X POST \
+                local receipt_response
+                receipt_response=$(retry_with_backoff 5 curl -s -X POST \
                     -H "Content-Type: application/json" \
                     -d "$receipt_request" \
                     --max-time 30 \
                     "$rpc_url")
 
-                local tx_status=$(echo "$receipt_response" | jq -r '.result.status // empty')
+                local tx_status
+                tx_status=$(echo "$receipt_response" | jq -r '.result.status // empty')
 
                 # Only output transaction if it succeeded (status == "0x1")
                 if [[ "$tx_status" == "0x1" ]]; then
-                    local tx_from=$(echo "$tx" | jq -r '.from')
-                    local tx_value=$(echo "$tx" | jq -r '.value')
-                    local tx_input=$(echo "$tx" | jq -r '.input')
-                    local tx_index_hex=$(echo "$tx" | jq -r '.transactionIndex')
-                    local tx_gas_price=$(echo "$tx" | jq -r '.gasPrice // "0x0"')
-                    local tx_gas_limit=$(echo "$tx" | jq -r '.gas // "0x0"')
-                    local tx_max_fee_per_gas=$(echo "$tx" | jq -r '.maxFeePerGas // "0x0"')
-                    local tx_max_priority_fee_per_gas=$(echo "$tx" | jq -r '.maxPriorityFeePerGas // "0x0"')
+                    local tx_from
+                    local tx_value
+                    local tx_input
+                    local tx_index_hex
+                    local tx_gas_price
+                    local tx_gas_limit
+                    local tx_max_fee_per_gas
+                    local tx_max_priority_fee_per_gas
+                    tx_from=$(echo "$tx" | jq -r '.from')
+                    tx_value=$(echo "$tx" | jq -r '.value')
+                    tx_input=$(echo "$tx" | jq -r '.input')
+                    tx_index_hex=$(echo "$tx" | jq -r '.transactionIndex')
+                    tx_gas_price=$(echo "$tx" | jq -r '.gasPrice // "0x0"')
+                    tx_gas_limit=$(echo "$tx" | jq -r '.gas // "0x0"')
+                    tx_max_fee_per_gas=$(echo "$tx" | jq -r '.maxFeePerGas // "0x0"')
+                    tx_max_priority_fee_per_gas=$(echo "$tx" | jq -r '.maxPriorityFeePerGas // "0x0"')
 
                     # Convert transaction index to decimal
-                    local tx_index_decimal=$(hex_to_decimal "$tx_index_hex")
+                    local tx_index_decimal
+                    tx_index_decimal=$(hex_to_decimal "$tx_index_hex")
 
                     # Output transaction in the format: hash|from|to|value|data|blockNumber|txIndex|gasPrice|gasLimit|maxFeePerGas|maxPriorityFeePerGas
                     echo "$tx_hash|$tx_from|$tx_to|$tx_value|$tx_input|$block_num_decimal|$tx_index_decimal|$tx_gas_price|$tx_gas_limit|$tx_max_fee_per_gas|$tx_max_priority_fee_per_gas" >> "$output_file"
@@ -758,7 +793,8 @@ format_transactions() {
     fi
 
     # Count transactions (one per line)
-    local tx_count=$(wc -l < "$all_transactions_file" | tr -d ' ')
+    local tx_count
+    tx_count=$(wc -l < "$all_transactions_file" | tr -d ' ')
 
     case "$output_format" in
         "json")
@@ -976,7 +1012,8 @@ main() {
     done
 
     # Calculate timing
-    local end_time=$(date +%s)
+    local end_time
+    end_time=$(date +%s)
     local duration=$((end_time - START_TIME))
 
     echo "Optimized fetch completed in ${duration}s" >&2
@@ -989,13 +1026,20 @@ main() {
     fi
 
     # Display RPC call statistics
-    local block_fetch_count=$(count_rpc_calls "block_fetch")
-    local detailed_block_count=$(count_rpc_calls "detailed_block")
-    local trace_filter_count=$(count_rpc_calls "trace_filter")
-    local debug_trace_block_count=$(count_rpc_calls "debug_trace_block")
-    local debug_trace_tx_count=$(count_rpc_calls "debug_trace_tx")
-    local tx_fetch_count=$(count_rpc_calls "tx_fetch")
-    local receipt_fetch_count=$(count_rpc_calls "receipt_fetch")
+    local block_fetch_count
+    local detailed_block_count
+    local trace_filter_count
+    local debug_trace_block_count
+    local debug_trace_tx_count
+    local tx_fetch_count
+    local receipt_fetch_count
+    block_fetch_count=$(count_rpc_calls "block_fetch")
+    detailed_block_count=$(count_rpc_calls "detailed_block")
+    trace_filter_count=$(count_rpc_calls "trace_filter")
+    debug_trace_block_count=$(count_rpc_calls "debug_trace_block")
+    debug_trace_tx_count=$(count_rpc_calls "debug_trace_tx")
+    tx_fetch_count=$(count_rpc_calls "tx_fetch")
+    receipt_fetch_count=$(count_rpc_calls "receipt_fetch")
 
     local total_rpc_calls=$((block_fetch_count + detailed_block_count + trace_filter_count + debug_trace_block_count + debug_trace_tx_count + tx_fetch_count + receipt_fetch_count))
 
@@ -1051,9 +1095,11 @@ main() {
 
         # Get total tx count for each block and format output
         for ((block = start_block; block <= end_block; block++)); do
-            local block_hex=$(printf "0x%x" "$block")
+            local block_hex
+            block_hex=$(printf "0x%x" "$block")
             echo "1" >> "$RPC_COUNTER_DIR/detailed_block.count"
-            local total_tx_count=$(curl -s -X POST "$rpc_url" \
+            local total_tx_count
+            total_tx_count=$(curl -s -X POST "$rpc_url" \
                 -H "Content-Type: application/json" \
                 -d "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getBlockByNumber\",\"params\":[\"$block_hex\", false],\"id\":1}" \
                 | jq -r '.result.transactions | length')
