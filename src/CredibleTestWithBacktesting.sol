@@ -180,6 +180,12 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
             inputs[16] = "--use-trace-filter";
         }
 
+        string memory command = inputs[0];
+        for (uint256 i = 1; i < inputs.length; i++) {
+            command = string.concat(command, " ", inputs[i]);
+        }
+        console.log(string.concat("FFI command: ", command));
+
         // Execute FFI
         bytes memory result = vm.ffi(inputs);
         string memory output = string(result);
