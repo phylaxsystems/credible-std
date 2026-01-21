@@ -41,11 +41,21 @@ library BacktestingUtils {
         uint256 dataStart = positions[1] + marker.length;
         uint256 dataEnd = positions[2];
 
+        // Trim trailing whitespace/newlines
+        while (dataEnd > dataStart && _isWhitespace(outputBytes[dataEnd - 1])) {
+            dataEnd--;
+        }
+
         bytes memory result = new bytes(dataEnd - dataStart);
         for (uint256 k = 0; k < result.length; k++) {
             result[k] = outputBytes[dataStart + k];
         }
         return string(result);
+    }
+
+    /// @notice Check if a character is whitespace
+    function _isWhitespace(bytes1 char) private pure returns (bool) {
+        return char == 0x20 || char == 0x09 || char == 0x0a || char == 0x0d; // space, tab, newline, carriage return
     }
 
     /// @notice Simple pipe-delimited string splitter
