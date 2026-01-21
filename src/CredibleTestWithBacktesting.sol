@@ -249,17 +249,6 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         private
         returns (BacktestingTypes.BacktestingResults memory results)
     {
-        // Print configuration for single transaction backtest
-        console.log("==========================================");
-        console.log("    SINGLE TRANSACTION BACKTESTING");
-        console.log("==========================================");
-        console.log(string.concat("Transaction Hash: ", BacktestingUtils.bytes32ToHex(config.transactionHash)));
-        console.log(string.concat("Target Contract: ", Strings.toHexString(config.targetContract)));
-        console.log(string.concat("Assertion Selector: ", Strings.toHexString(uint32(config.assertionSelector), 4)));
-        console.log(string.concat("RPC URL: ", config.rpcUrl));
-        console.log("==========================================");
-        console.log("");
-
         // Fetch the transaction data
         BacktestingTypes.TransactionData memory txData = _fetchTransactionByHash(config.transactionHash, config.rpcUrl);
 
@@ -272,15 +261,6 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
 
         results.totalTransactions = 1;
         results.processedTransactions = 0;
-
-        console.log("");
-        console.log("=== TRANSACTION ===");
-        console.log(string.concat("Hash: ", BacktestingUtils.bytes32ToHex(txData.hash)));
-        console.log(string.concat("From: ", Strings.toHexString(txData.from)));
-        console.log(string.concat("To: ", Strings.toHexString(txData.to)));
-        console.log(string.concat("Block: ", txData.blockNumber.toString()));
-        console.log(string.concat("Function: ", BacktestingUtils.extractFunctionSelector(txData.data)));
-        console.log("---");
 
         // Validate the transaction
         BacktestingTypes.ValidationDetails memory validation = _validateTransaction(
@@ -296,19 +276,19 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
 
         if (validation.result == BacktestingTypes.ValidationResult.Success) {
             results.successfulValidations = 1;
-            console.log("[PASS] VALIDATION PASSED");
+            console.log("[PASS] Assertion passed for tx", BacktestingUtils.bytes32ToHex(txData.hash));
         } else if (validation.result == BacktestingTypes.ValidationResult.Skipped) {
             results.skippedTransactions = 1;
-            console.log("[SKIP] Assertion not triggered on this transaction");
+            console.log("[SKIP] Assertion not triggered for tx", BacktestingUtils.bytes32ToHex(txData.hash));
         } else if (validation.result == BacktestingTypes.ValidationResult.ReplayFailure) {
             results.replayFailures = 1;
-            _categorizeAndLogError(validation);
+            console.log("[REPLAY_FAIL]", validation.errorMessage);
         } else if (validation.result == BacktestingTypes.ValidationResult.AssertionFailed) {
             results.assertionFailures = 1;
-            _categorizeAndLogError(validation);
-            // Replay the transaction to show full trace
+            console.log("[FAIL] Assertion failed for tx", BacktestingUtils.bytes32ToHex(txData.hash));
+            console.log("Error:", validation.errorMessage);
             console.log("");
-            console.log("=== REPLAYING FAILED TRANSACTION FOR TRACE ===");
+            console.log(">>> TRANSACTION TRACE BELOW <<<");
             _replayTransactionForTrace(
                 config.targetContract,
                 config.assertionCreationCode,
@@ -318,11 +298,9 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
             );
         } else {
             results.unknownErrors = 1;
-            _categorizeAndLogError(validation);
+            console.log("[ERROR]", validation.errorMessage);
         }
 
-        console.log("---");
-        _printSingleTransactionResults(results);
         return results;
     }
 
@@ -394,31 +372,6 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
             txData.transactionIndex = BacktestingUtils.stringToUint(fields[6]);
             txData.gasPrice = BacktestingUtils.stringToUint(fields[7]);
         }
-    }
-
-    /// @notice Print results for single transaction backtest
-    function _printSingleTransactionResults(BacktestingTypes.BacktestingResults memory results) private pure {
-        console.log("");
-        console.log("==========================================");
-        console.log("    SINGLE TRANSACTION BACKTEST RESULT");
-        console.log("==========================================");
-
-        if (results.successfulValidations == 1) {
-            console.log("Result: PASSED");
-            console.log("The assertion validated successfully for this transaction.");
-        } else if (results.skippedTransactions == 1) {
-            console.log("Result: SKIPPED");
-            console.log("The transaction did not trigger the assertion selector.");
-        } else if (results.assertionFailures == 1) {
-            console.log("Result: ASSERTION FAILED");
-            console.log("!!! PROTOCOL VIOLATION DETECTED !!!");
-        } else if (results.replayFailures == 1) {
-            console.log("Result: REPLAY FAILURE");
-            console.log("The transaction could not be replayed correctly.");
-        } else {
-            console.log("Result: UNKNOWN ERROR");
-        }
-        console.log("==========================================");
     }
 
     /// @notice Validate a single transaction with detailed error categorization
@@ -510,22 +463,11 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         string memory rpcUrl,
         BacktestingTypes.TransactionData memory txData
     ) private {
-        console.log("Replaying transaction for full trace:");
-        console.log(string.concat("  Hash: ", BacktestingUtils.bytes32ToHex(txData.hash)));
-        console.log(string.concat("  From: ", Strings.toHexString(txData.from)));
-        console.log(string.concat("  To: ", Strings.toHexString(txData.to)));
-        console.log(string.concat("  Value: ", txData.value.toString()));
-        console.log(string.concat("  Selector: ", BacktestingUtils.extractFunctionSelector(txData.data)));
-        console.log("");
-
         // Fork at the transaction hash - this gives us the state BEFORE this transaction
         vm.createSelectFork(rpcUrl, txData.hash);
-
-        // Clear any existing prank state
         vm.stopPrank();
 
-        // Make the raw call as the original sender - NO assertion setup
-        // This will show the full trace in Foundry output when run with -vvvv
+        // Make the raw call as the original sender - Foundry will trace this
         vm.prank(txData.from, txData.from);
         txData.to.call{value: txData.value}(txData.data);
     }
