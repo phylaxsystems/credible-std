@@ -502,39 +502,32 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     }
 
     /// @notice Replay a failed transaction to show the full execution trace
-    /// @dev This function intentionally does NOT use try/catch so Foundry prints the full trace
+    /// @dev Forks to state before the tx and makes a raw call so Foundry prints the full trace
     function _replayTransactionForTrace(
-        address targetContract,
-        bytes memory assertionCreationCode,
-        bytes4 assertionSelector,
+        address, // targetContract - unused, kept for interface compatibility
+        bytes memory, // assertionCreationCode - unused
+        bytes4, // assertionSelector - unused
         string memory rpcUrl,
         BacktestingTypes.TransactionData memory txData
     ) private {
-        // Fork at the transaction hash for accurate state
-        vm.createSelectFork(rpcUrl, txData.hash);
-
-        // Prepare transaction sender
-        vm.stopPrank();
-
-        // Setup assertion
-        cl.assertion({adopter: targetContract, createData: assertionCreationCode, fnSelector: assertionSelector});
-
-        // Execute the transaction WITHOUT try/catch - this will show the full trace in forge output
-        console.log("Executing transaction to show trace (will revert):");
+        console.log("Replaying transaction for full trace:");
+        console.log(string.concat("  Hash: ", BacktestingUtils.bytes32ToHex(txData.hash)));
         console.log(string.concat("  From: ", Strings.toHexString(txData.from)));
         console.log(string.concat("  To: ", Strings.toHexString(txData.to)));
         console.log(string.concat("  Value: ", txData.value.toString()));
-        console.log(string.concat("  Data: ", BacktestingUtils.extractFunctionSelector(txData.data)));
+        console.log(string.concat("  Selector: ", BacktestingUtils.extractFunctionSelector(txData.data)));
         console.log("");
 
-        vm.prank(txData.from, txData.from);
-        // This call will revert and Foundry will print the full trace
-        (bool success,) = txData.to.call{value: txData.value}(txData.data);
+        // Fork at the transaction hash - this gives us the state BEFORE this transaction
+        vm.createSelectFork(rpcUrl, txData.hash);
 
-        // If somehow it succeeds on replay, note that
-        if (success) {
-            console.log("Note: Transaction succeeded on replay (unexpected)");
-        }
+        // Clear any existing prank state
+        vm.stopPrank();
+
+        // Make the raw call as the original sender - NO assertion setup
+        // This will show the full trace in Foundry output when run with -vvvv
+        vm.prank(txData.from, txData.from);
+        txData.to.call{value: txData.value}(txData.data);
     }
 
     /// @notice Categorize and log error details
