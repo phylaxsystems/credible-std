@@ -210,16 +210,49 @@ library BacktestingUtils {
     /// @param data The error data from a failed call
     /// @return The decoded revert reason string
     function decodeRevertReason(bytes memory data) internal pure returns (string memory) {
-        if (data.length < 68) return "Unknown error";
+        if (data.length < 4) return "Unknown error";
 
+        // Extract selector
+        bytes4 selector;
         assembly {
-            // Adjust the data pointer to skip the selector
-            data := add(data, 4)
-            // Adjust the length
-            mstore(data, sub(mload(data), 4))
+            selector := mload(add(data, 32))
         }
 
-        return abi.decode(data, (string));
+        // Handle Panic(uint256) - selector 0x4e487b71
+        if (selector == 0x4e487b71 && data.length >= 36) {
+            uint256 panicCode;
+            assembly {
+                panicCode := mload(add(data, 36))
+            }
+            return _panicCodeToString(panicCode);
+        }
+
+        // Handle Error(string) - selector 0x08c379a0
+        if (selector == 0x08c379a0 && data.length >= 68) {
+            assembly {
+                data := add(data, 4)
+                mstore(data, sub(mload(data), 4))
+            }
+            return abi.decode(data, (string));
+        }
+
+        // Unknown error format - return hex of first 4 bytes
+        return string.concat("Custom error: ", Strings.toHexString(uint32(selector), 4));
+    }
+
+    /// @notice Convert panic code to human-readable string
+    function _panicCodeToString(uint256 code) private pure returns (string memory) {
+        if (code == 0x00) return "Panic: generic/compiler panic";
+        if (code == 0x01) return "Panic: assertion failed";
+        if (code == 0x11) return "Panic: arithmetic overflow/underflow";
+        if (code == 0x12) return "Panic: division by zero";
+        if (code == 0x21) return "Panic: invalid enum value";
+        if (code == 0x22) return "Panic: storage out of bounds";
+        if (code == 0x31) return "Panic: pop from empty array";
+        if (code == 0x32) return "Panic: array out-of-bounds access";
+        if (code == 0x41) return "Panic: too much memory allocated";
+        if (code == 0x51) return "Panic: uninitialized function pointer";
+        return string.concat("Panic: unknown code 0x", Strings.toHexString(code));
     }
 
     /// @notice Convert bytes to hex string
