@@ -144,13 +144,30 @@ library BacktestingUtils {
 
         transactions = new BacktestingTypes.TransactionData[](count);
 
-        // Each transaction has 8 fields: hash|from|to|value|data|block|txIndex|gasPrice
-        uint256 fieldsPerTransaction = 8;
-        uint256 expectedParts = 1 + (count * fieldsPerTransaction); // +1 for count at beginning
-        require(parts.length >= expectedParts, "Insufficient transaction data");
+        // Each transaction has 8 fields (legacy) or 11 fields (extended):
+        // hash|from|to|value|data|block|txIndex|gasPrice[|gasLimit|maxFeePerGas|maxPriorityFeePerGas]
+        uint256 legacyFieldsPerTransaction = 8;
+        uint256 extendedFieldsPerTransaction = 11;
+        uint256 legacyExpectedParts = 1 + (count * legacyFieldsPerTransaction); // +1 for count at beginning
+        uint256 extendedExpectedParts = 1 + (count * extendedFieldsPerTransaction);
+        uint256 fieldsPerTransaction =
+            parts.length >= extendedExpectedParts ? extendedFieldsPerTransaction : legacyFieldsPerTransaction;
+
+        require(parts.length >= legacyExpectedParts, "Insufficient transaction data");
 
         for (uint256 i = 0; i < count; i++) {
             uint256 startIndex = 1 + (i * fieldsPerTransaction); // Skip count at beginning
+
+            uint256 gasPrice = stringToUint(parts[startIndex + 7]);
+            uint256 gasLimit = 0;
+            uint256 maxFeePerGas = 0;
+            uint256 maxPriorityFeePerGas = 0;
+
+            if (fieldsPerTransaction == extendedFieldsPerTransaction) {
+                gasLimit = stringToUint(parts[startIndex + 8]);
+                maxFeePerGas = stringToUint(parts[startIndex + 9]);
+                maxPriorityFeePerGas = stringToUint(parts[startIndex + 10]);
+            }
 
             transactions[i] = BacktestingTypes.TransactionData({
                 hash: stringToBytes32(parts[startIndex]),
@@ -160,7 +177,10 @@ library BacktestingUtils {
                 data: hexStringToBytes(parts[startIndex + 4]),
                 blockNumber: stringToUint(parts[startIndex + 5]),
                 transactionIndex: stringToUint(parts[startIndex + 6]),
-                gasPrice: stringToUint(parts[startIndex + 7])
+                gasPrice: gasPrice,
+                gasLimit: gasLimit,
+                maxFeePerGas: maxFeePerGas,
+                maxPriorityFeePerGas: maxPriorityFeePerGas
             });
         }
     }

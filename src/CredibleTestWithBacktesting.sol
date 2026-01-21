@@ -180,6 +180,12 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
             inputs[16] = "--use-trace-filter";
         }
 
+        string memory command = inputs[0];
+        for (uint256 i = 1; i < inputs.length; i++) {
+            command = string.concat(command, " ", inputs[i]);
+        }
+        console.log(string.concat("FFI command: ", command));
+
         // Execute FFI
         bytes memory result = vm.ffi(inputs);
         string memory output = string(result);
@@ -203,12 +209,11 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         BacktestingTypes.TransactionData memory txData,
         bool forkByTxHash
     ) private returns (BacktestingTypes.ValidationDetails memory validation) {
-        // Fork at the transaction's block, or by tx hash if requested
-        if (forkByTxHash) {
-            vm.createSelectFork(rpcUrl, txData.hash);
-        } else {
-            vm.createSelectFork(rpcUrl, txData.blockNumber);
+        // Always fork by tx hash to ensure pre-transaction state; block forks are post-state.
+        if (!forkByTxHash) {
+            // Keep the flag for compatibility, but avoid unsafe post-state replays.
         }
+        vm.createSelectFork(rpcUrl, txData.hash);
 
         // Prepare transaction sender
         vm.stopPrank();
@@ -217,8 +222,30 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         cl.assertion({adopter: targetContract, createData: assertionCreationCode, fnSelector: assertionSelector});
 
         // Execute the transaction
+        uint256 gasPrice = txData.gasPrice;
+        if (txData.maxFeePerGas > 0) {
+            gasPrice = txData.maxFeePerGas;
+        }
+        if (gasPrice > 0) {
+            vm.txGasPrice(gasPrice);
+        }
+
+        // Cap basefee to avoid fork replay failures when the tx gas limit defaults to 2^24.
+        uint256 defaultGasLimit = 1 << 24;
+        uint256 effectiveGasLimit = txData.gasLimit > defaultGasLimit ? txData.gasLimit : defaultGasLimit;
+        uint256 maxAffordableBasefee = txData.from.balance / effectiveGasLimit;
+        if (block.basefee > maxAffordableBasefee) {
+            vm.fee(maxAffordableBasefee);
+        }
+
         vm.prank(txData.from, txData.from);
-        (bool callSuccess, bytes memory returnData) = txData.to.call{value: txData.value}(txData.data);
+        bool callSuccess;
+        bytes memory returnData;
+        if (txData.gasLimit > 0) {
+            (callSuccess, returnData) = txData.to.call{value: txData.value, gas: txData.gasLimit}(txData.data);
+        } else {
+            (callSuccess, returnData) = txData.to.call{value: txData.value}(txData.data);
+        }
         console.log(string.concat("Transaction status: ", callSuccess ? "Success" : "Failure"));
 
         if (callSuccess) {
@@ -238,6 +265,11 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
                 // Transaction succeeded but didn't trigger the monitored function selector
                 validation.result = BacktestingTypes.ValidationResult.Skipped;
                 validation.errorMessage = "Function selector not triggered by this transaction";
+                validation.isProtocolViolation = false;
+            } else if (BacktestingUtils.startsWith(revertReason, "Assertion Executor Error: ForkTxExecutionError")) {
+                // Replay failed before assertion execution (e.g., insufficient funds for max fee)
+                validation.result = BacktestingTypes.ValidationResult.ReplayFailure;
+                validation.errorMessage = revertReason;
                 validation.isProtocolViolation = false;
             } else {
                 // Actual assertion failure (protocol violation)

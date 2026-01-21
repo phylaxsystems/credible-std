@@ -23,6 +23,9 @@ library BacktestingTypes {
         uint256 blockNumber;
         uint256 transactionIndex;
         uint256 gasPrice;
+        uint256 gasLimit;
+        uint256 maxFeePerGas;
+        uint256 maxPriorityFeePerGas;
     }
 
     /// @notice Detailed validation result with error information
@@ -42,7 +45,7 @@ library BacktestingTypes {
         string rpcUrl;
         bool detailedBlocks; // Enable detailed block summaries in output
         bool useTraceFilter; // Use trace_filter (fast) instead of debug_traceTransaction (slow)
-        bool forkByTxHash; // Fork by transaction hash instead of block number (more accurate but slower)
+        bool forkByTxHash; // Fork by transaction hash for correct pre-tx state; block forks are unsafe.
     }
 
     /// @notice Enhanced backtesting results with detailed categorization
