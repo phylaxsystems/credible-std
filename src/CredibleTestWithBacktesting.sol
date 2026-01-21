@@ -112,6 +112,16 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
             } else if (validation.result == BacktestingTypes.ValidationResult.AssertionFailed) {
                 results.assertionFailures++;
                 _categorizeAndLogError(validation);
+                // Replay the transaction to show full trace
+                console.log("");
+                console.log("=== REPLAYING FAILED TRANSACTION FOR TRACE ===");
+                _replayTransactionForTrace(
+                    config.targetContract,
+                    config.assertionCreationCode,
+                    config.assertionSelector,
+                    config.rpcUrl,
+                    transactions[i]
+                );
             } else {
                 results.unknownErrors++;
                 _categorizeAndLogError(validation);
@@ -296,6 +306,16 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         } else if (validation.result == BacktestingTypes.ValidationResult.AssertionFailed) {
             results.assertionFailures = 1;
             _categorizeAndLogError(validation);
+            // Replay the transaction to show full trace
+            console.log("");
+            console.log("=== REPLAYING FAILED TRANSACTION FOR TRACE ===");
+            _replayTransactionForTrace(
+                config.targetContract,
+                config.assertionCreationCode,
+                config.assertionSelector,
+                config.rpcUrl,
+                txData
+            );
         } else {
             results.unknownErrors = 1;
             _categorizeAndLogError(validation);
@@ -478,6 +498,42 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
                 validation.errorMessage = revertReason;
                 validation.isProtocolViolation = true;
             }
+        }
+    }
+
+    /// @notice Replay a failed transaction to show the full execution trace
+    /// @dev This function intentionally does NOT use try/catch so Foundry prints the full trace
+    function _replayTransactionForTrace(
+        address targetContract,
+        bytes memory assertionCreationCode,
+        bytes4 assertionSelector,
+        string memory rpcUrl,
+        BacktestingTypes.TransactionData memory txData
+    ) private {
+        // Fork at the transaction hash for accurate state
+        vm.createSelectFork(rpcUrl, txData.hash);
+
+        // Prepare transaction sender
+        vm.stopPrank();
+
+        // Setup assertion
+        cl.assertion({adopter: targetContract, createData: assertionCreationCode, fnSelector: assertionSelector});
+
+        // Execute the transaction WITHOUT try/catch - this will show the full trace in forge output
+        console.log("Executing transaction to show trace (will revert):");
+        console.log(string.concat("  From: ", Strings.toHexString(txData.from)));
+        console.log(string.concat("  To: ", Strings.toHexString(txData.to)));
+        console.log(string.concat("  Value: ", txData.value.toString()));
+        console.log(string.concat("  Data: ", BacktestingUtils.extractFunctionSelector(txData.data)));
+        console.log("");
+
+        vm.prank(txData.from, txData.from);
+        // This call will revert and Foundry will print the full trace
+        (bool success,) = txData.to.call{value: txData.value}(txData.data);
+
+        // If somehow it succeeds on replay, note that
+        if (success) {
+            console.log("Note: Transaction succeeded on replay (unexpected)");
         }
     }
 
