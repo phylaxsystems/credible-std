@@ -137,10 +137,14 @@ library BacktestingUtils {
         returns (BacktestingTypes.TransactionData[] memory transactions)
     {
         string[] memory parts = splitString(txDataString, "|");
-        require(parts.length >= 9, "Invalid transaction data format");
+        require(parts.length >= 1, "Invalid transaction data format");
 
         uint256 count = stringToUint(parts[0]);
-        require(count > 0, "No transactions found");
+
+        // Return empty array if no transactions
+        if (count == 0) {
+            return new BacktestingTypes.TransactionData[](0);
+        }
 
         transactions = new BacktestingTypes.TransactionData[](count);
 
