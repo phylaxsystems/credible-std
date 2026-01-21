@@ -46,6 +46,7 @@ library BacktestingTypes {
         bool detailedBlocks; // Enable detailed block summaries in output
         bool useTraceFilter; // Use trace_filter (fast) instead of debug_traceTransaction (slow)
         bool forkByTxHash; // Fork by transaction hash for correct pre-tx state; block forks are unsafe.
+        bytes32 transactionHash; // If set, backtest only this specific transaction (ignores blockRange)
     }
 
     /// @notice Enhanced backtesting results with detailed categorization

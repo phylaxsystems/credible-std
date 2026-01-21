@@ -16,11 +16,45 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     // Cached script path to avoid repeated lookups
     string private _cachedScriptPath;
 
+    /// @notice Execute backtesting for a single transaction by hash
+    /// @param txHash The transaction hash to backtest
+    /// @param targetContract The target contract address
+    /// @param assertionCreationCode The assertion contract creation code
+    /// @param assertionSelector The assertion function selector
+    /// @param rpcUrl The RPC URL to use
+    /// @return results The backtesting results
+    function executeBacktestForTransaction(
+        bytes32 txHash,
+        address targetContract,
+        bytes memory assertionCreationCode,
+        bytes4 assertionSelector,
+        string memory rpcUrl
+    ) public returns (BacktestingTypes.BacktestingResults memory results) {
+        BacktestingTypes.BacktestingConfig memory config = BacktestingTypes.BacktestingConfig({
+            targetContract: targetContract,
+            endBlock: 0,
+            blockRange: 0,
+            assertionCreationCode: assertionCreationCode,
+            assertionSelector: assertionSelector,
+            rpcUrl: rpcUrl,
+            detailedBlocks: false,
+            useTraceFilter: false,
+            forkByTxHash: true,
+            transactionHash: txHash
+        });
+        return executeBacktest(config);
+    }
+
     /// @notice Execute backtesting with config struct
     function executeBacktest(BacktestingTypes.BacktestingConfig memory config)
         public
         returns (BacktestingTypes.BacktestingResults memory results)
     {
+        // Check if we're backtesting a single transaction by hash
+        if (config.transactionHash != bytes32(0)) {
+            return _executeBacktestForSingleTransaction(config);
+        }
+
         uint256 startBlock = config.endBlock > config.blockRange ? config.endBlock - config.blockRange + 1 : 1;
 
         // Print configuration at the start
@@ -198,6 +232,173 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
 
         // Parse all transactions from the data line
         transactions = BacktestingUtils.parseMultipleTransactions(dataLine);
+    }
+
+    /// @notice Execute backtesting for a single transaction specified by hash
+    function _executeBacktestForSingleTransaction(BacktestingTypes.BacktestingConfig memory config)
+        private
+        returns (BacktestingTypes.BacktestingResults memory results)
+    {
+        // Print configuration for single transaction backtest
+        console.log("==========================================");
+        console.log("    SINGLE TRANSACTION BACKTESTING");
+        console.log("==========================================");
+        console.log(string.concat("Transaction Hash: ", BacktestingUtils.bytes32ToHex(config.transactionHash)));
+        console.log(string.concat("Target Contract: ", Strings.toHexString(config.targetContract)));
+        console.log(string.concat("Assertion Selector: ", Strings.toHexString(uint32(config.assertionSelector), 4)));
+        console.log(string.concat("RPC URL: ", config.rpcUrl));
+        console.log("==========================================");
+        console.log("");
+
+        // Fetch the transaction data
+        BacktestingTypes.TransactionData memory txData = _fetchTransactionByHash(config.transactionHash, config.rpcUrl);
+
+        // Verify the transaction was found
+        if (txData.hash == bytes32(0)) {
+            console.log("[ERROR] Transaction not found");
+            results.totalTransactions = 0;
+            return results;
+        }
+
+        results.totalTransactions = 1;
+        results.processedTransactions = 0;
+
+        console.log("");
+        console.log("=== TRANSACTION ===");
+        console.log(string.concat("Hash: ", BacktestingUtils.bytes32ToHex(txData.hash)));
+        console.log(string.concat("From: ", Strings.toHexString(txData.from)));
+        console.log(string.concat("To: ", Strings.toHexString(txData.to)));
+        console.log(string.concat("Block: ", txData.blockNumber.toString()));
+        console.log(string.concat("Function: ", BacktestingUtils.extractFunctionSelector(txData.data)));
+        console.log("---");
+
+        // Validate the transaction
+        BacktestingTypes.ValidationDetails memory validation = _validateTransaction(
+            config.targetContract,
+            config.assertionCreationCode,
+            config.assertionSelector,
+            config.rpcUrl,
+            txData,
+            true // Always fork by tx hash for single transaction
+        );
+
+        results.processedTransactions = 1;
+
+        if (validation.result == BacktestingTypes.ValidationResult.Success) {
+            results.successfulValidations = 1;
+            console.log("[PASS] VALIDATION PASSED");
+        } else if (validation.result == BacktestingTypes.ValidationResult.Skipped) {
+            results.skippedTransactions = 1;
+            console.log("[SKIP] Assertion not triggered on this transaction");
+        } else if (validation.result == BacktestingTypes.ValidationResult.ReplayFailure) {
+            results.replayFailures = 1;
+            _categorizeAndLogError(validation);
+        } else if (validation.result == BacktestingTypes.ValidationResult.AssertionFailed) {
+            results.assertionFailures = 1;
+            _categorizeAndLogError(validation);
+        } else {
+            results.unknownErrors = 1;
+            _categorizeAndLogError(validation);
+        }
+
+        console.log("---");
+        _printSingleTransactionResults(results);
+        return results;
+    }
+
+    /// @notice Fetch a single transaction by hash using FFI
+    function _fetchTransactionByHash(bytes32 txHash, string memory rpcUrl)
+        private
+        returns (BacktestingTypes.TransactionData memory txData)
+    {
+        // Execute FFI with bash to call curl and jq
+        string[] memory shellInputs = new string[](3);
+        shellInputs[0] = "bash";
+        shellInputs[1] = "-c";
+        shellInputs[2] = string.concat(
+            "curl -s -X POST -H 'Content-Type: application/json' --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_getTransactionByHash\",\"params\":[\"",
+            BacktestingUtils.bytes32ToHex(txHash),
+            "\"],\"id\":1}' ",
+            rpcUrl,
+            " | jq -r '[.result.hash, .result.from, .result.to, .result.value, .result.input, .result.blockNumber, .result.transactionIndex, .result.gasPrice] | @tsv'"
+        );
+
+        bytes memory result = vm.ffi(shellInputs);
+        string memory output = string(result);
+
+        // Parse the tab-separated output
+        if (bytes(output).length == 0) {
+            return txData; // Return empty struct if no result
+        }
+
+        // Parse the transaction data from the output
+        // Format: hash\tfrom\tto\tvalue\tinput\tblockNumber\ttransactionIndex\tgasPrice
+        txData = _parseTransactionFromTsv(output);
+    }
+
+    /// @notice Parse transaction data from tab-separated output
+    function _parseTransactionFromTsv(string memory tsvLine)
+        private
+        pure
+        returns (BacktestingTypes.TransactionData memory txData)
+    {
+        // Split by tab and parse each field
+        bytes memory lineBytes = bytes(tsvLine);
+        uint256 fieldStart = 0;
+        uint256 fieldIndex = 0;
+        string[] memory fields = new string[](8);
+
+        for (uint256 i = 0; i <= lineBytes.length; i++) {
+            if (i == lineBytes.length || lineBytes[i] == 0x09 || lineBytes[i] == 0x0a) {
+                // Tab or newline or end of string
+                if (i > fieldStart && fieldIndex < 8) {
+                    bytes memory field = new bytes(i - fieldStart);
+                    for (uint256 j = fieldStart; j < i; j++) {
+                        field[j - fieldStart] = lineBytes[j];
+                    }
+                    fields[fieldIndex] = string(field);
+                    fieldIndex++;
+                }
+                fieldStart = i + 1;
+            }
+        }
+
+        // Parse fields if we have enough data
+        if (fieldIndex >= 8) {
+            txData.hash = BacktestingUtils.stringToBytes32(fields[0]);
+            txData.from = BacktestingUtils.stringToAddress(fields[1]);
+            txData.to = BacktestingUtils.stringToAddress(fields[2]);
+            txData.value = BacktestingUtils.stringToUint(fields[3]);
+            txData.data = BacktestingUtils.hexStringToBytes(fields[4]);
+            txData.blockNumber = BacktestingUtils.stringToUint(fields[5]);
+            txData.transactionIndex = BacktestingUtils.stringToUint(fields[6]);
+            txData.gasPrice = BacktestingUtils.stringToUint(fields[7]);
+        }
+    }
+
+    /// @notice Print results for single transaction backtest
+    function _printSingleTransactionResults(BacktestingTypes.BacktestingResults memory results) private pure {
+        console.log("");
+        console.log("==========================================");
+        console.log("    SINGLE TRANSACTION BACKTEST RESULT");
+        console.log("==========================================");
+
+        if (results.successfulValidations == 1) {
+            console.log("Result: PASSED");
+            console.log("The assertion validated successfully for this transaction.");
+        } else if (results.skippedTransactions == 1) {
+            console.log("Result: SKIPPED");
+            console.log("The transaction did not trigger the assertion selector.");
+        } else if (results.assertionFailures == 1) {
+            console.log("Result: ASSERTION FAILED");
+            console.log("!!! PROTOCOL VIOLATION DETECTED !!!");
+        } else if (results.replayFailures == 1) {
+            console.log("Result: REPLAY FAILURE");
+            console.log("The transaction could not be replayed correctly.");
+        } else {
+            console.log("Result: UNKNOWN ERROR");
+        }
+        console.log("==========================================");
     }
 
     /// @notice Validate a single transaction with detailed error categorization
