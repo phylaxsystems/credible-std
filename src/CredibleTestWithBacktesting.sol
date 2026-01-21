@@ -290,11 +290,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
             console.log("");
             console.log(">>> TRANSACTION TRACE BELOW <<<");
             _replayTransactionForTrace(
-                config.targetContract,
-                config.assertionCreationCode,
-                config.assertionSelector,
-                config.rpcUrl,
-                txData
+                config.targetContract, config.assertionCreationCode, config.assertionSelector, config.rpcUrl, txData
             );
         } else {
             results.unknownErrors = 1;
