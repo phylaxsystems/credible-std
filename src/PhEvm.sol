@@ -1,92 +1,115 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
+/// @title PhEvm
+/// @author Phylax Systems
+/// @notice Precompile interface for accessing transaction state within assertions
+/// @dev This interface provides access to the Credible Layer's execution environment,
+/// allowing assertions to inspect transaction state, logs, call inputs, and storage changes.
+/// The precompile is available at a deterministic address during assertion execution.
 interface PhEvm {
-    // An Ethereum log
+    /// @notice Represents an Ethereum log emitted during transaction execution
+    /// @dev Used by getLogs() to return transaction logs for inspection
     struct Log {
-        // The topics of the log, including the signature, if any.
+        /// @notice The topics of the log, including the event signature if any
         bytes32[] topics;
-        // The raw data of the log.
+        /// @notice The raw ABI-encoded data of the log
         bytes data;
-        // The address of the log's emitter.
+        /// @notice The address of the contract that emitted the log
         address emitter;
     }
 
-    // Call inputs for the getCallInputs precompile
+    /// @notice Represents the inputs to a call made during transaction execution
+    /// @dev Used by getCallInputs() and related functions to inspect call details
     struct CallInputs {
-        // The call data of the call.
+        /// @notice The calldata of the call
         bytes input;
-        /// The gas limit of the call.
+        /// @notice The gas limit of the call
         uint64 gas_limit;
-        // The account address of bytecode that is going to be executed.
-        //
-        // Previously `context.code_address`.
+        /// @notice The address of the bytecode being executed (code address)
         address bytecode_address;
-        // Target address, this account storage is going to be modified.
-        //
-        // Previously `context.address`.
+        /// @notice The target address whose storage may be modified
         address target_address;
-        // This caller is invoking the call.
-        //
-        // Previously `context.caller`.
+        /// @notice The address that initiated this call
         address caller;
-        // Call value.
-        //
-        // NOTE: This value may not necessarily be transferred from caller to callee, see [`CallValue`].
-        //
-        // Previously `transfer.value` or `context.apparent_value`.
+        /// @notice The ETH value sent with the call
         uint256 value;
-        // id of the call, used to pass to forkCallPre and forkCallPost cheatcodes to access the state
-        // before and after the execution of the call.
+        /// @notice Unique identifier for this call, used with forkPreCall/forkPostCall
         uint256 id;
     }
 
-    //Forks to the state prior to the assertion triggering transaction.
+    /// @notice Fork to the state before the assertion-triggering transaction
+    /// @dev Allows inspection of pre-transaction state for comparison
     function forkPreTx() external;
 
-    // Forks to the state after the assertion triggering transaction.
+    /// @notice Fork to the state after the assertion-triggering transaction
+    /// @dev Allows inspection of post-transaction state for validation
     function forkPostTx() external;
 
-    // Forks to the state before the execution of the call.
-    // Id can be obtained from the CallInputs struct returned by getCallInputs.
+    /// @notice Fork to the state before a specific call execution
+    /// @dev Useful for inspecting state at specific points during transaction execution
+    /// @param id The call identifier from CallInputs.id
     function forkPreCall(uint256 id) external;
 
-    // Forks to the state after the execution of the call.
-    // Id can be obtained from the CallInputs struct returned by getCallInputs.
+    /// @notice Fork to the state after a specific call execution
+    /// @dev Useful for inspecting state changes from specific calls
+    /// @param id The call identifier from CallInputs.id
     function forkPostCall(uint256 id) external;
 
-    // Loads a storage slot from an address
+    /// @notice Load a storage slot value from any address
+    /// @param target The address to read storage from
+    /// @param slot The storage slot to read
+    /// @return data The value stored at the slot
     function load(address target, bytes32 slot) external view returns (bytes32 data);
 
-    // Get the logs from the assertion triggering transaction.
+    /// @notice Get all logs emitted during the transaction
+    /// @dev Returns logs in emission order
+    /// @return logs Array of Log structs containing all emitted events
     function getLogs() external returns (Log[] memory logs);
 
-    // Get all call inputs for a given target and selector.
-    // Includes calls made using all call opcodes('CALL', 'STATICCALL', 'DELEGATECALL', 'CALLCODE').
+    /// @notice Get all call inputs for a target and selector (all call types)
+    /// @dev Includes CALL, STATICCALL, DELEGATECALL, and CALLCODE
+    /// @param target The target contract address
+    /// @param selector The function selector to filter by
+    /// @return calls Array of CallInputs matching the criteria
     function getAllCallInputs(address target, bytes4 selector) external view returns (CallInputs[] memory calls);
 
-    // Get the call inputs for a given target and selector.
-    // Only includes calls made using 'CALL' opcode.
+    /// @notice Get call inputs for regular CALL opcode only
+    /// @param target The target contract address
+    /// @param selector The function selector to filter by
+    /// @return calls Array of CallInputs from CALL opcodes
     function getCallInputs(address target, bytes4 selector) external view returns (CallInputs[] memory calls);
 
-    // Get the static call inputs for a given target and selector.
-    // Only includes calls made using 'STATICCALL' opcode.
+    /// @notice Get call inputs for STATICCALL opcode only
+    /// @param target The target contract address
+    /// @param selector The function selector to filter by
+    /// @return calls Array of CallInputs from STATICCALL opcodes
     function getStaticCallInputs(address target, bytes4 selector) external view returns (CallInputs[] memory calls);
 
-    // Get the delegate call inputs for a given target(proxy) and selector.
-    // Only includes calls made using 'DELEGATECALL' opcode.
+    /// @notice Get call inputs for DELEGATECALL opcode only
+    /// @param target The target/proxy contract address
+    /// @param selector The function selector to filter by
+    /// @return calls Array of CallInputs from DELEGATECALL opcodes
     function getDelegateCallInputs(address target, bytes4 selector) external view returns (CallInputs[] memory calls);
 
-    // Get the call code inputs for a given target and selector.
-    // Only includes calls made using 'CALLCODE' opcode.
+    /// @notice Get call inputs for CALLCODE opcode only
+    /// @param target The target contract address
+    /// @param selector The function selector to filter by
+    /// @return calls Array of CallInputs from CALLCODE opcodes
     function getCallCodeInputs(address target, bytes4 selector) external view returns (CallInputs[] memory calls);
 
-    // Get state changes for a given contract and storage slot.
+    /// @notice Get all state changes for a specific storage slot
+    /// @dev Returns the sequence of values the slot held during transaction execution
+    /// @param contractAddress The contract whose storage to inspect
+    /// @param slot The storage slot to get changes for
+    /// @return stateChanges Array of values the slot held (in order of changes)
     function getStateChanges(address contractAddress, bytes32 slot)
         external
         view
         returns (bytes32[] memory stateChanges);
 
-    // Get assertion adopter contract address associated with the assertion triggering transaction.
+    /// @notice Get the assertion adopter address for the current transaction
+    /// @dev The adopter is the contract that registered the assertion
+    /// @return The address of the assertion adopter contract
     function getAssertionAdopter() external view returns (address);
 }

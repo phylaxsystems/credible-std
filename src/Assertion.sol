@@ -5,9 +5,29 @@ import {Credible} from "./Credible.sol";
 import {TriggerRecorder} from "./TriggerRecorder.sol";
 import {StateChanges} from "./StateChanges.sol";
 
-/// @notice Assertion interface for the PhEvm precompile
+/// @title Assertion
+/// @author Phylax Systems
+/// @notice Base contract for creating Credible Layer assertions
+/// @dev Inherit from this contract to create custom assertions. Assertions can inspect
+/// transaction state via the inherited `ph` precompile and register triggers to specify
+/// when the assertion should be executed.
+///
+/// Example:
+/// ```solidity
+/// contract MyAssertion is Assertion {
+///     function triggers() external view override {
+///         registerCallTrigger(this.checkInvariant.selector, ITarget.deposit.selector);
+///     }
+///
+///     function checkInvariant() external {
+///         ph.forkPostTx();
+///         // Check invariants...
+///     }
+/// }
+/// ```
 abstract contract Assertion is Credible, StateChanges {
-    //Trigger recorder address
+    /// @notice The trigger recorder precompile for registering assertion triggers
+    /// @dev Address is derived from a deterministic hash for consistency
     TriggerRecorder constant triggerRecorder = TriggerRecorder(address(uint160(uint256(keccak256("TriggerRecorder")))));
 
     /// @notice Used to record fn selectors and their triggers.

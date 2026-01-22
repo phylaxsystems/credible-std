@@ -7,13 +7,36 @@ import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {BacktestingTypes} from "./utils/BacktestingTypes.sol";
 import {BacktestingUtils} from "./utils/BacktestingUtils.sol";
 
-/// @title Extended CredibleTest with Backtesting
-/// @notice CredibleTest with built-in backtesting functionality
-/// @dev Users inherit from this instead of CredibleTest directly
+/// @title CredibleTestWithBacktesting
+/// @author Phylax Systems
+/// @notice Extended CredibleTest with historical transaction backtesting capabilities
+/// @dev Inherit from this contract to test assertions against historical blockchain transactions.
+/// Supports two modes:
+/// - Block range mode: Test all transactions in a block range via `executeBacktest(config)`
+/// - Single transaction mode: Test a specific transaction via `executeBacktestForTransaction(txHash, ...)`
+///
+/// Example:
+/// ```solidity
+/// contract MyBacktest is CredibleTestWithBacktesting {
+///     function testHistorical() public {
+///         executeBacktest(BacktestingTypes.BacktestingConfig({
+///             targetContract: 0x...,
+///             endBlock: 1000000,
+///             blockRange: 100,
+///             assertionCreationCode: type(MyAssertion).creationCode,
+///             assertionSelector: MyAssertion.check.selector,
+///             rpcUrl: "https://eth.llamarpc.com",
+///             detailedBlocks: false,
+///             useTraceFilter: false,
+///             forkByTxHash: true
+///         }));
+///     }
+/// }
+/// ```
 abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     using Strings for uint256;
 
-    // Cached script path to avoid repeated lookups
+    /// @dev Cached script path to avoid repeated filesystem lookups
     string private _cachedScriptPath;
 
     /// @notice Execute backtesting for a single transaction by hash (overload for single tx mode)

@@ -5,8 +5,11 @@ import {Strings} from "../../lib/openzeppelin-contracts/contracts/utils/Strings.
 import {StdUtils} from "forge-std/StdUtils.sol";
 import {BacktestingTypes} from "./BacktestingTypes.sol";
 
-/// @title Backtesting Utilities
-/// @notice Minimal utility functions for backtesting
+/// @title BacktestingUtils
+/// @author Phylax Systems
+/// @notice Utility functions for the backtesting framework
+/// @dev Provides parsing, string manipulation, and error decoding utilities
+/// used internally by CredibleTestWithBacktesting
 library BacktestingUtils {
     using Strings for uint256;
 

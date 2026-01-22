@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/// @title Backtesting Types
-/// @notice Minimal type definitions for backtesting
+/// @title BacktestingTypes
+/// @author Phylax Systems
+/// @notice Type definitions for the backtesting framework
+/// @dev Contains structs for configuration, transaction data, and results used by CredibleTestWithBacktesting
 library BacktestingTypes {
     /// @notice Validation result categories for detailed error analysis
     enum ValidationResult {
