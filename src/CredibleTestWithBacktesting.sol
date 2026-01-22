@@ -7,16 +7,57 @@ import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {BacktestingTypes} from "./utils/BacktestingTypes.sol";
 import {BacktestingUtils} from "./utils/BacktestingUtils.sol";
 
-/// @title Extended CredibleTest with Backtesting
-/// @notice CredibleTest with built-in backtesting functionality
-/// @dev Users inherit from this instead of CredibleTest directly
+/// @title CredibleTestWithBacktesting
+/// @author Phylax Systems
+/// @notice Extended CredibleTest with historical transaction backtesting capabilities
+/// @dev Inherit from this contract to test assertions against historical blockchain transactions.
+/// Supports two modes:
+/// - Block range mode: Test all transactions in a block range via `executeBacktest(config)`
+/// - Single transaction mode: Test a specific transaction via `executeBacktestForTransaction(txHash, ...)`
+///
+/// Example:
+/// ```solidity
+/// contract MyBacktest is CredibleTestWithBacktesting {
+///     function testHistorical() public {
+///         executeBacktest(BacktestingTypes.BacktestingConfig({
+///             targetContract: 0x...,
+///             endBlock: 1000000,
+///             blockRange: 100,
+///             assertionCreationCode: type(MyAssertion).creationCode,
+///             assertionSelector: MyAssertion.check.selector,
+///             rpcUrl: "https://eth.llamarpc.com",
+///             detailedBlocks: false,
+///             forkByTxHash: true
+///         }));
+///     }
+/// }
+/// ```
 abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     using Strings for uint256;
 
-    // Cached script path to avoid repeated lookups
+    /// @dev Cached script path to avoid repeated filesystem lookups
     string private _cachedScriptPath;
 
-    /// @notice Execute backtesting with config struct
+    /// @notice Execute backtesting for a single transaction by hash (overload for single tx mode)
+    /// @param txHash The transaction hash to backtest
+    /// @param targetContract The target contract address
+    /// @param assertionCreationCode The assertion contract creation code
+    /// @param assertionSelector The assertion function selector
+    /// @param rpcUrl The RPC URL to use
+    /// @return results The backtesting results
+    function executeBacktestForTransaction(
+        bytes32 txHash,
+        address targetContract,
+        bytes memory assertionCreationCode,
+        bytes4 assertionSelector,
+        string memory rpcUrl
+    ) public returns (BacktestingTypes.BacktestingResults memory results) {
+        return _executeBacktestForSingleTransaction(
+            txHash, targetContract, assertionCreationCode, assertionSelector, rpcUrl
+        );
+    }
+
+    /// @notice Execute backtesting with config struct (block range mode)
     function executeBacktest(BacktestingTypes.BacktestingConfig memory config)
         public
         returns (BacktestingTypes.BacktestingResults memory results)
@@ -34,9 +75,8 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         console.log("==========================================");
         console.log("");
 
-        BacktestingTypes.TransactionData[] memory transactions = _fetchTransactions(
-            config.targetContract, startBlock, config.endBlock, config.rpcUrl, config.useTraceFilter
-        );
+        BacktestingTypes.TransactionData[] memory transactions =
+            _fetchTransactions(config.targetContract, startBlock, config.endBlock, config.rpcUrl);
         results.totalTransactions = transactions.length;
         results.processedTransactions = 0; // Initialize processed transactions counter
         console.log(string.concat("Total transactions found: ", results.totalTransactions.toString()));
@@ -78,6 +118,16 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
             } else if (validation.result == BacktestingTypes.ValidationResult.AssertionFailed) {
                 results.assertionFailures++;
                 _categorizeAndLogError(validation);
+                // Replay the transaction to show full trace
+                console.log("");
+                console.log("=== REPLAYING FAILED TRANSACTION FOR TRACE ===");
+                _replayTransactionForTrace(
+                    config.targetContract,
+                    config.assertionCreationCode,
+                    config.assertionSelector,
+                    config.rpcUrl,
+                    transactions[i]
+                );
             } else {
                 results.unknownErrors++;
                 _categorizeAndLogError(validation);
@@ -99,7 +149,8 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     }
 
     /// @notice Find the transaction_fetcher.sh script path
-    /// @dev Checks environment variable first, then searches common locations
+    /// @dev Checks environment variable first, then searches common locations,
+    ///      and finally uses `find` to auto-detect the script location.
     ///      Override _getScriptSearchPaths() to customize search locations
     /// @return The path to transaction_fetcher.sh
     function _findScriptPath() internal virtual returns (string memory) {
@@ -136,30 +187,83 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
             }
         }
 
+        // Auto-detect using find command as fallback
+        string memory autoDetectedPath = _autoDetectScriptPath();
+        if (bytes(autoDetectedPath).length > 0) {
+            _cachedScriptPath = autoDetectedPath;
+            return _cachedScriptPath;
+        }
+
         // No valid path found - provide helpful error message
         revert(
             "transaction_fetcher.sh not found. "
             "Set CREDIBLE_STD_PATH environment variable or override _getScriptSearchPaths(). "
-            "Standard locations checked: lib/credible-std/..., dependencies/credible-std/..., ../credible-std/..."
+            "Auto-detection also failed. Ensure credible-std is installed in your project."
         );
     }
 
+    /// @notice Auto-detect the script path using find command
+    /// @dev Searches the project directory for transaction_fetcher.sh
+    /// @return The detected path, or empty string if not found
+    function _autoDetectScriptPath() internal virtual returns (string memory) {
+        // Use find to locate the script, searching common dependency directories
+        // Limit depth to avoid searching too deep and improve performance
+        string[] memory findCmd = new string[](3);
+        findCmd[0] = "bash";
+        findCmd[1] = "-c";
+        findCmd[2] =
+        "find . -maxdepth 6 -type f -name 'transaction_fetcher.sh' -path '*/credible-std/*' 2>/dev/null | head -1";
+
+        try vm.ffi(findCmd) returns (bytes memory result) {
+            string memory foundPath = string(result);
+            // Trim whitespace/newlines
+            bytes memory pathBytes = bytes(foundPath);
+            uint256 len = pathBytes.length;
+            while (
+                len > 0 && (pathBytes[len - 1] == 0x0a || pathBytes[len - 1] == 0x0d || pathBytes[len - 1] == 0x20)
+            ) {
+                len--;
+            }
+            if (len == 0) {
+                return "";
+            }
+            bytes memory trimmed = new bytes(len);
+            for (uint256 i = 0; i < len; i++) {
+                trimmed[i] = pathBytes[i];
+            }
+            foundPath = string(trimmed);
+
+            // Verify the found path exists
+            string[] memory testCmd = new string[](3);
+            testCmd[0] = "test";
+            testCmd[1] = "-f";
+            testCmd[2] = foundPath;
+
+            try vm.ffi(testCmd) {
+                return foundPath;
+            } catch {
+                return "";
+            }
+        } catch {
+            return "";
+        }
+    }
+
     /// @notice Fetch transactions using FFI
-    function _fetchTransactions(
-        address targetContract,
-        uint256 startBlock,
-        uint256 endBlock,
-        string memory rpcUrl,
-        bool useTraceFilter
-    ) private returns (BacktestingTypes.TransactionData[] memory transactions) {
+    /// @dev Automatically detects internal calls using trace APIs with fallback:
+    ///      trace_filter -> debug_traceBlockByNumber -> debug_traceTransaction -> direct calls only
+    function _fetchTransactions(address targetContract, uint256 startBlock, uint256 endBlock, string memory rpcUrl)
+        private
+        returns (BacktestingTypes.TransactionData[] memory transactions)
+    {
         // Determine the script path relative to project root
         // The script is located at: credible-std/scripts/backtesting/transaction_fetcher.sh
         // We need to find where credible-std is installed (could be in lib/ or pvt/lib/)
         string memory scriptPath = _findScriptPath();
 
         // Build FFI command with optimized settings
-        uint256 inputSize = useTraceFilter ? 17 : 16;
-        string[] memory inputs = new string[](inputSize);
+        // Always use trace detection for internal calls (with automatic fallback)
+        string[] memory inputs = new string[](17);
         inputs[0] = "bash";
         inputs[1] = scriptPath;
         inputs[2] = "--rpc-url";
@@ -176,9 +280,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         inputs[13] = "10"; // Optimized concurrency based on performance tests
         inputs[14] = "--output-format";
         inputs[15] = "simple";
-        if (useTraceFilter) {
-            inputs[16] = "--use-trace-filter";
-        }
+        inputs[16] = "--use-trace-filter"; // Always enabled for internal call detection
 
         string memory command = inputs[0];
         for (uint256 i = 1; i < inputs.length; i++) {
@@ -198,6 +300,133 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
 
         // Parse all transactions from the data line
         transactions = BacktestingUtils.parseMultipleTransactions(dataLine);
+    }
+
+    /// @notice Execute backtesting for a single transaction specified by hash
+    function _executeBacktestForSingleTransaction(
+        bytes32 txHash,
+        address targetContract,
+        bytes memory assertionCreationCode,
+        bytes4 assertionSelector,
+        string memory rpcUrl
+    ) private returns (BacktestingTypes.BacktestingResults memory results) {
+        // Fetch the transaction data
+        BacktestingTypes.TransactionData memory txData = _fetchTransactionByHash(txHash, rpcUrl);
+
+        // Verify the transaction was found
+        if (txData.hash == bytes32(0)) {
+            console.log("[ERROR] Transaction not found");
+            results.totalTransactions = 0;
+            return results;
+        }
+
+        results.totalTransactions = 1;
+        results.processedTransactions = 0;
+
+        // Validate the transaction
+        BacktestingTypes.ValidationDetails memory validation = _validateTransaction(
+            targetContract,
+            assertionCreationCode,
+            assertionSelector,
+            rpcUrl,
+            txData,
+            true // Always fork by tx hash
+        );
+
+        results.processedTransactions = 1;
+
+        if (validation.result == BacktestingTypes.ValidationResult.Success) {
+            results.successfulValidations = 1;
+            console.log("[PASS] Assertion passed for tx", BacktestingUtils.bytes32ToHex(txData.hash));
+        } else if (validation.result == BacktestingTypes.ValidationResult.Skipped) {
+            results.skippedTransactions = 1;
+            console.log("[SKIP] Assertion not triggered for tx", BacktestingUtils.bytes32ToHex(txData.hash));
+        } else if (validation.result == BacktestingTypes.ValidationResult.ReplayFailure) {
+            results.replayFailures = 1;
+            console.log("[REPLAY_FAIL]", validation.errorMessage);
+        } else if (validation.result == BacktestingTypes.ValidationResult.AssertionFailed) {
+            results.assertionFailures = 1;
+            console.log("[FAIL] Assertion failed for tx", BacktestingUtils.bytes32ToHex(txData.hash));
+            console.log("Error:", validation.errorMessage);
+            console.log("");
+            console.log(">>> TRANSACTION TRACE BELOW <<<");
+            _replayTransactionForTrace(targetContract, assertionCreationCode, assertionSelector, rpcUrl, txData);
+        } else {
+            results.unknownErrors = 1;
+            console.log("[ERROR]", validation.errorMessage);
+        }
+
+        return results;
+    }
+
+    /// @notice Fetch a single transaction by hash using FFI
+    function _fetchTransactionByHash(bytes32 txHash, string memory rpcUrl)
+        private
+        returns (BacktestingTypes.TransactionData memory txData)
+    {
+        // Execute FFI with bash to call curl and jq
+        string[] memory shellInputs = new string[](3);
+        shellInputs[0] = "bash";
+        shellInputs[1] = "-c";
+        shellInputs[2] = string.concat(
+            "curl -s -X POST -H 'Content-Type: application/json' --data '{\"jsonrpc\":\"2.0\",\"method\":\"eth_getTransactionByHash\",\"params\":[\"",
+            BacktestingUtils.bytes32ToHex(txHash),
+            "\"],\"id\":1}' ",
+            rpcUrl,
+            " | jq -r '[.result.hash, .result.from, .result.to, .result.value, .result.input, .result.blockNumber, .result.transactionIndex, .result.gasPrice] | @tsv'"
+        );
+
+        bytes memory result = vm.ffi(shellInputs);
+        string memory output = string(result);
+
+        // Parse the tab-separated output
+        if (bytes(output).length == 0) {
+            return txData; // Return empty struct if no result
+        }
+
+        // Parse the transaction data from the output
+        // Format: hash\tfrom\tto\tvalue\tinput\tblockNumber\ttransactionIndex\tgasPrice
+        txData = _parseTransactionFromTsv(output);
+    }
+
+    /// @notice Parse transaction data from tab-separated output
+    function _parseTransactionFromTsv(string memory tsvLine)
+        private
+        pure
+        returns (BacktestingTypes.TransactionData memory txData)
+    {
+        // Split by tab and parse each field
+        bytes memory lineBytes = bytes(tsvLine);
+        uint256 fieldStart = 0;
+        uint256 fieldIndex = 0;
+        string[] memory fields = new string[](8);
+
+        for (uint256 i = 0; i <= lineBytes.length; i++) {
+            if (i == lineBytes.length || lineBytes[i] == 0x09 || lineBytes[i] == 0x0a) {
+                // Tab or newline or end of string
+                if (i > fieldStart && fieldIndex < 8) {
+                    bytes memory field = new bytes(i - fieldStart);
+                    for (uint256 j = fieldStart; j < i; j++) {
+                        field[j - fieldStart] = lineBytes[j];
+                    }
+                    fields[fieldIndex] = string(field);
+                    fieldIndex++;
+                }
+                fieldStart = i + 1;
+            }
+        }
+
+        // Parse fields if we have enough data
+        if (fieldIndex >= 8) {
+            txData.hash = BacktestingUtils.stringToBytes32(fields[0]);
+            txData.from = BacktestingUtils.stringToAddress(fields[1]);
+            txData.to = BacktestingUtils.stringToAddress(fields[2]);
+            txData.value = BacktestingUtils.stringToUint(fields[3]);
+            txData.data = BacktestingUtils.hexStringToBytes(fields[4]);
+            txData.blockNumber = BacktestingUtils.stringToUint(fields[5]);
+            txData.transactionIndex = BacktestingUtils.stringToUint(fields[6]);
+            txData.gasPrice = BacktestingUtils.stringToUint(fields[7]);
+        }
     }
 
     /// @notice Validate a single transaction with detailed error categorization
@@ -278,6 +507,24 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
                 validation.isProtocolViolation = true;
             }
         }
+    }
+
+    /// @notice Replay a failed transaction to show the full execution trace
+    /// @dev Forks to state before the tx and makes a raw call so Foundry prints the full trace
+    function _replayTransactionForTrace(
+        address, // targetContract - unused, kept for interface compatibility
+        bytes memory, // assertionCreationCode - unused
+        bytes4, // assertionSelector - unused
+        string memory rpcUrl,
+        BacktestingTypes.TransactionData memory txData
+    ) private {
+        // Fork at the transaction hash - this gives us the state BEFORE this transaction
+        vm.createSelectFork(rpcUrl, txData.hash);
+        vm.stopPrank();
+
+        // Make the raw call as the original sender - Foundry will trace this
+        vm.prank(txData.from, txData.from);
+        txData.to.call{value: txData.value}(txData.data);
     }
 
     /// @notice Categorize and log error details

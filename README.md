@@ -2,54 +2,48 @@
 
 credible-std is a standard library for implementing assertions in the Phylax Credible Layer (PCL). It provides the core contracts and interfaces needed to create and manage assertions for smart contract security monitoring.
 
+## Documentation
+
+Full API documentation is available at: https://phylaxsystems.github.io/credible-std
+
 ## Overview
 
 The Phylax Credible Layer (PCL) is a security framework that enables real-time monitoring and validation of smart contract behavior through assertions. credible-std provides the foundational contracts and utilities needed to implement these assertions.
 
 ### Key Components
 
-- `Credible.sol`: Base contract that provides access to the PhEvm precompile for assertion validation
-- `Assertion.sol`: Abstract contract for implementing assertions with trigger registration and validation logic
-- `StateChanges.sol`: Utilities for tracking and validating contract state changes with type-safe conversions
-- `TriggerRecorder.sol`: Manages assertion triggers for function calls, storage changes, and balance changes
-- `PhEvm.sol`: Interface for the PhEvm precompile that enables assertion validation
-- `CredibleTest.sol`: Testing utilities for assertion development and validation
+- **Assertion.sol**: Base contract for creating assertions with trigger registration
+- **Credible.sol**: Provides access to the PhEvm precompile for transaction state inspection
+- **PhEvm.sol**: Interface for the PhEvm precompile (state forking, logs, call inputs)
+- **StateChanges.sol**: Type-safe utilities for tracking contract state changes
+- **TriggerRecorder.sol**: Interface for registering assertion triggers
+- **CredibleTest.sol**: Base contract for testing assertions with Forge
+- **CredibleTestWithBacktesting.sol**: Extended test contract with historical transaction backtesting
 
 ## Features
 
-- **Trigger System**: Register triggers for function calls, storage changes, and balance changes to monitor specific contract behaviors
-- **State Change Tracking**: Type-safe utilities for monitoring and validating contract state changes with built-in conversion helpers
-- **Testing Framework**: Comprehensive testing utilities for assertion development with built-in validation helpers
-- **PhEvm Integration**: Direct access to the PhEvm precompile for advanced assertion logic and validation
-
-You can find detailed documentation on the Credible Layer and how to use the credible-std library in the [Credible Layer Documentation](https://docs.phylax.systems/credible/credible-introduction).
+- **Trigger System**: Register triggers for function calls, storage changes, and balance changes
+- **State Inspection**: Fork to pre/post transaction state, inspect logs, call inputs, and storage
+- **Type-Safe State Changes**: Built-in converters for uint256, address, bool, and bytes32 state changes
+- **Testing Framework**: Test assertions locally with Forge before deployment
+- **Backtesting**: Validate assertions against historical blockchain transactions
 
 ## Installation
 
-### Using Foundry
+### Using Foundry (Recommended)
 
-Add the following to your `foundry.toml`:
+```bash
+forge install phylaxsystems/credible-std
+```
+
+Or add to your `foundry.toml`:
 
 ```toml
 [dependencies]
 credible-std = { git = "https://github.com/phylaxsystems/credible-std.git" }
 ```
 
-Then run:
-
-```bash
-forge install
-```
-
-Alternatively you can install the package using forge:
-
-```bash
-forge install phylax-systems/credible-std
-```
-
 ### Using Hardhat
-
-Add the dependency to your `package.json`:
 
 ```json
 {
@@ -59,236 +53,255 @@ Add the dependency to your `package.json`:
 }
 ```
 
-Then run:
+## Quick Start
 
-```bash
-npm install
-```
-
-## Usage
-
-### Assertion Lifecycle
-
-1. Create an assertion contract that inherits from `Assertion`
-2. Initialize the assertion in the constructor with the contract address you want to monitor
-3. Register triggers in the `triggers()` function for when the assertion should be checked
-4. Implement validation logic in your assertion function(s)
-5. Add the assertion to your test environment using `cl.addAssertion()`
-6. Test the assertion using `cl.validate()`
-
-### Creating an Assertion
+### 1. Create an Assertion
 
 ```solidity
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Assertion} from "credible-std/src/Assertion.sol"; // Credible Layer precompiles
-import {Ownable} from "../../src/Ownable.sol"; // Contract to write assertions for
+import {Assertion} from "credible-std/Assertion.sol";
 
-contract OwnableAssertion is Assertion {
-    Ownable ownable;
-
-    constructor(address ownable_) {
-        ownable = Ownable(ownable_); // Define address of Ownable contract
-    }
-
-    // Define selectors for the assertions, several assertions can be defined here
-    // This function is required by the Assertion interface
+contract MyAssertion is Assertion {
+    // Register when this assertion should run
     function triggers() external view override {
-        registerCallTrigger(this.assertionOwnershipChange.selector); // Register the selector for the assertionOwnershipChange function
+        // Run on any call to the adopter contract
+        registerCallTrigger(this.checkInvariant.selector);
+
+        // Or run only on specific function calls
+        // registerCallTrigger(this.checkInvariant.selector, ITarget.deposit.selector);
     }
 
-    // This function is used to check if the ownership has changed
-    // Get the owner of the contract before and after the transaction
-    // Return false if the owner has changed, true if it has not
-    function assertionOwnershipChange() external {
-        ph.forkPreTx(); // Fork the pre-state of the transaction
-        address preOwner = ownable.owner(); // Get the owner of the contract before the transaction
-        ph.forkPostTx(); // Fork the post-state of the transaction
-        address postOwner = ownable.owner(); // Get the owner of the contract after the transaction
-        require(postOwner == preOwner, "Ownership has changed"); // revert if the owner has changed
+    // Implement your invariant check
+    function checkInvariant() external {
+        address target = ph.getAssertionAdopter();
+
+        ph.forkPreTx();
+        uint256 balanceBefore = target.balance;
+
+        ph.forkPostTx();
+        uint256 balanceAfter = target.balance;
+
+        require(balanceAfter >= balanceBefore, "Balance decreased unexpectedly");
     }
 }
 ```
 
-For a detailed guide on how to write assertions check out the [Writing Assertions](https://docs.phylax.systems/credible/pcl-assertion-guide) section of the documentation.
-
-### Available Cheatcodes
-
-The credible-std provides several cheatcodes for assertion validation:
-
-- `forkPreTx()`: Forks to the state prior to the assertion triggering transaction.
-- `forkPostTx()`: Forks to the state after the assertion triggering transaction.
-- `forkPreCall(uint256 id)`: Forks to the state at the start of call execution for the specified id. `getCallInputs(..)` can be used to get ids to fork to.
-- `forkPostCall(uint256 id)`: Forks to the state after the call execution for the specified id. `getCallInputs(..)` can be used to get ids to fork to.
-- `load(address target, bytes32 slot)`: Loads a storage slot from an address
-- `getLogs()`: Retrieves logs from the assertion triggering transaction
-- `getAllCallInputs(address target, bytes4 selector)`: Gets all call inputs for a given target and selector.
-- `getCallInputs(address target, bytes4 selector)`: Gets call inputs for a given target and selector. Only includes calls made using 'CALL' opcode.
-- `getStaticCallInputs(address target, bytes4 selector)`: Gets static call inputs for a given target and selector. Only includes calls made using 'STATICCALL' opcode.
-- `getDelegateCallInputs(address target, bytes4 selector)`: Gets delegate call inputs for a given target and selector. Only includes calls made using 'DELEGATECALL' opcode.
-- `getCallCodeInputs(address target, bytes4 selector)`: Gets call code inputs for a given target and selector. Only includes calls made using 'CALLCODE' opcode.
-- `getStateChanges(address contractAddress, bytes32 slot)`: Gets state changes for a given contract and storage slot
-- `getAssertionAdopter()`: Get assertion adopter contract address associated with the assertion triggering transaction
-
-These cheatcodes can be accessed through the `ph` instance in your assertion contracts, which is provided by the `Credible` base contract.
-
-### Testing Assertions
+### 2. Test Your Assertion
 
 ```solidity
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {OwnableAssertion} from "../src/OwnableAssertion.a.sol";
-import {Ownable} from "../../src/Ownable.sol";
 import {CredibleTest} from "credible-std/CredibleTest.sol";
 import {Test} from "forge-std/Test.sol";
+import {MyAssertion} from "./MyAssertion.sol";
+import {MyContract} from "./MyContract.sol";
 
-contract TestOwnableAssertion is CredibleTest, Test {
-    // Contract state variables
-    Ownable public assertionAdopter;
-    address public initialOwner = address(0xf00);
-    address public newOwner = address(0xdeadbeef);
+contract TestMyAssertion is CredibleTest, Test {
+    MyContract target;
 
-    // Set up the test environment
     function setUp() public {
-        assertionAdopter = new Ownable(initialOwner);
-        vm.deal(initialOwner, 1 ether);
+        target = new MyContract();
     }
 
-    // Test case: Ownership changes should trigger the assertion
-    function test_assertionOwnershipChanged() public {
+    function test_assertionPasses() public {
+        // Register the assertion
         cl.assertion({
-            adopter: address(assertionAdopter),
-            createData: type(OwnableAssertion).creationCode,
-            fnSelector: OwnableAssertion.assertionOwnershipChange.selector
+            adopter: address(target),
+            createData: type(MyAssertion).creationCode,
+            fnSelector: MyAssertion.checkInvariant.selector
         });
 
-        // Simulate a transaction that changes ownership
-        vm.prank(initialOwner);
-        vm.expectRevert("Ownership has changed");
-        assertionAdopter.transferOwnership(newOwner);
+        // Execute a transaction - assertion runs automatically
+        target.deposit{value: 1 ether}();
     }
 
-    // Test case: No ownership change should pass the assertion
-    function test_assertionOwnershipNotChanged() public {
+    function test_assertionFails() public {
         cl.assertion({
-            adopter: address(assertionAdopter),
-            createData: type(OwnableAssertion).creationCode,
-            fnSelector: OwnableAssertion.assertionOwnershipChange.selector
+            adopter: address(target),
+            createData: type(MyAssertion).creationCode,
+            fnSelector: MyAssertion.checkInvariant.selector
         });
 
-        // Simulate a transaction that doesn't change ownership (transferring to same owner)
-        vm.prank(initialOwner);
-        assertionAdopter.transferOwnership(initialOwner);
+        // This should revert because the assertion fails
+        vm.expectRevert("Balance decreased unexpectedly");
+        target.withdraw(1 ether);
     }
 }
 ```
 
-For a detailed guide on how to test assertions check out the [Testing Assertions](https://docs.phylax.systems/credible/testing-assertions) section of the documentation.
+Run tests with:
+```bash
+pcl test
+```
+
+## PhEvm Cheatcodes
+
+Access these via the `ph` instance inherited from `Credible`:
+
+| Function | Description |
+|----------|-------------|
+| `forkPreTx()` | Fork to state before the transaction |
+| `forkPostTx()` | Fork to state after the transaction |
+| `forkPreCall(uint256 id)` | Fork to state before a specific call |
+| `forkPostCall(uint256 id)` | Fork to state after a specific call |
+| `load(address, bytes32)` | Load a storage slot value |
+| `getLogs()` | Get all logs emitted in the transaction |
+| `getCallInputs(address, bytes4)` | Get CALL inputs for target/selector |
+| `getStaticCallInputs(address, bytes4)` | Get STATICCALL inputs |
+| `getDelegateCallInputs(address, bytes4)` | Get DELEGATECALL inputs |
+| `getAllCallInputs(address, bytes4)` | Get all call types |
+| `getStateChanges(address, bytes32)` | Get state changes for a slot |
+| `getAssertionAdopter()` | Get the adopter contract address |
+
+## Trigger Types
+
+Register triggers in your `triggers()` function:
+
+```solidity
+function triggers() external view override {
+    // Trigger on any call to the adopter
+    registerCallTrigger(this.myAssertion.selector);
+
+    // Trigger on specific function call
+    registerCallTrigger(this.myAssertion.selector, ITarget.transfer.selector);
+
+    // Trigger on any storage change
+    registerStorageChangeTrigger(this.myAssertion.selector);
+
+    // Trigger on specific storage slot change
+    registerStorageChangeTrigger(this.myAssertion.selector, bytes32(uint256(0)));
+
+    // Trigger on balance change
+    registerBalanceChangeTrigger(this.myAssertion.selector);
+}
+```
 
 ## Backtesting
 
-The credible-std library includes backtesting functionality that allows you to test your assertions against historical blockchain data. This enables you to validate assertion correctness on real transactions before deploying to production.
-
-### Components
-
-- `CredibleTestWithBacktesting.sol`: Extended test base that provides backtesting functionality
-- `BacktestingTypes.sol`: Type definitions for backtesting configuration and results
-- `BacktestingUtils.sol`: Utility functions for parsing and processing blockchain data
-- `transaction_fetcher.sh`: Bash script for fetching historical transactions (minimal dependencies)
+Test your assertions against historical blockchain transactions to validate correctness before deployment.
 
 ### Setup
 
-**Configure foundry.toml**: Add the backtesting profile to your `foundry.toml`:
+Add to your `foundry.toml`:
 
 ```toml
 [profile.backtesting]
 src = "src"
-out = "out"
-libs = ["lib"]
+test = "test"
 ffi = true
 gas_limit = 100000000
-timeout = 300
-test = "test"
 ```
 
-### Creating Backtesting Tests
+### Block Range Backtesting
 
-Create a test contract that inherits from `CredibleTestWithBacktesting`:
+Test all transactions in a block range:
 
 ```solidity
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+import {CredibleTestWithBacktesting} from "credible-std/CredibleTestWithBacktesting.sol";
+import {BacktestingTypes} from "credible-std/utils/BacktestingTypes.sol";
 
-import {CredibleTestWithBacktesting} from "../../src/CredibleTestWithBacktesting.sol";
-import {BacktestingTypes} from "../../src/utils/BacktestingTypes.sol";
-import {ERC20Assertion} from "../fixtures/backtesting/ERC20Assertion.a.sol";
+contract MyBacktest is CredibleTestWithBacktesting {
+    function testHistoricalTransactions() public {
+        BacktestingTypes.BacktestingResults memory results = executeBacktest(
+            BacktestingTypes.BacktestingConfig({
+                targetContract: 0x1234...,           // Contract to monitor
+                endBlock: 1000000,                   // End block
+                blockRange: 100,                     // Number of blocks to test
+                assertionCreationCode: type(MyAssertion).creationCode,
+                assertionSelector: MyAssertion.check.selector,
+                rpcUrl: "https://eth.llamarpc.com",
+                detailedBlocks: false,               // Verbose block output
+                useTraceFilter: false,               // Use trace_filter RPC (requires archive node)
+                forkByTxHash: true                   // Fork by tx hash for accurate state
+            })
+        );
 
-contract MyBacktestingTest is CredibleTestWithBacktesting {
-    function testERC20Backtesting() public {
-        executeBacktest({
-            targetContract: 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238, // USDC on Sepolia
-            endBlock: 8925198,
-            blockRange: 100,
-            assertionCreationCode: type(ERC20Assertion).creationCode,
-            assertionSelector: ERC20Assertion.assertionTransferInvariant.selector,
-            rpcUrl: "https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY"
-        });
+        // Check no assertions failed
+        assertEq(results.assertionFailures, 0, "Assertions failed on historical data");
     }
 }
 ```
 
-### Configuration Options
+### Single Transaction Backtesting
 
-The backtesting system accepts several configuration parameters:
+Test a specific transaction by hash:
 
-- `targetContract`: The contract address to monitor for transactions
-- `endBlock`: The latest block number to include in the test
-- `blockRange`: Number of blocks to test (from `endBlock - blockRange + 1` to `endBlock`)
-- `assertionCreationCode`: The bytecode for creating your assertion contract
-- `assertionSelector`: The function selector of your assertion function
-- `rpcUrl`: The RPC endpoint URL for fetching blockchain data
+```solidity
+contract MyBacktest is CredibleTestWithBacktesting {
+    function testSpecificTransaction() public {
+        bytes32 txHash = 0xabc123...;
 
-### Running Backtesting Tests
+        BacktestingTypes.BacktestingResults memory results = executeBacktestForTransaction(
+            txHash,
+            0x1234...,                              // Target contract
+            type(MyAssertion).creationCode,
+            MyAssertion.check.selector,
+            "https://eth.llamarpc.com"
+        );
 
-Use the `pcl` command with the backtesting profile:
+        assertEq(results.assertionFailures, 0);
+    }
+}
+```
+
+### Running Backtests
 
 ```bash
-# Set your RPC URL
-export RPC_URL="https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY"
+# Run with verbose output
+pcl test --ffi -vvvv --match-test testHistoricalTransactions
 
-# Run backtesting tests
-FOUNDRY_PROFILE=backtesting pcl test --match-test testERC20Backtesting -vvv
-
-# Or run all backtesting tests
-FOUNDRY_PROFILE=backtesting pcl test --match-path "**/backtesting/**" -vvv
+# Or with the backtesting profile
+FOUNDRY_PROFILE=backtesting pcl test -vvvv
 ```
 
 ### Understanding Results
 
-The backtesting system provides detailed results including:
+The backtesting framework provides detailed categorization:
 
-- **Total Transactions**: Number of transactions found in the specified block range
-- **Processed Transactions**: Number of transactions successfully processed
-- **Successful Validations**: Number of transactions that passed assertion validation
-- **Failed Validations**: Number of transactions that failed assertion validation
-- **Success Rate**: Percentage of successful validations
+- **Success**: Transaction passed assertion validation
+- **Skipped**: Transaction didn't trigger the assertion (selector mismatch)
+- **Assertion Failed**: Real protocol violation detected
+- **Replay Failure**: Transaction reverted before assertion could run
+- **Unknown Error**: Unexpected failure
 
-> **⚠️ Important**: If you see any **Failed Validations**, this indicates potential issues with your assertion logic. Check the detailed test output to identify false positives - transactions that should have passed but failed validation.
+When an assertion fails, the framework automatically replays the transaction with full Foundry tracing enabled, showing the complete execution path for debugging.
 
 Example output:
-
-```bash
-==========================================
-           BACKTESTING SUMMARY
-==========================================
-Block Range: 8925189 - 8925198
-Total Transactions: 26
-Processed Transactions: 26
-Successful Validations: 26
-Failed Validations: 0
-
-Success Rate: 100%
-================================
 ```
+[FAIL] Assertion failed for tx 0xabc123...
+Error: Panic: array out-of-bounds access
+
+>>> TRANSACTION TRACE BELOW <<<
+```
+
+## State Change Helpers
+
+The `StateChanges` contract provides type-safe helpers for inspecting storage changes:
+
+```solidity
+// Get state changes as specific types
+uint256[] memory uintChanges = getStateChangesUint(target, slot);
+address[] memory addrChanges = getStateChangesAddress(target, slot);
+bool[] memory boolChanges = getStateChangesBool(target, slot);
+bytes32[] memory rawChanges = getStateChangesBytes32(target, slot);
+
+// With mapping key support
+uint256[] memory balanceChanges = getStateChangesUint(target, balancesSlot, userKey);
+
+// With slot offset for struct fields
+uint256[] memory fieldChanges = getStateChangesUint(target, structSlot, key, fieldOffset);
+```
+
+## Resources
+
+- [Credible Layer Documentation](https://docs.phylax.systems/credible/credible-introduction)
+- [Writing Assertions Guide](https://docs.phylax.systems/credible/pcl-assertion-guide)
+- [Testing Assertions Guide](https://docs.phylax.systems/credible/testing-assertions)
+- [API Documentation](https://phylaxsystems.github.io/credible-std)
+
+## License
+
+UNLICENSED

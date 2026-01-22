@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/// @title Backtesting Types
-/// @notice Minimal type definitions for backtesting
+/// @title BacktestingTypes
+/// @author Phylax Systems
+/// @notice Type definitions for the backtesting framework
+/// @dev Contains structs for configuration, transaction data, and results used by CredibleTestWithBacktesting
 library BacktestingTypes {
     /// @notice Validation result categories for detailed error analysis
     enum ValidationResult {
@@ -35,7 +37,10 @@ library BacktestingTypes {
         bool isProtocolViolation;
     }
 
-    /// @notice Configuration for backtesting runs
+    /// @notice Configuration for backtesting runs (block range mode)
+    /// @dev Internal call detection is automatic - the system tries trace_filter first,
+    ///      then falls back to debug_traceBlockByNumber, debug_traceTransaction, and finally
+    ///      direct-calls-only if no trace methods are supported.
     struct BacktestingConfig {
         address targetContract;
         uint256 endBlock;
@@ -44,7 +49,6 @@ library BacktestingTypes {
         bytes4 assertionSelector;
         string rpcUrl;
         bool detailedBlocks; // Enable detailed block summaries in output
-        bool useTraceFilter; // Use trace_filter (fast) instead of debug_traceTransaction (slow)
         bool forkByTxHash; // Fork by transaction hash for correct pre-tx state; block forks are unsafe.
     }
 

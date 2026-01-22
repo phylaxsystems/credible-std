@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
+/// @title TriggerRecorder
+/// @author Phylax Systems
+/// @notice Precompile interface for registering assertion triggers
+/// @dev Used within the `triggers()` function of assertion contracts to specify
+/// when assertions should be executed. Supports call triggers, storage change triggers,
+/// and balance change triggers.
 interface TriggerRecorder {
     /// @notice Registers storage change trigger for all slots
     /// @param fnSelector The function selector of the assertion function.

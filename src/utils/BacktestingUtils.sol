@@ -5,8 +5,11 @@ import {Strings} from "../../lib/openzeppelin-contracts/contracts/utils/Strings.
 import {StdUtils} from "forge-std/StdUtils.sol";
 import {BacktestingTypes} from "./BacktestingTypes.sol";
 
-/// @title Backtesting Utilities
-/// @notice Minimal utility functions for backtesting
+/// @title BacktestingUtils
+/// @author Phylax Systems
+/// @notice Utility functions for the backtesting framework
+/// @dev Provides parsing, string manipulation, and error decoding utilities
+/// used internally by CredibleTestWithBacktesting
 library BacktestingUtils {
     using Strings for uint256;
 
@@ -41,11 +44,21 @@ library BacktestingUtils {
         uint256 dataStart = positions[1] + marker.length;
         uint256 dataEnd = positions[2];
 
+        // Trim trailing whitespace/newlines
+        while (dataEnd > dataStart && _isWhitespace(outputBytes[dataEnd - 1])) {
+            dataEnd--;
+        }
+
         bytes memory result = new bytes(dataEnd - dataStart);
         for (uint256 k = 0; k < result.length; k++) {
             result[k] = outputBytes[dataStart + k];
         }
         return string(result);
+    }
+
+    /// @notice Check if a character is whitespace
+    function _isWhitespace(bytes1 char) private pure returns (bool) {
+        return char == 0x20 || char == 0x09 || char == 0x0a || char == 0x0d; // space, tab, newline, carriage return
     }
 
     /// @notice Simple pipe-delimited string splitter
@@ -137,10 +150,14 @@ library BacktestingUtils {
         returns (BacktestingTypes.TransactionData[] memory transactions)
     {
         string[] memory parts = splitString(txDataString, "|");
-        require(parts.length >= 9, "Invalid transaction data format");
+        require(parts.length >= 1, "Invalid transaction data format");
 
         uint256 count = stringToUint(parts[0]);
-        require(count > 0, "No transactions found");
+
+        // Return empty array if no transactions
+        if (count == 0) {
+            return new BacktestingTypes.TransactionData[](0);
+        }
 
         transactions = new BacktestingTypes.TransactionData[](count);
 
@@ -210,16 +227,49 @@ library BacktestingUtils {
     /// @param data The error data from a failed call
     /// @return The decoded revert reason string
     function decodeRevertReason(bytes memory data) internal pure returns (string memory) {
-        if (data.length < 68) return "Unknown error";
+        if (data.length < 4) return "Unknown error";
 
+        // Extract selector
+        bytes4 selector;
         assembly {
-            // Adjust the data pointer to skip the selector
-            data := add(data, 4)
-            // Adjust the length
-            mstore(data, sub(mload(data), 4))
+            selector := mload(add(data, 32))
         }
 
-        return abi.decode(data, (string));
+        // Handle Panic(uint256) - selector 0x4e487b71
+        if (selector == 0x4e487b71 && data.length >= 36) {
+            uint256 panicCode;
+            assembly {
+                panicCode := mload(add(data, 36))
+            }
+            return _panicCodeToString(panicCode);
+        }
+
+        // Handle Error(string) - selector 0x08c379a0
+        if (selector == 0x08c379a0 && data.length >= 68) {
+            assembly {
+                data := add(data, 4)
+                mstore(data, sub(mload(data), 4))
+            }
+            return abi.decode(data, (string));
+        }
+
+        // Unknown error format - return hex of first 4 bytes
+        return string.concat("Custom error: ", Strings.toHexString(uint32(selector), 4));
+    }
+
+    /// @notice Convert panic code to human-readable string
+    function _panicCodeToString(uint256 code) private pure returns (string memory) {
+        if (code == 0x00) return "Panic: generic/compiler panic";
+        if (code == 0x01) return "Panic: assertion failed";
+        if (code == 0x11) return "Panic: arithmetic overflow/underflow";
+        if (code == 0x12) return "Panic: division by zero";
+        if (code == 0x21) return "Panic: invalid enum value";
+        if (code == 0x22) return "Panic: storage out of bounds";
+        if (code == 0x31) return "Panic: pop from empty array";
+        if (code == 0x32) return "Panic: array out-of-bounds access";
+        if (code == 0x41) return "Panic: too much memory allocated";
+        if (code == 0x51) return "Panic: uninitialized function pointer";
+        return string.concat("Panic: unknown code 0x", Strings.toHexString(code));
     }
 
     /// @notice Convert bytes to hex string
@@ -263,10 +313,16 @@ library BacktestingUtils {
     /// @notice Get the standard search paths for transaction_fetcher.sh
     /// @return Array of paths to check, in order of preference
     function getDefaultScriptSearchPaths() internal pure returns (string[] memory) {
-        string[] memory paths = new string[](3);
+        string[] memory paths = new string[](6);
         paths[0] = "lib/credible-std/scripts/backtesting/transaction_fetcher.sh";
         paths[1] = "dependencies/credible-std/scripts/backtesting/transaction_fetcher.sh";
         paths[2] = "../credible-std/scripts/backtesting/transaction_fetcher.sh";
+        // Soldeer paths
+        paths[3] = "dependencies/@phylax-systems/credible-std/scripts/backtesting/transaction_fetcher.sh";
+        // Git submodule paths
+        paths[4] = "modules/credible-std/scripts/backtesting/transaction_fetcher.sh";
+        // Monorepo paths
+        paths[5] = "packages/credible-std/scripts/backtesting/transaction_fetcher.sh";
         return paths;
     }
 }

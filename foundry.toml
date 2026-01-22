@@ -14,4 +14,9 @@ gas_limit = 100000000
 # Include test directory
 test = "test"
 
+[doc]
+title = "Credible Standard Library"
+repository = "https://github.com/phylaxsystems/credible-std"
+ignore = ["test/**", "lib/**"]
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
