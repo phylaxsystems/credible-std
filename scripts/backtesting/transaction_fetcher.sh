@@ -338,7 +338,8 @@ fetch_transactions_trace_filter() {
     start_hex=$(printf "0x%x" "$start_block")
     end_hex=$(printf "0x%x" "$end_block")
 
-    echo "Fetching traces for blocks $start_block to $end_block using trace_filter" >&2
+    echo "[TRACE] Using trace_filter API (fastest method for internal call detection)" >&2
+    echo "[TRACE] Fetching blocks $start_block to $end_block..." >&2
 
     # Prepare trace_filter request
     local trace_request
@@ -372,7 +373,7 @@ fetch_transactions_trace_filter() {
         error_msg=$(echo "$trace_response" | jq -r '.error.message // "Unknown error"')
         echo "Error: trace_filter failed: $error_msg" >&2
         if is_method_unsupported "$trace_response"; then
-            echo "trace_filter unsupported on this RPC, falling back to debug_trace*" >&2
+            echo "[TRACE] trace_filter not supported by this RPC endpoint" >&2
             echo "0"
             return 2
         fi
@@ -409,7 +410,7 @@ fetch_transactions_debug_trace_block() {
         local block_hex
         block_hex=$(printf "0x%x" "$block")
 
-        echo "Fetching traces for block $block using debug_traceBlockByNumber" >&2
+        echo "[TRACE] Tracing block $block with debug_traceBlockByNumber..." >&2
 
         local trace_request
         trace_request=$(jq -n \
@@ -434,7 +435,7 @@ fetch_transactions_debug_trace_block() {
             error_msg=$(echo "$trace_response" | jq -r '.error.message // "Unknown error"')
             echo "Error: debug_traceBlockByNumber failed: $error_msg" >&2
             if is_method_unsupported "$trace_response"; then
-                echo "debug_traceBlockByNumber unsupported on this RPC" >&2
+                echo "[TRACE] debug_traceBlockByNumber not supported by this RPC endpoint" >&2
                 echo "0"
                 return 2
             fi
@@ -542,7 +543,7 @@ fetch_transactions_debug_trace_tx() {
                 error_msg=$(echo "$trace_response" | jq -r '.error.message // "Unknown error"')
                 echo "Error: debug_traceTransaction failed: $error_msg" >&2
                 if is_method_unsupported "$trace_response"; then
-                    echo "debug_traceTransaction unsupported on this RPC" >&2
+                    echo "[TRACE] debug_traceTransaction not supported by this RPC endpoint" >&2
                     echo "0"
                     return 2
                 fi
@@ -944,13 +945,23 @@ main() {
     local batch_size
     if [[ "$USE_TRACE_FILTER" == "true" ]]; then
         TRACE_METHOD="trace_filter"
-        echo "Starting transaction fetch using traces (includes internal calls)" >&2
-        echo "Blocks: $start_block to $end_block (trace_filter batch size: $TRACE_FILTER_BATCH_SIZE)" >&2
-        echo "Trace method: $TRACE_METHOD (will auto-fallback if unsupported)" >&2
+        echo "" >&2
+        echo "=== TRANSACTION DISCOVERY ===" >&2
+        echo "Target: $target_contract" >&2
+        echo "Blocks: $start_block to $end_block" >&2
+        echo "" >&2
+        echo "[INFO] Detecting both direct calls AND internal/nested calls to target" >&2
+        echo "[INFO] Trying trace APIs with automatic fallback..." >&2
+        echo "" >&2
         batch_size=$TRACE_FILTER_BATCH_SIZE
     else
-        echo "Starting transaction fetch (direct calls only)" >&2
-        echo "Blocks: $start_block to $end_block (batch size: $BATCH_SIZE, max concurrent: $MAX_CONCURRENT)" >&2
+        echo "" >&2
+        echo "=== TRANSACTION DISCOVERY ===" >&2
+        echo "Target: $target_contract" >&2
+        echo "Blocks: $start_block to $end_block" >&2
+        echo "" >&2
+        echo "[INFO] Direct calls only mode (no internal call detection)" >&2
+        echo "" >&2
         batch_size=$BATCH_SIZE
     fi
 
@@ -974,7 +985,7 @@ main() {
                     status=$?
                     if [[ $status -eq 2 ]]; then
                         TRACE_METHOD="debug_trace_block"
-                        echo "Switching to debug_traceBlockByNumber for internal call detection" >&2
+                        echo "[TRACE] Falling back to debug_traceBlockByNumber (slower but widely supported)" >&2
                         continue
                     fi
                 elif [[ "$TRACE_METHOD" == "debug_trace_block" ]]; then
@@ -982,14 +993,16 @@ main() {
                     status=$?
                     if [[ $status -eq 2 ]]; then
                         TRACE_METHOD="debug_trace_tx"
-                        echo "Switching to debug_traceTransaction for internal call detection" >&2
+                        echo "[TRACE] Falling back to debug_traceTransaction (slowest, per-transaction tracing)" >&2
                         continue
                     fi
                 else
                     tx_count=$(fetch_transactions_debug_trace_tx "$rpc_url" "$batch_start" "$batch_end" "$target_contract" "$batch_file")
                     status=$?
                     if [[ $status -eq 2 ]]; then
-                        echo "No supported trace method found on this RPC; falling back to direct calls only" >&2
+                        echo "[WARN] No trace APIs supported by this RPC - falling back to direct calls only" >&2
+                        echo "[WARN] Internal/nested calls to target contract will NOT be detected" >&2
+                        echo "[WARN] Consider using an RPC with debug/trace API support for complete coverage" >&2
                         TRACE_METHOD=""
                         tx_count=$(process_batch "$rpc_url" "$batch_start" "$batch_end" "$target_contract" "$batch_id" "$MAX_CONCURRENT")
                     fi
@@ -1016,7 +1029,34 @@ main() {
     end_time=$(date +%s)
     local duration=$((end_time - START_TIME))
 
-    echo "Optimized fetch completed in ${duration}s" >&2
+    echo "" >&2
+    echo "=== DISCOVERY COMPLETE ===" >&2
+
+    # Report which trace method was used
+    if [[ "$USE_TRACE_FILTER" == "true" ]]; then
+        if [[ -n "$TRACE_METHOD" ]]; then
+            case "$TRACE_METHOD" in
+                "trace_filter")
+                    echo "[INFO] Detection method: trace_filter (fastest)" >&2
+                    ;;
+                "debug_trace_block")
+                    echo "[INFO] Detection method: debug_traceBlockByNumber" >&2
+                    ;;
+                "debug_trace_tx")
+                    echo "[INFO] Detection method: debug_traceTransaction (slowest)" >&2
+                    ;;
+            esac
+            echo "[INFO] Internal calls: ENABLED" >&2
+        else
+            echo "[WARN] Detection method: direct calls only (no trace API available)" >&2
+            echo "[WARN] Internal calls: DISABLED" >&2
+        fi
+    else
+        echo "[INFO] Detection method: direct calls only" >&2
+    fi
+
+    echo "" >&2
+    echo "Completed in ${duration}s" >&2
     echo "Processed $total_blocks_processed blocks, found $total_transactions_found transactions" >&2
 
     if [[ $duration -gt 0 ]]; then

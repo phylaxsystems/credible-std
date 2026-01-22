@@ -27,7 +27,6 @@ import {BacktestingUtils} from "./utils/BacktestingUtils.sol";
 ///             assertionSelector: MyAssertion.check.selector,
 ///             rpcUrl: "https://eth.llamarpc.com",
 ///             detailedBlocks: false,
-///             useTraceFilter: false,
 ///             forkByTxHash: true
 ///         }));
 ///     }
@@ -77,7 +76,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         console.log("");
 
         BacktestingTypes.TransactionData[] memory transactions = _fetchTransactions(
-            config.targetContract, startBlock, config.endBlock, config.rpcUrl, config.useTraceFilter
+            config.targetContract, startBlock, config.endBlock, config.rpcUrl
         );
         results.totalTransactions = transactions.length;
         results.processedTransactions = 0; // Initialize processed transactions counter
@@ -249,12 +248,13 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     }
 
     /// @notice Fetch transactions using FFI
+    /// @dev Automatically detects internal calls using trace APIs with fallback:
+    ///      trace_filter -> debug_traceBlockByNumber -> debug_traceTransaction -> direct calls only
     function _fetchTransactions(
         address targetContract,
         uint256 startBlock,
         uint256 endBlock,
-        string memory rpcUrl,
-        bool useTraceFilter
+        string memory rpcUrl
     ) private returns (BacktestingTypes.TransactionData[] memory transactions) {
         // Determine the script path relative to project root
         // The script is located at: credible-std/scripts/backtesting/transaction_fetcher.sh
@@ -262,8 +262,8 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         string memory scriptPath = _findScriptPath();
 
         // Build FFI command with optimized settings
-        uint256 inputSize = useTraceFilter ? 17 : 16;
-        string[] memory inputs = new string[](inputSize);
+        // Always use trace detection for internal calls (with automatic fallback)
+        string[] memory inputs = new string[](17);
         inputs[0] = "bash";
         inputs[1] = scriptPath;
         inputs[2] = "--rpc-url";
@@ -280,9 +280,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         inputs[13] = "10"; // Optimized concurrency based on performance tests
         inputs[14] = "--output-format";
         inputs[15] = "simple";
-        if (useTraceFilter) {
-            inputs[16] = "--use-trace-filter";
-        }
+        inputs[16] = "--use-trace-filter"; // Always enabled for internal call detection
 
         string memory command = inputs[0];
         for (uint256 i = 1; i < inputs.length; i++) {
