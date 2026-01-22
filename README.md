@@ -1,10 +1,32 @@
 # credible-std
 
-credible-std is a standard library for implementing assertions in the Phylax Credible Layer (PCL). It provides the core contracts and interfaces needed to create and manage assertions for smart contract security monitoring.
+Standard library for implementing assertions in the Phylax Credible Layer (PCL). Provides the core contracts and interfaces needed to create, test, and validate assertions for smart contract security monitoring.
 
 ## Documentation
 
 Full API documentation is available at: https://phylaxsystems.github.io/credible-std
+
+## Installation
+
+### Using Foundry (Recommended)
+
+Install the latest stable release:
+
+```bash
+forge install phylaxsystems/credible-std@0.4.0
+```
+
+Or install from master (latest development version):
+
+```bash
+forge install phylaxsystems/credible-std
+```
+
+Add the remapping to your `remappings.txt`:
+
+```
+credible-std/=lib/credible-std/src/
+```
 
 ## Overview
 
@@ -12,13 +34,15 @@ The Phylax Credible Layer (PCL) is a security framework that enables real-time m
 
 ### Key Components
 
-- **Assertion.sol**: Base contract for creating assertions with trigger registration
-- **Credible.sol**: Provides access to the PhEvm precompile for transaction state inspection
-- **PhEvm.sol**: Interface for the PhEvm precompile (state forking, logs, call inputs)
-- **StateChanges.sol**: Type-safe utilities for tracking contract state changes
-- **TriggerRecorder.sol**: Interface for registering assertion triggers
-- **CredibleTest.sol**: Base contract for testing assertions with Forge
-- **CredibleTestWithBacktesting.sol**: Extended test contract with historical transaction backtesting
+| Contract | Description |
+|----------|-------------|
+| `Assertion.sol` | Base contract for creating assertions with trigger registration |
+| `Credible.sol` | Provides access to the PhEvm precompile for transaction state inspection |
+| `PhEvm.sol` | Interface for the PhEvm precompile (state forking, logs, call inputs) |
+| `StateChanges.sol` | Type-safe utilities for tracking contract state changes |
+| `TriggerRecorder.sol` | Interface for registering assertion triggers |
+| `CredibleTest.sol` | Base contract for testing assertions with Forge |
+| `CredibleTestWithBacktesting.sol` | Extended test contract with historical transaction backtesting |
 
 ## Features
 
@@ -27,31 +51,7 @@ The Phylax Credible Layer (PCL) is a security framework that enables real-time m
 - **Type-Safe State Changes**: Built-in converters for uint256, address, bool, and bytes32 state changes
 - **Testing Framework**: Test assertions locally with Forge before deployment
 - **Backtesting**: Validate assertions against historical blockchain transactions
-
-## Installation
-
-### Using Foundry (Recommended)
-
-```bash
-forge install phylaxsystems/credible-std
-```
-
-Or add to your `foundry.toml`:
-
-```toml
-[dependencies]
-credible-std = { git = "https://github.com/phylaxsystems/credible-std.git" }
-```
-
-### Using Hardhat
-
-```json
-{
-  "dependencies": {
-    "credible-std": "github:phylaxsystems/credible-std"
-  }
-}
-```
+- **Internal Call Detection**: Automatically detect transactions that call your contract internally (not just direct calls)
 
 ## Quick Start
 
@@ -181,7 +181,7 @@ function triggers() external view override {
 
 ## Backtesting
 
-Test your assertions against historical blockchain transactions to validate correctness before deployment.
+Test your assertions against historical blockchain transactions to validate correctness before deployment. The backtesting framework automatically detects both direct calls AND internal/nested calls to your target contract.
 
 ### Setup
 
@@ -214,7 +214,6 @@ contract MyBacktest is CredibleTestWithBacktesting {
                 assertionSelector: MyAssertion.check.selector,
                 rpcUrl: "https://eth.llamarpc.com",
                 detailedBlocks: false,               // Verbose block output
-                useTraceFilter: false,               // Use trace_filter RPC (requires archive node)
                 forkByTxHash: true                   // Fork by tx hash for accurate state
             })
         );
@@ -257,25 +256,46 @@ pcl test --ffi -vvvv --match-test testHistoricalTransactions
 FOUNDRY_PROFILE=backtesting pcl test -vvvv
 ```
 
+### Internal Call Detection
+
+The backtesting framework automatically detects transactions that call your target contract internally (e.g., through a router or aggregator). It tries multiple trace APIs with automatic fallback:
+
+1. **trace_filter** - Fastest, requires Erigon or archive node with trace API
+2. **debug_traceBlockByNumber** - Slower but widely supported
+3. **debug_traceTransaction** - Slowest, per-transaction tracing
+4. **Direct calls only** - Fallback when no trace APIs available
+
+Example output:
+```
+=== TRANSACTION DISCOVERY ===
+Target: 0x1234...
+Blocks: 1000000 to 1000100
+
+[INFO] Detecting both direct calls AND internal/nested calls to target
+[INFO] Trying trace APIs with automatic fallback...
+
+[TRACE] Using trace_filter API (fastest method for internal call detection)
+[TRACE] trace_filter not supported by this RPC endpoint
+[TRACE] Falling back to debug_traceBlockByNumber (slower but widely supported)
+
+=== DISCOVERY COMPLETE ===
+[INFO] Detection method: debug_traceBlockByNumber
+[INFO] Internal calls: ENABLED
+```
+
 ### Understanding Results
 
 The backtesting framework provides detailed categorization:
 
-- **Success**: Transaction passed assertion validation
-- **Skipped**: Transaction didn't trigger the assertion (selector mismatch)
-- **Assertion Failed**: Real protocol violation detected
-- **Replay Failure**: Transaction reverted before assertion could run
-- **Unknown Error**: Unexpected failure
+| Result | Description |
+|--------|-------------|
+| **Success** | Transaction passed assertion validation |
+| **Skipped** | Transaction didn't trigger the assertion (selector mismatch) |
+| **Assertion Failed** | Real protocol violation detected |
+| **Replay Failure** | Transaction reverted before assertion could run |
+| **Unknown Error** | Unexpected failure |
 
 When an assertion fails, the framework automatically replays the transaction with full Foundry tracing enabled, showing the complete execution path for debugging.
-
-Example output:
-```
-[FAIL] Assertion failed for tx 0xabc123...
-Error: Panic: array out-of-bounds access
-
->>> TRANSACTION TRACE BELOW <<<
-```
 
 ## State Change Helpers
 
@@ -304,4 +324,4 @@ uint256[] memory fieldChanges = getStateChangesUint(target, structSlot, key, fie
 
 ## License
 
-UNLICENSED
+MIT
