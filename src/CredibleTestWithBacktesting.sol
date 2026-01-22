@@ -151,7 +151,8 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     }
 
     /// @notice Find the transaction_fetcher.sh script path
-    /// @dev Checks environment variable first, then searches common locations
+    /// @dev Checks environment variable first, then searches common locations,
+    ///      and finally uses `find` to auto-detect the script location.
     ///      Override _getScriptSearchPaths() to customize search locations
     /// @return The path to transaction_fetcher.sh
     function _findScriptPath() internal virtual returns (string memory) {
@@ -188,12 +189,63 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
             }
         }
 
+        // Auto-detect using find command as fallback
+        string memory autoDetectedPath = _autoDetectScriptPath();
+        if (bytes(autoDetectedPath).length > 0) {
+            _cachedScriptPath = autoDetectedPath;
+            return _cachedScriptPath;
+        }
+
         // No valid path found - provide helpful error message
         revert(
             "transaction_fetcher.sh not found. "
             "Set CREDIBLE_STD_PATH environment variable or override _getScriptSearchPaths(). "
-            "Standard locations checked: lib/credible-std/..., dependencies/credible-std/..., ../credible-std/..."
+            "Auto-detection also failed. Ensure credible-std is installed in your project."
         );
+    }
+
+    /// @notice Auto-detect the script path using find command
+    /// @dev Searches the project directory for transaction_fetcher.sh
+    /// @return The detected path, or empty string if not found
+    function _autoDetectScriptPath() internal virtual returns (string memory) {
+        // Use find to locate the script, searching common dependency directories
+        // Limit depth to avoid searching too deep and improve performance
+        string[] memory findCmd = new string[](3);
+        findCmd[0] = "bash";
+        findCmd[1] = "-c";
+        findCmd[2] = "find . -maxdepth 6 -type f -name 'transaction_fetcher.sh' -path '*/credible-std/*' 2>/dev/null | head -1";
+
+        try vm.ffi(findCmd) returns (bytes memory result) {
+            string memory foundPath = string(result);
+            // Trim whitespace/newlines
+            bytes memory pathBytes = bytes(foundPath);
+            uint256 len = pathBytes.length;
+            while (len > 0 && (pathBytes[len - 1] == 0x0a || pathBytes[len - 1] == 0x0d || pathBytes[len - 1] == 0x20)) {
+                len--;
+            }
+            if (len == 0) {
+                return "";
+            }
+            bytes memory trimmed = new bytes(len);
+            for (uint256 i = 0; i < len; i++) {
+                trimmed[i] = pathBytes[i];
+            }
+            foundPath = string(trimmed);
+
+            // Verify the found path exists
+            string[] memory testCmd = new string[](3);
+            testCmd[0] = "test";
+            testCmd[1] = "-f";
+            testCmd[2] = foundPath;
+
+            try vm.ffi(testCmd) {
+                return foundPath;
+            } catch {
+                return "";
+            }
+        } catch {
+            return "";
+        }
     }
 
     /// @notice Fetch transactions using FFI

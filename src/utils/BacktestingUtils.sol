@@ -313,10 +313,16 @@ library BacktestingUtils {
     /// @notice Get the standard search paths for transaction_fetcher.sh
     /// @return Array of paths to check, in order of preference
     function getDefaultScriptSearchPaths() internal pure returns (string[] memory) {
-        string[] memory paths = new string[](3);
+        string[] memory paths = new string[](6);
         paths[0] = "lib/credible-std/scripts/backtesting/transaction_fetcher.sh";
         paths[1] = "dependencies/credible-std/scripts/backtesting/transaction_fetcher.sh";
         paths[2] = "../credible-std/scripts/backtesting/transaction_fetcher.sh";
+        // Soldeer paths
+        paths[3] = "dependencies/@phylax-systems/credible-std/scripts/backtesting/transaction_fetcher.sh";
+        // Git submodule paths
+        paths[4] = "modules/credible-std/scripts/backtesting/transaction_fetcher.sh";
+        // Monorepo paths
+        paths[5] = "packages/credible-std/scripts/backtesting/transaction_fetcher.sh";
         return paths;
     }
 }
