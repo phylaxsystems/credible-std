@@ -75,9 +75,8 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         console.log("==========================================");
         console.log("");
 
-        BacktestingTypes.TransactionData[] memory transactions = _fetchTransactions(
-            config.targetContract, startBlock, config.endBlock, config.rpcUrl
-        );
+        BacktestingTypes.TransactionData[] memory transactions =
+            _fetchTransactions(config.targetContract, startBlock, config.endBlock, config.rpcUrl);
         results.totalTransactions = transactions.length;
         results.processedTransactions = 0; // Initialize processed transactions counter
         console.log(string.concat("Total transactions found: ", results.totalTransactions.toString()));
@@ -212,14 +211,17 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         string[] memory findCmd = new string[](3);
         findCmd[0] = "bash";
         findCmd[1] = "-c";
-        findCmd[2] = "find . -maxdepth 6 -type f -name 'transaction_fetcher.sh' -path '*/credible-std/*' 2>/dev/null | head -1";
+        findCmd[2] =
+        "find . -maxdepth 6 -type f -name 'transaction_fetcher.sh' -path '*/credible-std/*' 2>/dev/null | head -1";
 
         try vm.ffi(findCmd) returns (bytes memory result) {
             string memory foundPath = string(result);
             // Trim whitespace/newlines
             bytes memory pathBytes = bytes(foundPath);
             uint256 len = pathBytes.length;
-            while (len > 0 && (pathBytes[len - 1] == 0x0a || pathBytes[len - 1] == 0x0d || pathBytes[len - 1] == 0x20)) {
+            while (
+                len > 0 && (pathBytes[len - 1] == 0x0a || pathBytes[len - 1] == 0x0d || pathBytes[len - 1] == 0x20)
+            ) {
                 len--;
             }
             if (len == 0) {
@@ -250,12 +252,10 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     /// @notice Fetch transactions using FFI
     /// @dev Automatically detects internal calls using trace APIs with fallback:
     ///      trace_filter -> debug_traceBlockByNumber -> debug_traceTransaction -> direct calls only
-    function _fetchTransactions(
-        address targetContract,
-        uint256 startBlock,
-        uint256 endBlock,
-        string memory rpcUrl
-    ) private returns (BacktestingTypes.TransactionData[] memory transactions) {
+    function _fetchTransactions(address targetContract, uint256 startBlock, uint256 endBlock, string memory rpcUrl)
+        private
+        returns (BacktestingTypes.TransactionData[] memory transactions)
+    {
         // Determine the script path relative to project root
         // The script is located at: credible-std/scripts/backtesting/transaction_fetcher.sh
         // We need to find where credible-std is installed (could be in lib/ or pvt/lib/)
