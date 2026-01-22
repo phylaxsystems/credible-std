@@ -24,8 +24,7 @@ contract UsdcOpSepoliaBacktestingTest is CredibleTestWithBacktesting {
             rpcUrl: "https://sepolia.optimism.io",
             detailedBlocks: false,
             useTraceFilter: false,
-            forkByTxHash: false,
-            transactionHash: bytes32(0)
+            forkByTxHash: false
         });
     }
 
@@ -50,8 +49,7 @@ contract UsdcOpSepoliaBacktestingTest is CredibleTestWithBacktesting {
                 rpcUrl: vm.envString("MAINNET_SEPOLIA_RPC_URL"),
                 detailedBlocks: false,
                 useTraceFilter: false,
-                forkByTxHash: false,
-                transactionHash: bytes32(0)
+                forkByTxHash: false
             })
         );
     }
@@ -72,8 +70,7 @@ contract UsdcOpSepoliaBacktestingTest is CredibleTestWithBacktesting {
                     rpcUrl: rpcUrl,
                     detailedBlocks: false,
                     useTraceFilter: false,
-                    forkByTxHash: false,
-                    transactionHash: bytes32(0)
+                    forkByTxHash: false
                 })
             );
         } catch {
@@ -95,8 +92,7 @@ contract UsdcOpSepoliaBacktestingTest is CredibleTestWithBacktesting {
                 rpcUrl: "https://sepolia.optimism.io",
                 detailedBlocks: false,
                 useTraceFilter: false,
-                forkByTxHash: false,
-                transactionHash: bytes32(0)
+                forkByTxHash: false
             })
         );
     }
@@ -112,8 +108,7 @@ contract UsdcOpSepoliaBacktestingTest is CredibleTestWithBacktesting {
                 rpcUrl: "https://sepolia.optimism.io",
                 detailedBlocks: false,
                 useTraceFilter: false,
-                forkByTxHash: false,
-                transactionHash: bytes32(0)
+                forkByTxHash: false
             })
         );
     }
@@ -135,27 +130,21 @@ contract UsdcOpSepoliaBacktestingTest is CredibleTestWithBacktesting {
         );
     }
 
-    /// @notice Test single transaction backtest using config struct
+    /// @notice Test single transaction backtest - alternative example
     function testSingleTransactionBacktestWithConfig() public {
-        console.log("=== SINGLE TRANSACTION BACKTESTING WITH CONFIG ===");
+        console.log("=== SINGLE TRANSACTION BACKTESTING (ALTERNATIVE) ===");
 
         // Example transaction hash (use a real hash from your network)
         bytes32 txHash = 0xb97da7e0c1bc3e8a99d6dbfb1b6d97f6a9c12f0e5d8f4c6a3b2e1d0c9f8a7b6c;
 
-        // Use the config struct with transactionHash set
-        executeBacktest(
-            BacktestingTypes.BacktestingConfig({
-                targetContract: 0x5fd84259d66Cd46123540766Be93DFE6D43130D7, // USDC on Optimism Sepolia
-                endBlock: 0, // Ignored when transactionHash is set
-                blockRange: 0, // Ignored when transactionHash is set
-                assertionCreationCode: type(ERC20Assertion).creationCode,
-                assertionSelector: ERC20Assertion.assertionTransferInvariant.selector,
-                rpcUrl: "https://sepolia.optimism.io",
-                detailedBlocks: false,
-                useTraceFilter: false,
-                forkByTxHash: true, // Always true for single transaction
-                transactionHash: txHash // Specific tx hash
-            })
+        // Use the convenience function - this is the only way to backtest a single transaction
+        // The config struct is for block range backtesting only
+        executeBacktestForTransaction(
+            txHash,
+            0x5fd84259d66Cd46123540766Be93DFE6D43130D7, // USDC on Optimism Sepolia
+            type(ERC20Assertion).creationCode,
+            ERC20Assertion.assertionTransferInvariant.selector,
+            "https://sepolia.optimism.io"
         );
     }
 }

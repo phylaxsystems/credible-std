@@ -16,7 +16,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     // Cached script path to avoid repeated lookups
     string private _cachedScriptPath;
 
-    /// @notice Execute backtesting for a single transaction by hash
+    /// @notice Execute backtesting for a single transaction by hash (overload for single tx mode)
     /// @param txHash The transaction hash to backtest
     /// @param targetContract The target contract address
     /// @param assertionCreationCode The assertion contract creation code
@@ -30,31 +30,16 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         bytes4 assertionSelector,
         string memory rpcUrl
     ) public returns (BacktestingTypes.BacktestingResults memory results) {
-        BacktestingTypes.BacktestingConfig memory config = BacktestingTypes.BacktestingConfig({
-            targetContract: targetContract,
-            endBlock: 0,
-            blockRange: 0,
-            assertionCreationCode: assertionCreationCode,
-            assertionSelector: assertionSelector,
-            rpcUrl: rpcUrl,
-            detailedBlocks: false,
-            useTraceFilter: false,
-            forkByTxHash: true,
-            transactionHash: txHash
-        });
-        return executeBacktest(config);
+        return _executeBacktestForSingleTransaction(
+            txHash, targetContract, assertionCreationCode, assertionSelector, rpcUrl
+        );
     }
 
-    /// @notice Execute backtesting with config struct
+    /// @notice Execute backtesting with config struct (block range mode)
     function executeBacktest(BacktestingTypes.BacktestingConfig memory config)
         public
         returns (BacktestingTypes.BacktestingResults memory results)
     {
-        // Check if we're backtesting a single transaction by hash
-        if (config.transactionHash != bytes32(0)) {
-            return _executeBacktestForSingleTransaction(config);
-        }
-
         uint256 startBlock = config.endBlock > config.blockRange ? config.endBlock - config.blockRange + 1 : 1;
 
         // Print configuration at the start
@@ -245,12 +230,15 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
     }
 
     /// @notice Execute backtesting for a single transaction specified by hash
-    function _executeBacktestForSingleTransaction(BacktestingTypes.BacktestingConfig memory config)
-        private
-        returns (BacktestingTypes.BacktestingResults memory results)
-    {
+    function _executeBacktestForSingleTransaction(
+        bytes32 txHash,
+        address targetContract,
+        bytes memory assertionCreationCode,
+        bytes4 assertionSelector,
+        string memory rpcUrl
+    ) private returns (BacktestingTypes.BacktestingResults memory results) {
         // Fetch the transaction data
-        BacktestingTypes.TransactionData memory txData = _fetchTransactionByHash(config.transactionHash, config.rpcUrl);
+        BacktestingTypes.TransactionData memory txData = _fetchTransactionByHash(txHash, rpcUrl);
 
         // Verify the transaction was found
         if (txData.hash == bytes32(0)) {
@@ -264,12 +252,12 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
 
         // Validate the transaction
         BacktestingTypes.ValidationDetails memory validation = _validateTransaction(
-            config.targetContract,
-            config.assertionCreationCode,
-            config.assertionSelector,
-            config.rpcUrl,
+            targetContract,
+            assertionCreationCode,
+            assertionSelector,
+            rpcUrl,
             txData,
-            true // Always fork by tx hash for single transaction
+            true // Always fork by tx hash
         );
 
         results.processedTransactions = 1;
@@ -289,9 +277,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
             console.log("Error:", validation.errorMessage);
             console.log("");
             console.log(">>> TRANSACTION TRACE BELOW <<<");
-            _replayTransactionForTrace(
-                config.targetContract, config.assertionCreationCode, config.assertionSelector, config.rpcUrl, txData
-            );
+            _replayTransactionForTrace(targetContract, assertionCreationCode, assertionSelector, rpcUrl, txData);
         } else {
             results.unknownErrors = 1;
             console.log("[ERROR]", validation.errorMessage);
