@@ -976,29 +976,30 @@ main() {
         touch "$batch_file"
 
         # Call appropriate processing function
+        # Note: We use "|| true" to prevent set -e from exiting on non-zero return codes
+        # The return code is captured in status for fallback handling
         local tx_count
         if [[ "$USE_TRACE_FILTER" == "true" ]]; then
             local status=0
             while true; do
                 if [[ "$TRACE_METHOD" == "trace_filter" ]]; then
-                    tx_count=$(fetch_transactions_trace_filter "$rpc_url" "$batch_start" "$batch_end" "$target_contract" "$batch_file")
-                    status=$?
+                    tx_count=$(fetch_transactions_trace_filter "$rpc_url" "$batch_start" "$batch_end" "$target_contract" "$batch_file") || status=$?
                     if [[ $status -eq 2 ]]; then
                         TRACE_METHOD="debug_trace_block"
                         echo "[TRACE] Falling back to debug_traceBlockByNumber (slower but widely supported)" >&2
+                        status=0
                         continue
                     fi
                 elif [[ "$TRACE_METHOD" == "debug_trace_block" ]]; then
-                    tx_count=$(fetch_transactions_debug_trace_block "$rpc_url" "$batch_start" "$batch_end" "$target_contract" "$batch_file")
-                    status=$?
+                    tx_count=$(fetch_transactions_debug_trace_block "$rpc_url" "$batch_start" "$batch_end" "$target_contract" "$batch_file") || status=$?
                     if [[ $status -eq 2 ]]; then
                         TRACE_METHOD="debug_trace_tx"
                         echo "[TRACE] Falling back to debug_traceTransaction (slowest, per-transaction tracing)" >&2
+                        status=0
                         continue
                     fi
                 else
-                    tx_count=$(fetch_transactions_debug_trace_tx "$rpc_url" "$batch_start" "$batch_end" "$target_contract" "$batch_file")
-                    status=$?
+                    tx_count=$(fetch_transactions_debug_trace_tx "$rpc_url" "$batch_start" "$batch_end" "$target_contract" "$batch_file") || status=$?
                     if [[ $status -eq 2 ]]; then
                         echo "[WARN] No trace APIs supported by this RPC - falling back to direct calls only" >&2
                         echo "[WARN] Internal/nested calls to target contract will NOT be detected" >&2
