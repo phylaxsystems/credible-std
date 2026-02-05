@@ -112,4 +112,28 @@ interface PhEvm {
     /// @dev The adopter is the contract that registered the assertion
     /// @return The address of the assertion adopter contract
     function getAssertionAdopter() external view returns (address);
+
+    /// @notice Contains data about the original assertion-triggering transaction
+    /// @dev Provides access to transaction envelope data for inspection in assertions
+    struct TxObject {
+        /// @notice The address that initiated the transaction (tx.origin equivalent)
+        address from;
+        /// @notice The transaction recipient, or address(0) for contract creation
+        address to;
+        /// @notice The ETH value sent with the transaction
+        uint256 value;
+        /// @notice The chain ID, or 0 if not present
+        uint64 chain_id;
+        /// @notice The gas limit for the transaction
+        uint64 gas_limit;
+        /// @notice The gas price or max_fee_per_gas for EIP-1559 transactions
+        uint128 gas_price;
+        /// @notice The transaction calldata
+        bytes input;
+    }
+
+    /// @notice Get the original transaction object that triggered the assertion
+    /// @dev Returns the transaction envelope data for the assertion-triggering tx
+    /// @return txObject The transaction data struct
+    function loadTxObject() external view returns (TxObject memory txObject);
 }
