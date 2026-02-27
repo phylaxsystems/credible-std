@@ -32,8 +32,8 @@ abstract contract Assertion is Credible, StateChanges {
     TriggerRecorder constant triggerRecorder = TriggerRecorder(address(uint160(uint256(keccak256("TriggerRecorder")))));
 
     /// @notice The spec recorder precompile for registering the assertion spec
-    /// @dev Address is derived from keccak256("cats dining table")
-    SpecRecorder constant specRecorder = SpecRecorder(address(uint160(uint256(keccak256("cats dining table")))));
+    /// @dev Address is derived from keccak256("SpecRecorder")
+    SpecRecorder constant specRecorder = SpecRecorder(address(uint160(uint256(keccak256("SpecRecorder")))));
 
     /// @notice Used to record fn selectors and their triggers.
     function triggers() external view virtual;
