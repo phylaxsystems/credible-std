@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Credible} from "./Credible.sol";
 import {TriggerRecorder} from "./TriggerRecorder.sol";
+import {SpecRecorder, AssertionSpec} from "./SpecRecorder.sol";
 import {StateChanges} from "./StateChanges.sol";
 
 /// @title Assertion
@@ -29,6 +30,10 @@ abstract contract Assertion is Credible, StateChanges {
     /// @notice The trigger recorder precompile for registering assertion triggers
     /// @dev Address is derived from a deterministic hash for consistency
     TriggerRecorder constant triggerRecorder = TriggerRecorder(address(uint160(uint256(keccak256("TriggerRecorder")))));
+
+    /// @notice The spec recorder precompile for registering the assertion spec
+    /// @dev Address is derived from keccak256("SpecRecorder")
+    SpecRecorder constant specRecorder = SpecRecorder(address(uint160(uint256(keccak256("SpecRecorder")))));
 
     /// @notice Used to record fn selectors and their triggers.
     function triggers() external view virtual;
@@ -64,5 +69,13 @@ abstract contract Assertion is Credible, StateChanges {
     /// @param fnSelector The function selector of the assertion function.
     function registerBalanceChangeTrigger(bytes4 fnSelector) internal view {
         triggerRecorder.registerBalanceChangeTrigger(fnSelector);
+    }
+
+    /// @notice Registers the desired assertion spec. Must be called within the constructor.
+    /// The assertion spec defines what subset of precompiles are available.
+    /// Can only be called once. For an assertion to be valid, it needs a defined spec.
+    /// @param spec The desired AssertionSpec.
+    function registerAssertionSpec(AssertionSpec spec) internal view {
+        specRecorder.registerAssertionSpec(spec);
     }
 }
