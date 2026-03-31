@@ -151,34 +151,6 @@ interface PhEvm {
         view
         returns (bytes32[] memory stateChanges);
 
-    /// @notice Get state changes for a mapping entry with a value-type key
-    /// @dev Derives slot = keccak256(key ++ baseSlot) + offset. For value-type keys
-    /// (address, uint, bool, etc.) the key should be left-padded to bytes32.
-    /// @param contractAddress The contract whose storage to inspect
-    /// @param baseSlot The base storage slot of the mapping
-    /// @param key The mapping key as bytes32 (left-padded for value types)
-    /// @param offset Struct member offset (0 for simple values)
-    /// @return Array of values the derived slot held (in order of changes)
-    function getMappingStateChanges(
-        address contractAddress,
-        bytes32 baseSlot,
-        bytes32 key,
-        uint256 offset
-    ) external view returns (bytes32[] memory);
-
-    /// @notice Get state changes for a mapping entry with a bytes/string key
-    /// @dev Derives slot = keccak256(key ++ baseSlot). For dynamic-length keys
-    /// (string, bytes) the key is used as raw unpadded bytes.
-    /// @param contractAddress The contract whose storage to inspect
-    /// @param baseSlot The base storage slot of the mapping
-    /// @param key The mapping key as raw bytes
-    /// @return Array of values the derived slot held (in order of changes)
-    function getMappingStateChanges(
-        address contractAddress,
-        bytes32 baseSlot,
-        bytes memory key
-    ) external view returns (bytes32[] memory);
-
     /// @notice Get the assertion adopter address for the current transaction
     /// @dev The adopter is the contract that registered the assertion
     /// @return The address of the assertion adopter contract
@@ -189,8 +161,4 @@ interface PhEvm {
     /// @return txObject The transaction data struct
     function getTxObject() external view returns (TxObject memory txObject);
 
-    /// @notice Revert when an address is OFAC sanctioned
-    /// @dev Uses an internal sanctions set refreshed from OFAC list exports
-    /// @param account The address to check
-    function revertIfSanctioned(address account) external view;
 }
