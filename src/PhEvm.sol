@@ -57,6 +57,14 @@ interface PhEvm {
         bytes input;
     }
 
+    /// @notice Result of a nested static call executed against a snapshot.
+    struct StaticCallResult {
+        /// @notice Whether the nested call completed successfully
+        bool ok;
+        /// @notice Raw return data or revert data from the nested call
+        bytes data;
+    }
+
     /// @notice Identifies a read-only transaction snapshot.
     /// @dev forkType: 0 = PreTx, 1 = PostTx, 2 = PreCall, 3 = PostCall
     /// callIndex is used only for call-scoped snapshots.
@@ -104,6 +112,17 @@ interface PhEvm {
         external
         view
         returns (bytes32 value);
+
+    /// @notice Execute a static call against a snapshot fork.
+    /// @param target The contract to call.
+    /// @param data The ABI-encoded function call.
+    /// @param gas_limit The gas budget forwarded to the nested static call.
+    /// @param fork The snapshot fork to execute against.
+    /// @return result Success flag and return or revert bytes from the nested call.
+    function staticcallAt(address target, bytes calldata data, uint64 gas_limit, ForkId calldata fork)
+        external
+        view
+        returns (StaticCallResult memory result);
 
     /// @notice Get all logs emitted during the transaction
     /// @dev Returns logs in emission order
