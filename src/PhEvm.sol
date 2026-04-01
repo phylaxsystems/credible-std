@@ -57,6 +57,22 @@ interface PhEvm {
         bytes input;
     }
 
+    /// @notice Result of a nested static call executed against a snapshot.
+    struct StaticCallResult {
+        /// @notice Whether the nested call completed successfully
+        bool ok;
+        /// @notice Raw return data or revert data from the nested call
+        bytes data;
+    }
+
+    /// @notice Identifies a read-only transaction snapshot.
+    /// @dev forkType: 0 = PreTx, 1 = PostTx, 2 = PreCall, 3 = PostCall
+    /// callIndex is used only for call-scoped snapshots.
+    struct ForkId {
+        uint8 forkType;
+        uint256 callIndex;
+    }
+
     /// @notice Fork to the state before the assertion-triggering transaction
     /// @dev Allows inspection of pre-transaction state for comparison
     function forkPreTx() external;
@@ -80,6 +96,30 @@ interface PhEvm {
     /// @param slot The storage slot to read
     /// @return data The value stored at the slot
     function load(address target, bytes32 slot) external view returns (bytes32 data);
+
+    /// @notice Read a storage slot from the current assertion adopter at a snapshot.
+    /// @param slot The storage slot to read.
+    /// @param fork The snapshot fork to read from.
+    /// @return value The raw 32-byte value at the slot.
+    function loadStateAt(bytes32 slot, ForkId calldata fork) external view returns (bytes32 value);
+
+    /// @notice Read a storage slot from any account at a snapshot.
+    /// @param target The address to read storage from.
+    /// @param slot The storage slot to read.
+    /// @param fork The snapshot fork to read from.
+    /// @return value The raw 32-byte value at the slot.
+    function loadStateAt(address target, bytes32 slot, ForkId calldata fork) external view returns (bytes32 value);
+
+    /// @notice Execute a static call against a snapshot fork.
+    /// @param target The contract to call.
+    /// @param data The ABI-encoded function call.
+    /// @param gas_limit The gas budget forwarded to the nested static call.
+    /// @param fork The snapshot fork to execute against.
+    /// @return result Success flag and return or revert bytes from the nested call.
+    function staticcallAt(address target, bytes calldata data, uint64 gas_limit, ForkId calldata fork)
+        external
+        view
+        returns (StaticCallResult memory result);
 
     /// @notice Get all logs emitted during the transaction
     /// @dev Returns logs in emission order
