@@ -108,10 +108,7 @@ interface PhEvm {
     /// @param slot The storage slot to read.
     /// @param fork The snapshot fork to read from.
     /// @return value The raw 32-byte value at the slot.
-    function loadStateAt(address target, bytes32 slot, ForkId calldata fork)
-        external
-        view
-        returns (bytes32 value);
+    function loadStateAt(address target, bytes32 slot, ForkId calldata fork) external view returns (bytes32 value);
 
     /// @notice Execute a static call against a snapshot fork.
     /// @param target The contract to call.
@@ -179,5 +176,4 @@ interface PhEvm {
     /// @dev Returns the transaction envelope data for the assertion-triggering tx
     /// @return txObject The transaction data struct
     function getTxObject() external view returns (TxObject memory txObject);
-
 }
