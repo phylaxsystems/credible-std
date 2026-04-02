@@ -133,10 +133,7 @@ interface PhEvm {
     /// @param query The emitter and signature filters to apply
     /// @param fork The snapshot fork to read logs from
     /// @return logs Array of logs matching the query inside the selected snapshot window
-    function getLogsQuery(LogQuery calldata query, ForkId calldata fork)
-        external
-        view
-        returns (Log[] memory logs);
+    function getLogsQuery(LogQuery calldata query, ForkId calldata fork) external view returns (Log[] memory logs);
 
     /// @notice Get all logs emitted during the transaction
     /// @dev Returns logs in emission order
