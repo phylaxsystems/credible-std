@@ -19,6 +19,14 @@ interface PhEvm {
         address emitter;
     }
 
+    /// @notice Query used to filter transaction logs by emitter and/or signature
+    struct LogQuery {
+        /// @notice address(0) matches any emitter
+        address emitter;
+        /// @notice bytes32(0) matches any topic0 signature
+        bytes32 signature;
+    }
+
     /// @notice Represents the inputs to a call made during transaction execution
     /// @dev Used by getCallInputs() and related functions to inspect call details
     struct CallInputs {
@@ -63,6 +71,18 @@ interface PhEvm {
         bool ok;
         /// @notice Raw return data or revert data from the nested call
         bytes data;
+    }
+
+    /// @notice Decoded ERC20 Transfer event data from a snapshot fork.
+    struct Erc20TransferData {
+        /// @notice The token contract that emitted the Transfer event
+        address token_addr;
+        /// @notice The sender indexed in topic1
+        address from;
+        /// @notice The receiver indexed in topic2
+        address to;
+        /// @notice The transferred amount decoded from log data
+        uint256 value;
     }
 
     /// @notice Identifies a read-only transaction snapshot.
@@ -120,6 +140,48 @@ interface PhEvm {
         external
         view
         returns (StaticCallResult memory result);
+
+    /// @notice Get logs matching a query from a snapshot fork
+    /// @param query The emitter and signature filters to apply
+    /// @param fork The snapshot fork to read logs from
+    /// @return logs Array of logs matching the query inside the selected snapshot window
+    function getLogsQuery(LogQuery calldata query, ForkId calldata fork) external view returns (Log[] memory logs);
+
+    /// @notice Returns all ERC20 transfers for a single token in the specified fork.
+    /// @param token The ERC20 token address.
+    /// @param fork The fork to query.
+    /// @return transfers Array of decoded transfer records.
+    function getErc20Transfers(address token, ForkId calldata fork)
+        external
+        view
+        returns (Erc20TransferData[] memory transfers);
+
+    /// @notice Returns all ERC20 transfers for multiple tokens in the specified fork.
+    /// @param tokens Array of ERC20 token addresses.
+    /// @param fork The fork to query.
+    /// @return transfers Combined array of decoded transfer records across all tokens.
+    function getErc20TransfersForTokens(address[] calldata tokens, ForkId calldata fork)
+        external
+        view
+        returns (Erc20TransferData[] memory transfers);
+
+    /// @notice Returns all transfers involving the given token for the specified fork.
+    /// @dev Semantic alias of getErc20Transfers for balance-delta workflows.
+    /// @param token The ERC20 token address.
+    /// @param fork The fork to query.
+    function changedErc20BalanceDeltas(address token, ForkId calldata fork)
+        external
+        view
+        returns (Erc20TransferData[] memory deltas);
+
+    /// @notice Reduces transfers into net balance deltas per unique (from, to) pair.
+    /// @param token The ERC20 token address.
+    /// @param fork The fork to query.
+    /// @return deltas Aggregated transfer records in first-seen pair order.
+    function reduceErc20BalanceDeltas(address token, ForkId calldata fork)
+        external
+        view
+        returns (Erc20TransferData[] memory deltas);
 
     /// @notice Get all logs emitted during the transaction
     /// @dev Returns logs in emission order
