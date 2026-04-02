@@ -19,6 +19,14 @@ interface PhEvm {
         address emitter;
     }
 
+    /// @notice Query used to filter transaction logs by emitter and/or signature
+    struct LogQuery {
+        /// @notice address(0) matches any emitter
+        address emitter;
+        /// @notice bytes32(0) matches any topic0 signature
+        bytes32 signature;
+    }
+
     /// @notice Represents the inputs to a call made during transaction execution
     /// @dev Used by getCallInputs() and related functions to inspect call details
     struct CallInputs {
@@ -120,6 +128,15 @@ interface PhEvm {
         external
         view
         returns (StaticCallResult memory result);
+
+    /// @notice Get logs matching a query from a snapshot fork
+    /// @param query The emitter and signature filters to apply
+    /// @param fork The snapshot fork to read logs from
+    /// @return logs Array of logs matching the query inside the selected snapshot window
+    function getLogsQuery(LogQuery calldata query, ForkId calldata fork)
+        external
+        view
+        returns (Log[] memory logs);
 
     /// @notice Get all logs emitted during the transaction
     /// @dev Returns logs in emission order
