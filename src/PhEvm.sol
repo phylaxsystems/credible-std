@@ -238,4 +238,25 @@ interface PhEvm {
     /// @dev Returns the transaction envelope data for the assertion-triggering tx
     /// @return txObject The transaction data struct
     function getTxObject() external view returns (TxObject memory txObject);
+
+    /// @notice Checks cumulative outflow for a token against a threshold within a rolling time window.
+    ///         Returns `false` if the cumulative gross outflow from the assertion adopter exceeds the threshold,
+    ///         or `true` otherwise.
+    /// @dev Called within an assertion function body. Each unique (token, thresholdBps, windowDuration)
+    ///      tuple maintains independent persistent state. Multiple calls with different parameters
+    ///      in the same function are allowed (independent breakers).
+    /// @param token The ERC20 token address to monitor.
+    /// @param thresholdBps Maximum cumulative outflow as basis points of the
+    ///        TVL snapshot taken at window start. 1000 = 10%.
+    /// @param windowDuration Rolling window length in seconds. When elapsed,
+    ///        the window resets with a fresh TVL snapshot.
+    /// @param decimals The token's decimals (e.g. 6 for USDC, 18 for DAI).
+    ///        Used to normalize values to 18 decimals for accurate bps calculation.
+    /// @return `false` if circuit breaker is invalidated (threshold exceeded), `true` otherwise.
+    function watchCumulativeOutflow(
+        address token,
+        uint256 thresholdBps,
+        uint256 windowDuration,
+        uint8 decimals
+    ) external returns (bool);
 }
