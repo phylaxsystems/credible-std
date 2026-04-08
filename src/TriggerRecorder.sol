@@ -32,17 +32,23 @@ interface TriggerRecorder {
     /// @param fnSelector The function selector of the assertion function.
     function registerCallTrigger(bytes4 fnSelector) external view;
 
-    /// @notice Registers a trigger that fires once per matching adopter call.
-    /// @param fnSelector The function selector of the assertion function.
-    /// @param triggerSelector The adopter function selector to watch.
+    // ---------------------------------------------------------------
+    //  V2 trigger types
+    // ---------------------------------------------------------------
+
+    /// @notice Registers a trigger that fires when the adopter receives a call
+    ///         matching triggerSelector. The assertion fires once per matching call,
+    ///         with TriggerContext available via ph.context().
+    /// @param fnSelector The assertion function to invoke.
+    /// @param triggerSelector The 4-byte selector on the adopter to watch for.
     function registerFnCallTrigger(bytes4 fnSelector, bytes4 triggerSelector) external view;
 
-    /// @notice Registers a trigger that fires once after the transaction completes.
-    /// @param fnSelector The function selector of the assertion function.
+    /// @notice Registers a trigger that fires once after the entire transaction completes.
+    /// @param fnSelector The assertion function to invoke.
     function registerTxEndTrigger(bytes4 fnSelector) external view;
 
-    /// @notice Registers a trigger that fires when the given token's balances change.
-    /// @param fnSelector The function selector of the assertion function.
+    /// @notice Registers a trigger that fires when a token's balances change.
+    /// @param fnSelector The assertion function to invoke.
     /// @param token The ERC20 token address to watch.
     function registerErc20ChangeTrigger(bytes4 fnSelector, address token) external view;
 }
