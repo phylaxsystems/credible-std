@@ -229,6 +229,16 @@ interface PhEvm {
         view
         returns (bytes32[] memory stateChanges);
 
+    /// @notice Checks that a single storage slot on the assertion adopter was not modified.
+    /// @param slot The slot to protect.
+    /// @return ok True when the slot was not written during the transaction.
+    function forbidChangeForSlot(bytes32 slot) external returns (bool ok);
+
+    /// @notice Checks that none of the given storage slots on the assertion adopter were modified.
+    /// @param slots The slots to protect.
+    /// @return ok True when none of the slots were written during the transaction.
+    function forbidChangeForSlots(bytes32[] calldata slots) external returns (bool ok);
+
     /// @notice Get the assertion adopter address for the current transaction
     /// @dev The adopter is the contract that registered the assertion
     /// @return The address of the assertion adopter contract
