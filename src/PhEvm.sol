@@ -137,7 +137,6 @@ interface PhEvm {
     //  Legacy fork-switching (deprecated — prefer ForkId-based access)
     // ---------------------------------------------------------------
 
-
     /// @notice Fork to the state before the assertion-triggering transaction
     /// @dev DEPRECATED: Use staticcallAt / loadStateAt with ForkId instead.
     function forkPreTx() external;
@@ -359,7 +358,6 @@ interface PhEvm {
     // ---------------------------------------------------------------
     //  V2: Mapping tracing
     // ---------------------------------------------------------------
-
 
     /// @notice Returns canonical Solidity key encodings h(key) for keys
     ///         whose mapping entry at baseSlot was written during the tx.

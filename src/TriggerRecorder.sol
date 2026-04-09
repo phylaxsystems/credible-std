@@ -65,10 +65,7 @@ interface TriggerRecorder {
     ///        are dropped as the window slides forward.
     /// @param fnSelector The assertion function to invoke when the threshold
     ///        is breached.
-    function watchCumulativeOutflow(
-        address token,
-        uint256 thresholdBps,
-        uint256 windowDuration,
-        bytes4 fnSelector
-    ) external view;
+    function watchCumulativeOutflow(address token, uint256 thresholdBps, uint256 windowDuration, bytes4 fnSelector)
+        external
+        view;
 }

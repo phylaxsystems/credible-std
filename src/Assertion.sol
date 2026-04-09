@@ -194,7 +194,6 @@ abstract contract Assertion is Credible, StateChanges {
     //  Spec registration
     // ---------------------------------------------------------------
 
-
     /// @notice Registers the desired assertion spec. Must be called within the constructor.
     /// The assertion spec defines what subset of precompiles are available.
     /// Can only be called once. For an assertion to be valid, it needs a defined spec.

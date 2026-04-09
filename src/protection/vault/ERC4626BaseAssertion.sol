@@ -11,17 +11,19 @@ import {IERC4626} from "./IERC4626.sol";
 /// @dev Provides vault-specific state accessors on top of the shared Assertion helpers.
 ///      Inherit from this (and one or more invariant contracts), then implement `triggers()`.
 ///
-/// Example – combine share-price and preview invariants:
+/// Example – combine share-price, preview, and outflow invariants:
 /// ```solidity
-/// contract MyVaultAssertion is ERC4626SharePriceAssertion, ERC4626PreviewAssertion {
+/// contract MyVaultAssertion is ERC4626SharePriceAssertion, ERC4626PreviewAssertion, ERC4626CumulativeOutflowAssertion {
 ///     constructor(address _vault)
 ///         ERC4626BaseAssertion(_vault)
 ///         ERC4626SharePriceAssertion(50) // 50 bps tolerance
+///         ERC4626CumulativeOutflowAssertion(1_000, 24 hours) // 10% in 24h
 ///     {}
 ///
 ///     function triggers() external view override {
 ///         _registerSharePriceTriggers();
 ///         _registerPreviewTriggers();
+///         _registerCumulativeOutflowTriggers();
 ///     }
 /// }
 /// ```
