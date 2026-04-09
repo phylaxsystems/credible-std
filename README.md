@@ -153,6 +153,7 @@ Access these via the `ph` instance inherited from `Credible`:
 | `getStaticCallInputs(address, bytes4)` | Get STATICCALL inputs |
 | `getDelegateCallInputs(address, bytes4)` | Get DELEGATECALL inputs |
 | `getAllCallInputs(address, bytes4)` | Get all call types |
+| `callinputAt(uint256)` | Get full recorded calldata for one call id |
 | `getStateChanges(address, bytes32)` | Get state changes for a slot |
 | `getAssertionAdopter()` | Get the adopter contract address |
 

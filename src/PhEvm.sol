@@ -219,6 +219,11 @@ interface PhEvm {
     /// @return calls Array of CallInputs from CALLCODE opcodes
     function getCallCodeInputs(address target, bytes4 selector) external view returns (CallInputs[] memory calls);
 
+    /// @notice Returns the calldata of a specific call.
+    /// @param callId The call ID to read input from.
+    /// @return input The raw calldata bytes (selector + ABI-encoded arguments).
+    function callinputAt(uint256 callId) external view returns (bytes memory input);
+
     /// @notice Get all state changes for a specific storage slot
     /// @dev Returns the sequence of values the slot held during transaction execution
     /// @param contractAddress The contract whose storage to inspect
