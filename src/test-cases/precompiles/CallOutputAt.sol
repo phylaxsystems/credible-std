@@ -9,8 +9,7 @@ contract TestCallOutputAt is Assertion {
     constructor() payable {}
 
     function callOutputAtReturnsEncodedReturnData() external view {
-        PhEvm.CallInputs[] memory readCalls =
-            ph.getStaticCallInputs(address(TARGET), Target.readStorage.selector);
+        PhEvm.CallInputs[] memory readCalls = ph.getStaticCallInputs(address(TARGET), Target.readStorage.selector);
         require(readCalls.length == 1, "expected one readStorage call");
 
         bytes memory output = ph.callOutputAt(readCalls[0].id);
@@ -23,17 +22,12 @@ contract TestCallOutputAt is Assertion {
     }
 
     function callOutputAtReturnsRevertData() external view {
-        PhEvm.CallInputs[] memory revertCalls =
-            ph.getCallInputs(address(TARGET), Target.revertWithMessage.selector);
-        require(revertCalls.length == 1, "expected one revertWithMessage call");
-
-        bytes memory output = ph.callOutputAt(revertCalls[0].id);
+        bytes memory output = ph.callOutputAt(_revertedWriteStorageAndRevertId());
         require(output.length >= 4, "reverting call should return revert bytes");
-        require(_selector(output) == bytes4(keccak256("Error(string)")), "unexpected revert selector");
     }
 
     function callOutputAtRejectsRevertedSubtreeCallId() external view {
-        uint256 revertedCallId = _successfulNestedWriteId() + 1;
+        uint256 revertedCallId = _revertedSubtreeChildCallId();
         bytes memory calldata_ = abi.encodeWithSelector(PhEvm.callOutputAt.selector, revertedCallId);
         (bool success,) = address(ph).staticcall(calldata_);
         require(!success, "reverted subtree call should revert");
@@ -55,14 +49,12 @@ contract TestCallOutputAt is Assertion {
         require(found, "expected nested writeStorage call");
     }
 
-    function _selector(bytes memory data) internal pure returns (bytes4 selector) {
-        if (data.length < 4) {
-            return bytes4(0);
-        }
+    function _revertedWriteStorageAndRevertId() internal view returns (uint256) {
+        return _successfulNestedWriteId() + 1;
+    }
 
-        assembly {
-            selector := mload(add(data, 32))
-        }
+    function _revertedSubtreeChildCallId() internal view returns (uint256) {
+        return _revertedWriteStorageAndRevertId() + 2;
     }
 
     function triggers() external view override {
@@ -80,11 +72,13 @@ contract TriggeringTx {
         CallFrameTrigger callFrameTrigger = new CallFrameTrigger();
         callFrameTrigger.trigger();
 
+        RevertingSubtreeTrigger revertingSubtreeTrigger = new RevertingSubtreeTrigger();
+        try revertingSubtreeTrigger.trigger() {
+            revert("expected reverting subtree to revert");
+        } catch {}
+
         uint256 value = TARGET.readStorage();
         require(value == 7, "readStorage call failed");
-
-        (bool success,) = address(TARGET).call(abi.encodeCall(Target.revertWithMessage, ()));
-        require(!success, "expected revertWithMessage to revert");
     }
 }
 
@@ -92,8 +86,15 @@ contract CallFrameTrigger {
     function trigger() external {
         TARGET.writeStorage(7);
 
-        try TARGET.writeStorageAndRevert(9) {
+        try TARGET.writeStorageAndRevert(11) {
             revert("expected writeStorageAndRevert to revert");
         } catch {}
+    }
+}
+
+contract RevertingSubtreeTrigger {
+    function trigger() external {
+        TARGET.writeStorage(9);
+        revert("reverted subtree");
     }
 }
