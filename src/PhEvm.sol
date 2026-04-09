@@ -421,12 +421,32 @@ interface PhEvm {
     //  V2: Protection suite — cumulative outflow circuit breaker
     // ---------------------------------------------------------------
 
-    /// @notice Checks cumulative outflow against a threshold within a rolling time window.
-    /// @param token The ERC20 token address to monitor.
-    /// @param thresholdBps Maximum cumulative outflow as bps of TVL. 1000 = 10%.
-    /// @param windowDuration Rolling window length in seconds.
-    /// @return False if circuit breaker is tripped, true otherwise.
-    function watchCumulativeOutflow(address token, uint256 thresholdBps, uint256 windowDuration) external returns (bool);
+    /// @notice Context about the outflow that triggered an assertion via watchCumulativeOutflow.
+    /// @dev Only valid inside an assertion function triggered by watchCumulativeOutflow.
+    ///      Returns a zeroed struct if called from a non-outflow trigger context.
+    struct OutflowContext {
+        /// @notice The ERC20 token that breached the threshold
+        address token;
+        /// @notice Net outflow within the window (token units)
+        uint256 cumulativeOutflow;
+        /// @notice Total absolute outflow within the window (token units, ignoring deposits)
+        uint256 absoluteOutflow;
+        /// @notice Current outflow as basis points of TVL snapshot
+        uint256 currentBps;
+        /// @notice Adopter's token balance at window start
+        uint256 tvlSnapshot;
+        /// @notice Timestamp when the current window began
+        uint256 windowStart;
+        /// @notice Timestamp when the current window expires
+        uint256 windowEnd;
+    }
+
+    /// @notice Returns context about the outflow that triggered this assertion.
+    /// @dev Only valid inside an assertion function triggered by
+    ///      watchCumulativeOutflow. Returns a zeroed struct if called from a
+    ///      non-outflow trigger context.
+    /// @return ctx The outflow context for the current trigger invocation.
+    function outflowContext() external view returns (OutflowContext memory ctx);
 
     // ---------------------------------------------------------------
     //  V2: Protection suite — oracle sanity

@@ -104,6 +104,22 @@ abstract contract Assertion is Credible, StateChanges {
         triggerRecorder.registerErc20ChangeTrigger(fnSelector, token);
     }
 
+    /// @notice Registers a circuit breaker trigger that fires when cumulative
+    ///         ERC20 outflow from the assertion adopter exceeds a percentage
+    ///         threshold within a rolling time window.
+    /// @param token The ERC20 token address to monitor.
+    /// @param thresholdBps Maximum cumulative outflow as basis points of the
+    ///        TVL snapshot taken at window start. 1000 = 10%.
+    /// @param windowDuration Rolling window length in seconds.
+    /// @param fnSelector The assertion function to invoke when the threshold
+    ///        is breached.
+    function watchCumulativeOutflow(address token, uint256 thresholdBps, uint256 windowDuration, bytes4 fnSelector)
+        internal
+        view
+    {
+        triggerRecorder.watchCumulativeOutflow(token, thresholdBps, windowDuration, fnSelector);
+    }
+
     // ---------------------------------------------------------------
     //  V2 call matching
     // ---------------------------------------------------------------

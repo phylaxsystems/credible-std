@@ -51,4 +51,24 @@ interface TriggerRecorder {
     /// @param fnSelector The assertion function to invoke.
     /// @param token The ERC20 token address to watch.
     function registerErc20ChangeTrigger(bytes4 fnSelector, address token) external view;
+
+    /// @notice Registers a circuit breaker trigger that fires when cumulative
+    ///         ERC20 outflow from the assertion adopter exceeds a percentage
+    ///         threshold within a rolling time window.
+    /// @dev The executor handles all persistent state tracking, TVL snapshots,
+    ///      and threshold enforcement internally.
+    /// @param token The ERC20 token address to monitor.
+    /// @param thresholdBps Maximum cumulative outflow as basis points of the
+    ///        TVL snapshot taken at window start. 1000 = 10%.
+    /// @param windowDuration Rolling window length in seconds. Balance deltas are
+    ///        stored in 10-second buckets; old buckets that fall outside the window
+    ///        are dropped as the window slides forward.
+    /// @param fnSelector The assertion function to invoke when the threshold
+    ///        is breached.
+    function watchCumulativeOutflow(
+        address token,
+        uint256 thresholdBps,
+        uint256 windowDuration,
+        bytes4 fnSelector
+    ) external view;
 }
