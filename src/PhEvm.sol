@@ -93,6 +93,17 @@ interface PhEvm {
         uint256 callIndex;
     }
 
+    /// @notice Context for an onFnCall-triggered assertion invocation.
+    /// @dev Only valid inside an assertion function triggered by registerFnCallTrigger.
+    struct TriggerContext {
+        /// @notice The adopter selector that triggered this assertion invocation.
+        bytes4 selector;
+        /// @notice Call index for constructing a PreCall fork.
+        uint256 callStart;
+        /// @notice Call index for constructing a PostCall fork.
+        uint256 callEnd;
+    }
+
     /// @notice Fork to the state before the assertion-triggering transaction
     /// @dev Allows inspection of pre-transaction state for comparison
     function forkPreTx() external;
@@ -258,6 +269,10 @@ interface PhEvm {
     /// @dev Returns the transaction envelope data for the assertion-triggering tx
     /// @return txObject The transaction data struct
     function getTxObject() external view returns (TxObject memory txObject);
+
+    /// @notice Returns the current onFnCall trigger context.
+    /// @dev Reverts when called outside an onFnCall-triggered assertion execution.
+    function context() external view returns (TriggerContext memory);
 
     /// @notice Returns canonical Solidity key encodings h(key) for keys
     ///         whose mapping entry at baseSlot was written during the tx.
