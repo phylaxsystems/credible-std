@@ -219,6 +219,11 @@ interface PhEvm {
     /// @return calls Array of CallInputs from CALLCODE opcodes
     function getCallCodeInputs(address target, bytes4 selector) external view returns (CallInputs[] memory calls);
 
+    /// @notice Returns the raw return or revert bytes for a traced call.
+    /// @param callId The call identifier from CallInputs.id.
+    /// @return output The raw ABI-encoded return bytes or revert bytes.
+    function callOutputAt(uint256 callId) external view returns (bytes memory output);
+
     /// @notice Returns the calldata of a specific call.
     /// @param callId The call ID to read input from.
     /// @return input The raw calldata bytes (selector + ABI-encoded arguments).
