@@ -258,4 +258,29 @@ interface PhEvm {
     /// @dev Returns the transaction envelope data for the assertion-triggering tx
     /// @return txObject The transaction data struct
     function getTxObject() external view returns (TxObject memory txObject);
+
+    /// @notice Returns canonical Solidity key encodings h(key) for keys
+    ///         whose mapping entry at baseSlot was written during the tx.
+    /// @dev Best-effort heuristic: traces KECCAK256 -> SSTORE provenance in the
+    ///      execution trace. Custom inline assembly or precomputed hashed slots
+    ///      can bypass the visible keccak chain and produce false negatives.
+    /// @param target The contract whose storage was modified.
+    /// @param baseSlot The Solidity mapping's base storage slot.
+    /// @return keys Array of encoded keys (each is the h(key) preimage).
+    function changedMappingKeys(address target, bytes32 baseSlot) external view returns (bytes[] memory keys);
+
+    /// @notice Returns the pre/post values for a specific mapping entry.
+    /// @dev Computes slot = keccak256(key ++ baseSlot) + fieldOffset, then reads
+    ///      pre from the PreTx fork and post from the PostTx fork.
+    /// @param target The contract address.
+    /// @param baseSlot The mapping's base slot.
+    /// @param key The canonical encoding h(key) of the mapping key.
+    /// @param fieldOffset Struct field offset (0 for the first slot of the value).
+    /// @return pre The PreTx value.
+    /// @return post The PostTx value.
+    /// @return changed True if pre != post.
+    function mappingValueDiff(address target, bytes32 baseSlot, bytes calldata key, uint256 fieldOffset)
+        external
+        view
+        returns (bytes32 pre, bytes32 post, bool changed);
 }
