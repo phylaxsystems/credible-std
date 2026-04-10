@@ -96,36 +96,65 @@ interface PhEvm {
     /// @notice Context for an onFnCall-triggered assertion invocation.
     /// @dev Only valid inside an assertion function triggered by registerFnCallTrigger.
     struct TriggerContext {
-        /// @notice The adopter selector that triggered this assertion invocation.
+        /// @notice The function selector that was called on the adopter
         bytes4 selector;
-        /// @notice Call index for constructing a PreCall fork.
+        /// @notice Call index for constructing PreCall ForkId
         uint256 callStart;
-        /// @notice Call index for constructing a PostCall fork.
+        /// @notice Call index for constructing PostCall ForkId
         uint256 callEnd;
     }
 
+    /// @notice Filter criteria for matchingCalls queries.
+    struct CallFilter {
+        /// @notice Call type: 0 = any, 1 = CALL, 2 = STATICCALL, 3 = DELEGATECALL, 4 = CALLCODE
+        uint8 callType;
+        /// @notice Minimum call depth to include
+        uint32 minDepth;
+        /// @notice Maximum call depth to include
+        uint32 maxDepth;
+        /// @notice If true, only return top-level calls (depth == 1)
+        bool topLevelOnly;
+        /// @notice If true, only return calls that succeeded
+        bool successOnly;
+    }
+
+    /// @notice Detailed record of a call in the transaction trace.
+    struct TriggerCall {
+        uint256 callId;
+        uint256 parentCallId;
+        address caller;
+        address target;
+        address codeAddress;
+        bytes4 selector;
+        uint32 depth;
+        uint8 callType;
+        bool success;
+        uint256 value;
+        bytes input;
+    }
+
+    // ---------------------------------------------------------------
+    //  Legacy fork-switching (deprecated — prefer ForkId-based access)
+    // ---------------------------------------------------------------
+
     /// @notice Fork to the state before the assertion-triggering transaction
-    /// @dev Allows inspection of pre-transaction state for comparison
+    /// @dev DEPRECATED: Use staticcallAt / loadStateAt with ForkId instead.
     function forkPreTx() external;
 
     /// @notice Fork to the state after the assertion-triggering transaction
-    /// @dev Allows inspection of post-transaction state for validation
+    /// @dev DEPRECATED: Use staticcallAt / loadStateAt with ForkId instead.
     function forkPostTx() external;
 
     /// @notice Fork to the state before a specific call execution
-    /// @dev Useful for inspecting state at specific points during transaction execution
-    /// @param id The call identifier from CallInputs.id
+    /// @dev DEPRECATED: Use staticcallAt / loadStateAt with ForkId instead.
     function forkPreCall(uint256 id) external;
 
     /// @notice Fork to the state after a specific call execution
-    /// @dev Useful for inspecting state changes from specific calls
-    /// @param id The call identifier from CallInputs.id
+    /// @dev DEPRECATED: Use staticcallAt / loadStateAt with ForkId instead.
     function forkPostCall(uint256 id) external;
 
     /// @notice Load a storage slot value from any address
-    /// @param target The address to read storage from
-    /// @param slot The storage slot to read
-    /// @return data The value stored at the slot
+    /// @dev DEPRECATED: Use loadStateAt with ForkId instead.
     function load(address target, bytes32 slot) external view returns (bytes32 data);
 
     /// @notice Read a storage slot from the current assertion adopter at a snapshot.
@@ -270,9 +299,65 @@ interface PhEvm {
     /// @return txObject The transaction data struct
     function getTxObject() external view returns (TxObject memory txObject);
 
-    /// @notice Returns the current onFnCall trigger context.
-    /// @dev Reverts when called outside an onFnCall-triggered assertion execution.
+    // ---------------------------------------------------------------
+    //  V2: Trigger context
+    // ---------------------------------------------------------------
+
+    /// @notice Returns the context for the current onFnCall trigger invocation.
+    /// @dev Only valid inside an assertion function triggered by registerFnCallTrigger.
+    ///      Reverts if called outside of an onFnCall-triggered assertion.
     function context() external view returns (TriggerContext memory);
+
+    // ---------------------------------------------------------------
+    //  V2: Call inspection
+    // ---------------------------------------------------------------
+
+    /// @notice Returns calls matching the given target, selector, and filter criteria.
+    /// @param target The target contract address.
+    /// @param selector The function selector to filter by.
+    /// @param filter Filtering criteria (call type, depth, success).
+    /// @param limit Maximum number of results to return.
+    /// @return calls Array of matching call records.
+    function matchingCalls(address target, bytes4 selector, CallFilter calldata filter, uint256 limit)
+        external
+        view
+        returns (TriggerCall[] memory calls);
+
+    // ---------------------------------------------------------------
+    //  V2: Call-scoped log query
+    // ---------------------------------------------------------------
+
+    /// @notice Returns logs emitted during a specific call frame.
+    /// @param query The emitter and signature filters to apply.
+    /// @param callId The call ID to scope the log query to.
+    /// @return logs Array of logs emitted during the call.
+    function getLogsForCall(LogQuery calldata query, uint256 callId) external view returns (Log[] memory logs);
+
+    // ---------------------------------------------------------------
+    //  V2: Persistent assertion storage
+    // ---------------------------------------------------------------
+
+    /// @notice Write a bytes32 value to persistent assertion storage.
+    /// @param key The storage key.
+    /// @param value The value to store.
+    function store(bytes32 key, bytes32 value) external;
+
+    /// @notice Read a bytes32 value from persistent assertion storage.
+    /// @param key The storage key.
+    /// @return value The stored value.
+    function load(bytes32 key) external view returns (bytes32 value);
+
+    /// @notice Check if a key exists in persistent assertion storage.
+    /// @param key The storage key.
+    /// @return doesExist True if the key has been written to.
+    function exists(bytes32 key) external view returns (bool doesExist);
+
+    /// @notice Returns remaining storage slots available to this assertion.
+    function values_left() external view returns (uint256 remaining);
+
+    // ---------------------------------------------------------------
+    //  V2: Mapping tracing
+    // ---------------------------------------------------------------
 
     /// @notice Returns canonical Solidity key encodings h(key) for keys
     ///         whose mapping entry at baseSlot was written during the tx.
@@ -298,4 +383,115 @@ interface PhEvm {
         external
         view
         returns (bytes32 pre, bytes32 post, bool changed);
+
+    // ---------------------------------------------------------------
+    //  V2: Protection suite — ERC4626 share price
+    // ---------------------------------------------------------------
+
+    /// @notice Checks ERC4626 share price consistency across all fork points.
+    /// @param vault The ERC4626 vault address.
+    /// @param toleranceBps Maximum allowed deviation in basis points.
+    /// @return True if share price stays within tolerance at all forks.
+    function assetsMatchSharePrice(address vault, uint256 toleranceBps) external returns (bool);
+
+    /// @notice Checks ERC4626 share price consistency between two specific forks.
+    /// @param vault The ERC4626 vault address.
+    /// @param toleranceBps Maximum allowed deviation in basis points.
+    /// @param fork0 The baseline fork.
+    /// @param fork1 The comparison fork.
+    /// @return True if share price stays within tolerance.
+    function assetsMatchSharePriceAt(address vault, uint256 toleranceBps, ForkId calldata fork0, ForkId calldata fork1)
+        external
+        returns (bool);
+
+    // ---------------------------------------------------------------
+    //  V2: Protection suite — supply conservation
+    // ---------------------------------------------------------------
+
+    /// @notice Checks that a token's totalSupply is unchanged between two forks.
+    /// @param fork0 The baseline fork.
+    /// @param fork1 The comparison fork.
+    /// @param token The ERC20 token address.
+    /// @return True if totalSupply is identical at both forks.
+    function conserveBalance(ForkId calldata fork0, ForkId calldata fork1, address token) external returns (bool);
+
+    // ---------------------------------------------------------------
+    //  V2: Protection suite — cumulative outflow circuit breaker
+    // ---------------------------------------------------------------
+
+    /// @notice Context about the outflow that triggered an assertion via watchCumulativeOutflow.
+    /// @dev Only valid inside an assertion function triggered by watchCumulativeOutflow.
+    ///      Returns a zeroed struct if called from a non-outflow trigger context.
+    struct OutflowContext {
+        /// @notice The ERC20 token that breached the threshold
+        address token;
+        /// @notice Net outflow within the window (token units)
+        uint256 cumulativeOutflow;
+        /// @notice Total absolute outflow within the window (token units, ignoring deposits)
+        uint256 absoluteOutflow;
+        /// @notice Current outflow as basis points of TVL snapshot
+        uint256 currentBps;
+        /// @notice Adopter's token balance at window start
+        uint256 tvlSnapshot;
+        /// @notice Timestamp when the current window began
+        uint256 windowStart;
+        /// @notice Timestamp when the current window expires
+        uint256 windowEnd;
+    }
+
+    /// @notice Returns context about the outflow that triggered this assertion.
+    /// @dev Only valid inside an assertion function triggered by
+    ///      watchCumulativeOutflow. Returns a zeroed struct if called from a
+    ///      non-outflow trigger context.
+    /// @return ctx The outflow context for the current trigger invocation.
+    function outflowContext() external view returns (OutflowContext memory ctx);
+
+    // ---------------------------------------------------------------
+    //  V2: Protection suite — oracle sanity
+    // ---------------------------------------------------------------
+
+    /// @notice Checks oracle price consistency across all fork points.
+    /// @param target The oracle contract address.
+    /// @param data The ABI-encoded oracle query.
+    /// @param bpsDeviation Maximum allowed deviation in basis points.
+    /// @return True if oracle price stays within tolerance.
+    function oracleSanity(address target, bytes calldata data, uint256 bpsDeviation) external returns (bool);
+
+    /// @notice Checks oracle price consistency between two specific forks.
+    /// @param target The oracle contract address.
+    /// @param data The ABI-encoded oracle query.
+    /// @param bpsDeviation Maximum allowed deviation in basis points.
+    /// @param initialFork The baseline fork.
+    /// @param currentFork The comparison fork.
+    /// @return True if oracle price stays within tolerance.
+    function oracleSanityAt(
+        address target,
+        bytes calldata data,
+        uint256 bpsDeviation,
+        ForkId calldata initialFork,
+        ForkId calldata currentFork
+    ) external returns (bool);
+
+    // ---------------------------------------------------------------
+    //  V2: Math precompiles
+    // ---------------------------------------------------------------
+
+    /// @notice Computes (x * y) / denominator, rounded down. Uses 512-bit intermediates.
+    function mulDivDown(uint256 x, uint256 y, uint256 denominator) external pure returns (uint256 result);
+
+    /// @notice Computes (x * y) / denominator, rounded up. Uses 512-bit intermediates.
+    function mulDivUp(uint256 x, uint256 y, uint256 denominator) external pure returns (uint256 result);
+
+    /// @notice Scales an amount from one decimal base to another.
+    function normalizeDecimals(uint256 amount, uint8 fromDecimals, uint8 toDecimals)
+        external
+        pure
+        returns (uint256 result);
+
+    /// @notice Compares two ratios with tolerance: num1/den1 >= num2/den2 * (1 - toleranceBps/10000).
+    /// @dev Uses cross-multiplication with wide intermediates to avoid division and overflow.
+    function ratioGe(uint256 num1, uint256 den1, uint256 num2, uint256 den2, uint256 toleranceBps)
+        external
+        pure
+        returns (bool);
 }
