@@ -71,6 +71,26 @@ abstract contract Assertion is Credible, StateChanges {
         triggerRecorder.registerBalanceChangeTrigger(fnSelector);
     }
 
+    /// @notice Registers an onFnCall trigger for a specific adopter selector.
+    /// @param fnSelector The function selector of the assertion function.
+    /// @param triggerSelector The adopter function selector to watch.
+    function registerFnCallTrigger(bytes4 fnSelector, bytes4 triggerSelector) internal view {
+        triggerRecorder.registerFnCallTrigger(fnSelector, triggerSelector);
+    }
+
+    /// @notice Registers a trigger that fires once after the transaction completes.
+    /// @param fnSelector The function selector of the assertion function.
+    function registerTxEndTrigger(bytes4 fnSelector) internal view {
+        triggerRecorder.registerTxEndTrigger(fnSelector);
+    }
+
+    /// @notice Registers a trigger that fires when the given token's balances change.
+    /// @param fnSelector The function selector of the assertion function.
+    /// @param token The ERC20 token address to watch.
+    function registerErc20ChangeTrigger(bytes4 fnSelector, address token) internal view {
+        triggerRecorder.registerErc20ChangeTrigger(fnSelector, token);
+    }
+
     /// @notice Registers the desired assertion spec. Must be called within the constructor.
     /// The assertion spec defines what subset of precompiles are available.
     /// Can only be called once. For an assertion to be valid, it needs a defined spec.
