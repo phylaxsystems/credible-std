@@ -3,94 +3,14 @@ pragma solidity ^0.8.13;
 
 import {PhEvm} from "../../../PhEvm.sol";
 import {ILendingProtectionSuite} from "../ILendingProtectionSuite.sol";
-import {LendingBaseAssertion} from "../LendingBaseAssertion.sol";
-import {LendingProtectionSuiteBase} from "../LendingProtectionSuiteBase.sol";
-
-/// @notice Minimal ERC20 metadata surface used by the Aave v3 Horizon example.
-interface IERC20MetadataLike {
-    function balanceOf(address account) external view returns (uint256);
-    function decimals() external view returns (uint8);
-}
-
-library AaveV3Types {
-    struct UserConfigurationMap {
-        uint256 data;
-    }
-
-    struct ReserveDataLegacy {
-        uint256 configurationData;
-        uint128 liquidityIndex;
-        uint128 currentLiquidityRate;
-        uint128 variableBorrowIndex;
-        uint128 currentVariableBorrowRate;
-        uint128 currentStableBorrowRate;
-        uint40 lastUpdateTimestamp;
-        uint16 id;
-        address aTokenAddress;
-        address stableDebtTokenAddress;
-        address variableDebtTokenAddress;
-        address interestRateStrategyAddress;
-        uint128 accruedToTreasury;
-        uint128 unbacked;
-        uint128 isolationModeTotalDebt;
-    }
-}
-
-/// @notice Minimal pool surface matching the local Aave v3 Horizon pool interface.
-/// @dev This example was derived against `~/Documents/code/solidity/aave-v3-horizon/`.
-interface IAaveV3PoolLike {
-    function borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf)
-        external;
-
-    function withdraw(address asset, uint256 amount, address to) external returns (uint256);
-
-    function liquidationCall(
-        address collateralAsset,
-        address debtAsset,
-        address user,
-        uint256 debtToCover,
-        bool receiveAToken
-    ) external;
-
-    function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external;
-
-    function finalizeTransfer(
-        address asset,
-        address from,
-        address to,
-        uint256 amount,
-        uint256 balanceFromBefore,
-        uint256 balanceToBefore
-    ) external;
-
-    function getUserAccountData(address user)
-        external
-        view
-        returns (
-            uint256 totalCollateralBase,
-            uint256 totalDebtBase,
-            uint256 availableBorrowsBase,
-            uint256 currentLiquidationThreshold,
-            uint256 ltv,
-            uint256 healthFactor
-        );
-
-    function getUserConfiguration(address user) external view returns (AaveV3Types.UserConfigurationMap memory);
-
-    function getReserveData(address asset) external view returns (AaveV3Types.ReserveDataLegacy memory);
-
-    function getReservesList() external view returns (address[] memory);
-
-    function ADDRESSES_PROVIDER() external view returns (address);
-}
-
-interface IAaveV3AddressesProviderLike {
-    function getPriceOracle() external view returns (address);
-}
-
-interface IAaveV3OracleLike {
-    function getAssetPrice(address asset) external view returns (uint256);
-}
+import {LendingBaseAssertion, LendingProtectionSuiteBase} from "../LendingBaseAssertion.sol";
+import {
+    AaveV3Types,
+    IAaveV3AddressesProviderLike,
+    IAaveV3OracleLike,
+    IAaveV3PoolLike,
+    IERC20MetadataLike
+} from "./AaveV3Interfaces.sol";
 
 /// @title AaveV3HorizonProtectionSuite
 /// @author Phylax Systems
@@ -362,7 +282,7 @@ contract AaveV3HorizonProtectionSuite is LendingProtectionSuiteBase {
             uint256 ltv,
             uint256 healthFactor
         ) = abi.decode(
-            _suiteViewAt(POOL, abi.encodeCall(IAaveV3PoolLike.getUserAccountData, (account)), fork),
+            _viewAt(POOL, abi.encodeCall(IAaveV3PoolLike.getUserAccountData, (account)), fork),
             (uint256, uint256, uint256, uint256, uint256, uint256)
         );
 
@@ -393,15 +313,14 @@ contract AaveV3HorizonProtectionSuite is LendingProtectionSuiteBase {
         returns (AccountBalance[] memory balances)
     {
         address[] memory reserves =
-            abi.decode(_suiteViewAt(POOL, abi.encodeCall(IAaveV3PoolLike.getReservesList, ()), fork), (address[]));
+            abi.decode(_viewAt(POOL, abi.encodeCall(IAaveV3PoolLike.getReservesList, ()), fork), (address[]));
         AaveV3Types.UserConfigurationMap memory userConfig = abi.decode(
-            _suiteViewAt(POOL, abi.encodeCall(IAaveV3PoolLike.getUserConfiguration, (account)), fork),
+            _viewAt(POOL, abi.encodeCall(IAaveV3PoolLike.getUserConfiguration, (account)), fork),
             (AaveV3Types.UserConfigurationMap)
         );
 
-        address oracle = _suiteReadAddressAt(
-            ADDRESSES_PROVIDER, abi.encodeCall(IAaveV3AddressesProviderLike.getPriceOracle, ()), fork
-        );
+        address oracle =
+            _readAddressAt(ADDRESSES_PROVIDER, abi.encodeCall(IAaveV3AddressesProviderLike.getPriceOracle, ()), fork);
 
         balances = new AccountBalance[](reserves.length);
         uint256 count;
@@ -436,8 +355,8 @@ contract AaveV3HorizonProtectionSuite is LendingProtectionSuiteBase {
         PhEvm.ForkId calldata beforeFork
     ) internal view returns (ConsumptionCheck memory check) {
         AaveV3Types.ReserveDataLegacy memory reserveData = _getReserveData(operation.asset, beforeFork);
-        uint256 availableBefore = _suiteReadBalanceAt(reserveData.aTokenAddress, operation.account, beforeFork);
-        uint256 consumed = _suiteReadUint256OutputAt(triggered.callStart);
+        uint256 availableBefore = _readBalanceAt(reserveData.aTokenAddress, operation.account, beforeFork);
+        uint256 consumed = abi.decode(ph.callOutputAt(triggered.callStart), (uint256));
 
         check = ConsumptionCheck({
             checkName: WITHDRAW_CLAIM_CHECK,
@@ -465,7 +384,7 @@ contract AaveV3HorizonProtectionSuite is LendingProtectionSuiteBase {
         AaveV3Types.ReserveDataLegacy memory reserveData = _getReserveData(operation.asset, beforeFork);
         uint256 debtBefore = _getUserReserveDebt(operation.asset, operation.account, beforeFork);
         uint256 repaidEffective =
-            _suiteTransferredValueAt(operation.asset, operation.counterparty, reserveData.aTokenAddress, afterFork);
+            _transferredValueAt(operation.asset, operation.counterparty, reserveData.aTokenAddress, afterFork);
 
         check = ConsumptionCheck({
             checkName: LIQUIDATION_DEBT_CHECK,
@@ -493,11 +412,10 @@ contract AaveV3HorizonProtectionSuite is LendingProtectionSuiteBase {
     ) internal view returns (ConsumptionCheck memory check) {
         bool receiveAToken = abi.decode(operation.metadata, (bool));
         AaveV3Types.ReserveDataLegacy memory reserveData = _getReserveData(operation.relatedAsset, beforeFork);
-        uint256 collateralBefore = _suiteReadBalanceAt(reserveData.aTokenAddress, operation.account, beforeFork);
+        uint256 collateralBefore = _readBalanceAt(reserveData.aTokenAddress, operation.account, beforeFork);
         address seizedToken = receiveAToken ? reserveData.aTokenAddress : operation.relatedAsset;
         address transferSender = receiveAToken ? operation.account : reserveData.aTokenAddress;
-        uint256 seizedEffective =
-            _suiteTransferredValueAt(seizedToken, transferSender, operation.counterparty, afterFork);
+        uint256 seizedEffective = _transferredValueAt(seizedToken, transferSender, operation.counterparty, afterFork);
 
         check = ConsumptionCheck({
             checkName: LIQUIDATION_COLLATERAL_CHECK,
@@ -545,13 +463,13 @@ contract AaveV3HorizonProtectionSuite is LendingProtectionSuiteBase {
         PhEvm.ForkId memory fork
     ) internal view returns (bool include, AccountBalance memory balance) {
         AaveV3Types.ReserveDataLegacy memory reserveData = abi.decode(
-            _suiteViewAt(POOL, abi.encodeCall(IAaveV3PoolLike.getReserveData, (asset)), fork),
+            _viewAt(POOL, abi.encodeCall(IAaveV3PoolLike.getReserveData, (asset)), fork),
             (AaveV3Types.ReserveDataLegacy)
         );
 
         uint256 collateralBalance =
-            _suiteReadUintAt(reserveData.aTokenAddress, abi.encodeCall(IERC20MetadataLike.balanceOf, (account)), fork);
-        uint256 debtBalance = _suiteReadUintAt(
+            _readUintAt(reserveData.aTokenAddress, abi.encodeCall(IERC20MetadataLike.balanceOf, (account)), fork);
+        uint256 debtBalance = _readUintAt(
             reserveData.variableDebtTokenAddress, abi.encodeCall(IERC20MetadataLike.balanceOf, (account)), fork
         );
 
@@ -584,7 +502,7 @@ contract AaveV3HorizonProtectionSuite is LendingProtectionSuiteBase {
         returns (AaveV3Types.ReserveDataLegacy memory reserveData)
     {
         reserveData = abi.decode(
-            _suiteViewAt(POOL, abi.encodeCall(IAaveV3PoolLike.getReserveData, (asset)), fork),
+            _viewAt(POOL, abi.encodeCall(IAaveV3PoolLike.getReserveData, (asset)), fork),
             (AaveV3Types.ReserveDataLegacy)
         );
     }
@@ -622,7 +540,7 @@ contract AaveV3HorizonProtectionSuite is LendingProtectionSuiteBase {
             return 0;
         }
 
-        return _suiteReadBalanceAt(token, account, fork);
+        return _readBalanceAt(token, account, fork);
     }
 
     /// @notice Converts an asset-denominated balance into Aave base currency.
@@ -639,8 +557,8 @@ contract AaveV3HorizonProtectionSuite is LendingProtectionSuiteBase {
         view
         returns (uint256)
     {
-        uint256 price = _suiteReadUintAt(oracle, abi.encodeCall(IAaveV3OracleLike.getAssetPrice, (asset)), fork);
-        uint8 decimals = _suiteReadUint8At(asset, abi.encodeCall(IERC20MetadataLike.decimals, ()), fork);
+        uint256 price = _readUintAt(oracle, abi.encodeCall(IAaveV3OracleLike.getAssetPrice, (asset)), fork);
+        uint8 decimals = _readUint8At(asset, abi.encodeCall(IERC20MetadataLike.decimals, ()), fork);
         return ph.mulDivDown(balance, price, 10 ** uint256(decimals));
     }
 

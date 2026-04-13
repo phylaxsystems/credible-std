@@ -5,7 +5,7 @@ import {PhEvm} from "../../PhEvm.sol";
 
 /// @title ILendingProtectionSuite
 /// @author Phylax Systems
-/// @notice Step-oriented interface for protocol-specific lending protection adapters.
+/// @notice Step-oriented interface for protocol-specific lending protection suites.
 /// @dev Implementations expose the protocol-specific plumbing needed to assert a shared family of
 ///      lending-protocol invariants:
 ///      - any successful action that increases debt or reduces effective collateral must leave the
@@ -221,8 +221,9 @@ interface ILendingProtectionSuite {
     /// @notice Reads the account snapshot used by the post-operation solvency assertion.
     /// @dev Implementations can override this with a protocol-optimized hot path instead of forcing
     ///      the assertion to always compute per-asset balances. The returned snapshot must describe
-    ///      the post-operation state at `fork`. The default adapter composes this from
-    ///      `getAccountState(...)`, `getAccountBalances(...)`, and `evaluateSolvency(...)`.
+    ///      the post-operation state at `fork`. The shared suite default in
+    ///      `LendingBaseAssertion.sol` composes this from `getAccountState(...)`,
+    ///      `getAccountBalances(...)`, and `evaluateSolvency(...)`.
     /// @param account The account whose post-operation solvency is being checked.
     /// @param fork The post-call snapshot fork that should be queried.
     /// @return snapshot Aggregate state, optional per-asset balances, and the final solvency result.

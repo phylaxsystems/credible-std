@@ -55,7 +55,7 @@ abstract contract ERC4626AssetFlowAssertion is ERC4626BaseAssertion {
     /// @dev Override for vaults that deploy assets through adapters or external protocols.
     ///      The override should include flows to/from all relevant addresses (vault + adapters).
     function _netAssetFlow() internal view virtual returns (int256 netFlow) {
-        PhEvm.Erc20TransferData[] memory deltas = ph.reduceErc20BalanceDeltas(asset, _postTx());
+        PhEvm.Erc20TransferData[] memory deltas = _reducedErc20BalanceDeltasAt(asset, _postTx());
 
         for (uint256 i = 0; i < deltas.length; i++) {
             if (deltas[i].to == vault) {
