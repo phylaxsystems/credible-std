@@ -18,13 +18,9 @@ import {ERC4626BaseAssertion} from "./ERC4626BaseAssertion.sol";
 ///   - **Zero address never holds shares**: balanceOf(address(0)) == 0 after every
 ///     share-minting operation.
 ///
-///   - **Share supply conservation**: the vault's share token totalSupply is unchanged
-///     across operations that should only transfer tokens, not mint/burn them.
-///     Uses the V2 `conserveBalance` precompile.
 ///
-/// @dev Uses V2 `registerTxEndTrigger` for tx-wide checks, `registerFnCallTrigger` +
-///      `ph.context()` for call-scoped checks, and `ph.conserveBalance()` for supply
-///      conservation verification.
+/// @dev Uses V2 `registerTxEndTrigger` for tx-wide checks and
+///      `registerFnCallTrigger` + `ph.context()` for call-scoped checks.
 abstract contract ERC4626AssetFlowAssertion is ERC4626BaseAssertion {
     /// @notice Register the default trigger set for asset-flow invariants.
     function _registerAssetFlowTriggers() internal view {
