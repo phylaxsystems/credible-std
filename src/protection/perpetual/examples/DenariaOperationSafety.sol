@@ -4,81 +4,8 @@ pragma solidity ^0.8.13;
 import {PhEvm} from "../../../PhEvm.sol";
 import {IPerpetualProtectionSuite} from "../IPerpetualProtectionSuite.sol";
 import {PerpetualBaseAssertion} from "../PerpetualBaseAssertion.sol";
-import {PerpetualProtectionSuiteBase} from "../PerpetualProtectionSuiteBase.sol";
-
-/// @notice Minimal Denaria perp-pair surface used by the example suite.
-/// @dev Derived against `~/Documents/code/solidity/denaria-perp-main/`.
-interface IDenariaPerpPairLike {
-    function trade(
-        bool direction,
-        uint256 size,
-        uint256 minTradeReturn,
-        uint256 initialGuess,
-        address frontendAddress,
-        uint8 leverage,
-        bytes memory unverifiedReport
-    ) external returns (uint256);
-
-    function closeAndWithdraw(
-        uint256 maxSlippage,
-        uint256 maxLiqFee,
-        address frontendAddress,
-        bytes memory unverifiedReport
-    ) external;
-
-    function addLiquidity(
-        uint256 liquidityStable,
-        uint256 liquidityAsset,
-        uint256 maxFeeValue,
-        bytes memory unverifiedReport
-    ) external;
-
-    function removeLiquidity(
-        uint256 liquidityStableToRemove,
-        uint256 liquidityAssetToRemove,
-        uint256 maxFeeValue,
-        bytes memory unverifiedReport
-    ) external;
-
-    function realizePnL(bytes calldata unverifiedReport) external returns (uint256, bool);
-    function liquidate(address user, uint256 liquidatedPositionSize, bytes memory unverifiedReport) external;
-    function getPrice() external view returns (uint256);
-    function calcPnL(address user, uint256 price) external view returns (uint256, bool);
-    function computeFundingFee(address user) external view returns (uint256, bool);
-    function getLpLiquidityBalance(address user) external view returns (uint256, uint256);
-    function MMR() external view returns (uint256);
-    function maxLpLeverage() external view returns (uint256);
-    function globalLiquidityStable() external view returns (uint256);
-    function globalLiquidityAsset() external view returns (uint256);
-    function insuranceFund() external view returns (uint256);
-    function insuranceFundSign() external view returns (bool);
-
-    function userVirtualTraderPosition(address user)
-        external
-        view
-        returns (
-            uint256 balanceStable,
-            uint256 balanceAsset,
-            uint256 debtStable,
-            uint256 debtAsset,
-            uint256 fundingFee,
-            bool fundingFeeSign,
-            uint256 initialFundingRate,
-            bool initialFundingRateSign
-        );
-
-    function liquidityPosition(address user)
-        external
-        view
-        returns (uint256 initialStableShares, uint256 initialAssetShares, uint256 debtStable, uint256 debtAsset);
-}
-
-/// @notice Minimal Denaria vault surface used by the example suite.
-interface IDenariaVaultLike {
-    function removeCollateral(uint256 amount, bytes memory unverifiedReport) external;
-    function removeAllCollateral(bytes memory unverifiedReport) external;
-    function userCollateral(address user) external view returns (uint256);
-}
+import {DenariaHelpers} from "./DenariaHelpers.sol";
+import {IDenariaPerpPairLike, IDenariaVaultLike} from "./DenariaInterfaces.sol";
 
 /// @title DenariaProtectionSuite
 /// @author Phylax Systems
@@ -96,69 +23,7 @@ interface IDenariaVaultLike {
 ///      - successful trades must stay backed by available side liquidity
 ///      - liquidation is only permitted from an unhealthy pre-state
 ///      - critical execution prices must stay oracle-anchored
-contract DenariaProtectionSuite is PerpetualProtectionSuiteBase {
-    struct DenariaAccountMetrics {
-        address account;
-        uint256 price;
-        uint256 collateral;
-        uint256 maintenanceThreshold;
-        uint256 maxLpLeverage;
-        uint256 balanceStable;
-        uint256 balanceAsset;
-        uint256 debtStable;
-        uint256 debtAsset;
-        uint256 storedFundingFee;
-        bool storedFundingFeeSign;
-        uint256 pendingFundingFee;
-        bool pendingFundingFeeSign;
-        int256 storedFundingContribution;
-        int256 pendingFundingContribution;
-        int256 totalFundingContribution;
-        uint256 lpStableBalance;
-        uint256 lpAssetBalance;
-        uint256 lpDebtStable;
-        uint256 lpDebtAsset;
-        uint256 openAssetExposure;
-        uint256 openNotional;
-        uint256 lpLeverageDebtValue;
-        int256 runtimePnl;
-        int256 runtimeEquity;
-        int256 markPnl;
-        int256 markEquity;
-        uint256 markMarginRatio;
-        bool lpLeverageHealthy;
-    }
-
-    struct DenariaExecutedTradeLog {
-        address user;
-        bool direction;
-        uint256 tradeSize;
-        uint256 tradeReturn;
-        uint256 currentPrice;
-        uint256 leverage;
-    }
-
-    struct DenariaLiquidationLog {
-        address user;
-        address liquidator;
-        uint256 fraction;
-        uint256 liquidationFee;
-        uint256 positionSize;
-        uint256 currentPrice;
-        int256 deltaPnl;
-        bool liquidationDirection;
-    }
-
-    struct DenariaLiquidityMoveLog {
-        address user;
-        uint256 liquidityStable;
-        uint256 liquidityAsset;
-        uint256 stableShares;
-        uint256 assetShares;
-        uint256 feeValue;
-        bool added;
-    }
-
+contract DenariaProtectionSuite is DenariaHelpers {
     bytes32 internal constant MARGIN_RATIO_METRIC = "MARGIN_RATIO";
     bytes32 internal constant EQUITY_METRIC = "EQUITY";
     bytes32 internal constant LP_LEVERAGE_CAPACITY_METRIC = "LP_LEVERAGE_CAPACITY";
@@ -166,24 +31,14 @@ contract DenariaProtectionSuite is PerpetualProtectionSuiteBase {
     bytes32 internal constant TRADE_LIQUIDITY_COVERAGE = "TRADE_LIQUIDITY_COVERAGE";
     bytes32 internal constant LIQUIDATION_GATED_BY_MMR = "LIQUIDATION_GATED_BY_MMR";
     bytes32 internal constant RISK_MARK_ANCHORED = "RISK_MARK_ANCHORED";
+    bytes32 internal constant EQUITY_CONSERVATION = "EQUITY_CONSERVATION";
+    bytes32 internal constant LP_EXIT_DUST = "LP_EXIT_DUST";
+    bytes32 internal constant LP_BALANCE_OVERFLOW = "LP_BALANCE_OVERFLOW";
 
-    bytes32 internal constant EXECUTED_TRADE_TOPIC0 =
-        keccak256("ExecutedTrade(address,bool,uint256,uint256,uint256,uint256)");
-    bytes32 internal constant LIQUIDATED_USER_TOPIC0 =
-        keccak256("LiquidatedUser(address,address,uint256,uint256,uint256,uint256,int256,bool)");
-    bytes32 internal constant LIQUIDITY_MOVED_TOPIC0 =
-        keccak256("LiquidityMoved(address,uint256,uint256,uint256,uint256,uint256,bool)");
+    /// @notice Maximum allowed rounding tolerance for accounting conservation checks (1e15 wei = 0.001 token).
+    uint256 internal constant ACCOUNTING_EPSILON = 1e15;
 
-    uint256 internal constant ORACLE_PRICE_DECIMALS = 1e8;
-    uint256 internal constant MARGIN_RATIO_DECIMALS = 1e6;
-
-    address internal immutable PERP_PAIR;
-    address internal immutable VAULT;
-
-    constructor(address perpPair_, address vault_) {
-        PERP_PAIR = perpPair_;
-        VAULT = vault_;
-    }
+    constructor(address perpPair_, address vault_) DenariaHelpers(perpPair_, vault_) {}
 
     /// @notice Returns the Denaria selectors that feed the shared perpetual assertions.
     /// @dev Register the bundled assertion against both the `PerpPair` and the `Vault` to cover the
@@ -401,9 +256,9 @@ contract DenariaProtectionSuite is PerpetualProtectionSuiteBase {
         }
 
         uint256 currentStableLiquidity =
-            _suiteReadUintAt(PERP_PAIR, abi.encodeCall(IDenariaPerpPairLike.globalLiquidityStable, ()), beforeFork);
+            _readUintAt(PERP_PAIR, abi.encodeCall(IDenariaPerpPairLike.globalLiquidityStable, ()), beforeFork);
         uint256 currentAssetLiquidity =
-            _suiteReadUintAt(PERP_PAIR, abi.encodeCall(IDenariaPerpPairLike.globalLiquidityAsset, ()), beforeFork);
+            _readUintAt(PERP_PAIR, abi.encodeCall(IDenariaPerpPairLike.globalLiquidityAsset, ()), beforeFork);
 
         if (triggered.selector == IDenariaPerpPairLike.closeAndWithdraw.selector) {
             DenariaAccountMetrics memory beforeMetrics = _readAccountMetrics(operation.account, beforeFork);
@@ -557,6 +412,162 @@ contract DenariaProtectionSuite is PerpetualProtectionSuiteBase {
         }
     }
 
+    /// @notice Builds accounting-conservation checks for Denaria settlement paths.
+    /// @dev Solvency-only checks (`_buildNoBadDebtRiskState`) are insufficient for Denaria because
+    ///      stale LP share math in `getLpLiquidityBalance` / `calcPnL` can credit an account with
+    ///      more value than it should receive during `removeLiquidity` or `closeAndWithdraw`. The
+    ///      account never goes negative, so it passes the equity >= 0 gate, but it extracts
+    ///      unjustified economic value from the pool.
+    ///
+    ///      Three checks are applied:
+    ///
+    ///      - EQUITY_CONSERVATION: runtime equity must not increase beyond rounding tolerance
+    ///        across the triggered call. Catches intra-call accounting drift (e.g. a
+    ///        removeLiquidity whose internal trade inflates equity in the same frame).
+    ///
+    ///      - LP_EXIT_DUST: after a full LP exit, residual LP balances and debts must be zero
+    ///        (within epsilon). Catches incomplete position teardown.
+    ///
+    ///      - LP_BALANCE_OVERFLOW: an LP's balance must be strictly below the pool total.
+    ///        Catches the March 2026 exploit where matrix rounding produces a negative int256,
+    ///        the bare uint256() cast wraps it to near-max, and the cap at globalLiquidity
+    ///        gives the attacker credit for the entire pool. Because the inflation happens
+    ///        during a prior trade (different account), the equity delta across realizePnL
+    ///        is near-zero — only this direct balance-vs-pool check detects the overflow.
+    function getAccountingConservationChecks(
+        TriggeredCall calldata triggered,
+        OperationContext calldata operation,
+        PhEvm.ForkId calldata beforeFork,
+        PhEvm.ForkId calldata afterFork
+    ) external view override returns (AccountingConservationCheck[] memory checks) {
+        triggered;
+
+        if (
+            operation.kind != OperationKind.RemoveLiquidity && operation.kind != OperationKind.DecreasePosition
+                && operation.kind != OperationKind.RealizePnL
+        ) {
+            return new AccountingConservationCheck[](0);
+        }
+
+        DenariaAccountMetrics memory beforeMetrics = _readAccountMetrics(operation.account, beforeFork);
+        DenariaAccountMetrics memory afterMetrics = _readAccountMetrics(operation.account, afterFork);
+
+        int256 equityDelta = afterMetrics.runtimeEquity - beforeMetrics.runtimeEquity;
+
+        bool fullLpExit = (beforeMetrics.lpStableBalance + beforeMetrics.lpAssetBalance > 0)
+            && (afterMetrics.lpStableBalance + afterMetrics.lpAssetBalance == 0);
+
+        (bool lpOverflow, AccountingConservationCheck memory overflowCheck) =
+            _buildLpOverflowCheck(beforeMetrics, operation.account, beforeFork);
+
+        uint256 checkCount = 1;
+        if (fullLpExit) ++checkCount;
+        if (lpOverflow) ++checkCount;
+
+        checks = new AccountingConservationCheck[](checkCount);
+
+        // Primary check: equity must not increase beyond rounding tolerance.
+        checks[0] = AccountingConservationCheck({
+            checkName: EQUITY_CONSERVATION,
+            account: operation.account,
+            market: PERP_PAIR,
+            actualDelta: equityDelta,
+            minAllowedDelta: type(int256).min,
+            maxAllowedDelta: _toInt256(ACCOUNTING_EPSILON),
+            metadata: abi.encode(
+                operation.kind,
+                beforeMetrics.runtimeEquity,
+                afterMetrics.runtimeEquity,
+                beforeMetrics.collateral,
+                afterMetrics.collateral,
+                beforeMetrics.runtimePnl,
+                afterMetrics.runtimePnl
+            )
+        });
+
+        uint256 nextIdx = 1;
+
+        // Secondary check: after a full LP exit, no residual LP balances should remain.
+        if (fullLpExit) {
+            int256 residualLp = _toInt256(
+                afterMetrics.lpStableBalance + afterMetrics.lpAssetBalance + afterMetrics.lpDebtStable
+                    + afterMetrics.lpDebtAsset
+            );
+            checks[nextIdx] = AccountingConservationCheck({
+                checkName: LP_EXIT_DUST,
+                account: operation.account,
+                market: PERP_PAIR,
+                actualDelta: residualLp,
+                minAllowedDelta: 0,
+                maxAllowedDelta: _toInt256(ACCOUNTING_EPSILON),
+                metadata: abi.encode(
+                    afterMetrics.lpStableBalance,
+                    afterMetrics.lpAssetBalance,
+                    afterMetrics.lpDebtStable,
+                    afterMetrics.lpDebtAsset
+                )
+            });
+            ++nextIdx;
+        }
+
+        // Overflow cap check (delegated to _buildLpOverflowCheck).
+        if (lpOverflow) {
+            checks[nextIdx] = overflowCheck;
+        }
+    }
+
+    /// @notice Detects the LP balance overflow cap — the fingerprint of the Denaria exploit.
+    /// @dev When getLpLiquidityBalance computes a negative int256 (due to matrix rounding),
+    ///      the bare uint256() cast wraps it to near-max. The subsequent cap at
+    ///      globalLiquidityAsset/Stable gives the attacker credit for the entire pool.
+    ///      This helper returns true when an LP's balance equals the pool total on either side.
+    function _buildLpOverflowCheck(
+        DenariaAccountMetrics memory beforeMetrics,
+        address account,
+        PhEvm.ForkId memory beforeFork
+    ) internal view returns (bool found, AccountingConservationCheck memory check) {
+        if (beforeMetrics.lpAssetBalance == 0 && beforeMetrics.lpStableBalance == 0) {
+            return (false, check);
+        }
+
+        uint256 globalLiqAsset =
+            _readUintAt(PERP_PAIR, abi.encodeCall(IDenariaPerpPairLike.globalLiquidityAsset, ()), beforeFork);
+        uint256 globalLiqStable =
+            _readUintAt(PERP_PAIR, abi.encodeCall(IDenariaPerpPairLike.globalLiquidityStable, ()), beforeFork);
+
+        bool assetAtCap = beforeMetrics.lpAssetBalance == globalLiqAsset && globalLiqAsset > 0;
+        bool stableAtCap = beforeMetrics.lpStableBalance == globalLiqStable && globalLiqStable > 0;
+
+        if (!assetAtCap && !stableAtCap) {
+            return (false, check);
+        }
+
+        // actualDelta = lpBalance - globalLiquidity = 0 when at cap.
+        // Allowed range [type(int256).min, -1] requires strictly negative (below cap).
+        int256 overflowDelta = assetAtCap
+            ? _toInt256(beforeMetrics.lpAssetBalance) - _toInt256(globalLiqAsset)
+            : _toInt256(beforeMetrics.lpStableBalance) - _toInt256(globalLiqStable);
+
+        check = AccountingConservationCheck({
+            checkName: LP_BALANCE_OVERFLOW,
+            account: account,
+            market: PERP_PAIR,
+            actualDelta: overflowDelta,
+            minAllowedDelta: type(int256).min,
+            maxAllowedDelta: -1,
+            metadata: abi.encode(
+                assetAtCap,
+                beforeMetrics.lpAssetBalance,
+                globalLiqAsset,
+                stableAtCap,
+                beforeMetrics.lpStableBalance,
+                globalLiqStable
+            )
+        });
+
+        return (true, check);
+    }
+
     /// @notice Reads and normalizes Denaria's aggregate account state.
     function getAccountState(address account, PhEvm.ForkId calldata fork)
         external
@@ -613,70 +624,6 @@ contract DenariaProtectionSuite is PerpetualProtectionSuiteBase {
         snapshot.state = _buildAccountState(metrics);
         snapshot.positions = _buildPositions(metrics);
         snapshot.risk = _buildPostMutationRiskState(metrics, operation);
-    }
-
-    function _readAccountMetrics(address account, PhEvm.ForkId memory fork)
-        internal
-        view
-        returns (DenariaAccountMetrics memory metrics)
-    {
-        metrics.account = account;
-        metrics.price = _readPrice(fork);
-        metrics.collateral = _readCollateral(account, fork);
-        metrics.maintenanceThreshold = _suiteReadUintAt(PERP_PAIR, abi.encodeCall(IDenariaPerpPairLike.MMR, ()), fork);
-        metrics.maxLpLeverage =
-            _suiteReadUintAt(PERP_PAIR, abi.encodeCall(IDenariaPerpPairLike.maxLpLeverage, ()), fork);
-
-        (
-            metrics.balanceStable,
-            metrics.balanceAsset,
-            metrics.debtStable,
-            metrics.debtAsset,
-            metrics.storedFundingFee,
-            metrics.storedFundingFeeSign,,
-        ) =
-            abi.decode(
-                _suiteViewAt(
-                    PERP_PAIR, abi.encodeCall(IDenariaPerpPairLike.userVirtualTraderPosition, (account)), fork
-                ),
-                (uint256, uint256, uint256, uint256, uint256, bool, uint256, bool)
-            );
-
-        (,, metrics.lpDebtStable, metrics.lpDebtAsset) = abi.decode(
-            _suiteViewAt(PERP_PAIR, abi.encodeCall(IDenariaPerpPairLike.liquidityPosition, (account)), fork),
-            (uint256, uint256, uint256, uint256)
-        );
-
-        (metrics.lpStableBalance, metrics.lpAssetBalance) = abi.decode(
-            _suiteViewAt(PERP_PAIR, abi.encodeCall(IDenariaPerpPairLike.getLpLiquidityBalance, (account)), fork),
-            (uint256, uint256)
-        );
-
-        (metrics.pendingFundingFee, metrics.pendingFundingFeeSign) = abi.decode(
-            _suiteViewAt(PERP_PAIR, abi.encodeCall(IDenariaPerpPairLike.computeFundingFee, (account)), fork),
-            (uint256, bool)
-        );
-
-        (uint256 pnlMagnitude, bool pnlSign) = abi.decode(
-            _suiteViewAt(PERP_PAIR, abi.encodeCall(IDenariaPerpPairLike.calcPnL, (account, metrics.price)), fork),
-            (uint256, bool)
-        );
-
-        metrics.runtimePnl = _signedPnl(pnlMagnitude, pnlSign);
-        metrics.storedFundingContribution =
-            _signedFundingContribution(metrics.storedFundingFee, metrics.storedFundingFeeSign);
-        metrics.pendingFundingContribution =
-            _signedFundingContribution(metrics.pendingFundingFee, metrics.pendingFundingFeeSign);
-        metrics.totalFundingContribution = metrics.storedFundingContribution + metrics.pendingFundingContribution;
-        metrics.openAssetExposure =
-            _absoluteDifference(metrics.balanceAsset + metrics.lpAssetBalance, metrics.debtAsset + metrics.lpDebtAsset);
-        metrics.openNotional = ph.mulDivDown(metrics.openAssetExposure, metrics.price, ORACLE_PRICE_DECIMALS);
-        metrics.markPnl = _computeMarkPnl(metrics);
-        metrics.runtimeEquity = _toInt256(metrics.collateral) + metrics.runtimePnl;
-        metrics.markEquity = _toInt256(metrics.collateral) + metrics.markPnl;
-        metrics.markMarginRatio = _computeMarginRatio(metrics.markEquity, metrics.openNotional);
-        metrics.lpLeverageDebtValue = _computeLpLeverageDebtValue(metrics);
-        metrics.lpLeverageHealthy = _isLpLeverageHealthy(metrics);
     }
 
     function _buildAccountState(DenariaAccountMetrics memory metrics)
@@ -831,12 +778,10 @@ contract DenariaProtectionSuite is PerpetualProtectionSuiteBase {
         int256 withdrawMarkEquity = _toInt256(metrics.collateral) + withdrawMarkPnl;
         uint256 withdrawMarkMarginRatio = _computeMarginRatio(withdrawMarkEquity, metrics.openNotional);
 
-        risk.isHealthy =
-            metrics.runtimeEquity >= 0 && withdrawMarkMarginRatio >= metrics.maintenanceThreshold
-                && metrics.lpLeverageHealthy;
+        risk.isHealthy = metrics.runtimeEquity >= 0 && withdrawMarkMarginRatio >= metrics.maintenanceThreshold
+            && metrics.lpLeverageHealthy;
         risk.hasBadDebt = metrics.runtimeEquity < 0;
-        risk.isLiquidatable =
-            metrics.openNotional != 0 && withdrawMarkMarginRatio <= metrics.maintenanceThreshold;
+        risk.isLiquidatable = metrics.openNotional != 0 && withdrawMarkMarginRatio <= metrics.maintenanceThreshold;
         risk.metricName = MARGIN_RATIO_METRIC;
         risk.equity = metrics.runtimeEquity;
         risk.metricValue = _toInt256(withdrawMarkMarginRatio);
@@ -883,214 +828,6 @@ contract DenariaProtectionSuite is PerpetualProtectionSuiteBase {
         risk.thresholdValue = 0;
         risk.comparison = ComparisonKind.Gte;
         risk.metadata = abi.encode(metrics.runtimePnl, metrics.markMarginRatio, metrics.maintenanceThreshold);
-    }
-
-    function _readPrice(PhEvm.ForkId memory fork) internal view returns (uint256 price) {
-        return _suiteReadUintAt(PERP_PAIR, abi.encodeCall(IDenariaPerpPairLike.getPrice, ()), fork);
-    }
-
-    function _readCollateral(address account, PhEvm.ForkId memory fork) internal view returns (uint256 collateral) {
-        return _suiteReadUintAt(VAULT, abi.encodeCall(IDenariaVaultLike.userCollateral, (account)), fork);
-    }
-
-    function _readSignedInsuranceFund(PhEvm.ForkId memory fork) internal view returns (int256 signedInsuranceFund) {
-        uint256 amount = _suiteReadUintAt(PERP_PAIR, abi.encodeCall(IDenariaPerpPairLike.insuranceFund, ()), fork);
-        bool sign = _suiteReadBoolAt(PERP_PAIR, abi.encodeCall(IDenariaPerpPairLike.insuranceFundSign, ()), fork);
-        return sign ? _toInt256(amount) : -_toInt256(amount);
-    }
-
-    function _getExecutedTrades(PhEvm.ForkId memory fork)
-        internal
-        view
-        returns (DenariaExecutedTradeLog[] memory trades)
-    {
-        PhEvm.Log[] memory logs =
-            ph.getLogsQuery(PhEvm.LogQuery({emitter: PERP_PAIR, signature: EXECUTED_TRADE_TOPIC0}), fork);
-        trades = new DenariaExecutedTradeLog[](logs.length);
-
-        for (uint256 i; i < logs.length; ++i) {
-            trades[i].user = _topicAddress(logs[i].topics[1]);
-            (
-                trades[i].direction,
-                trades[i].tradeSize,
-                trades[i].tradeReturn,
-                trades[i].currentPrice,
-                trades[i].leverage
-            ) = abi.decode(logs[i].data, (bool, uint256, uint256, uint256, uint256));
-        }
-    }
-
-    function _countTradesForAccount(DenariaExecutedTradeLog[] memory trades, address account)
-        internal
-        pure
-        returns (uint256 count)
-    {
-        for (uint256 i; i < trades.length; ++i) {
-            if (trades[i].user == account && trades[i].tradeSize != 0 && trades[i].tradeReturn != 0) {
-                ++count;
-            }
-        }
-    }
-
-    function _getLastLiquidation(PhEvm.ForkId memory fork)
-        internal
-        view
-        returns (bool found, DenariaLiquidationLog memory liquidationLog)
-    {
-        PhEvm.Log[] memory logs =
-            ph.getLogsQuery(PhEvm.LogQuery({emitter: PERP_PAIR, signature: LIQUIDATED_USER_TOPIC0}), fork);
-        if (logs.length == 0) {
-            return (false, liquidationLog);
-        }
-
-        PhEvm.Log memory log = logs[logs.length - 1];
-        liquidationLog.user = _topicAddress(log.topics[1]);
-        (
-            liquidationLog.liquidator,
-            liquidationLog.fraction,
-            liquidationLog.liquidationFee,
-            liquidationLog.positionSize,
-            liquidationLog.currentPrice,
-            liquidationLog.deltaPnl,
-            liquidationLog.liquidationDirection
-        ) = abi.decode(log.data, (address, uint256, uint256, uint256, uint256, int256, bool));
-        return (true, liquidationLog);
-    }
-
-    function _getLastLiquidityRemovalForAccount(address account, PhEvm.ForkId memory fork)
-        internal
-        view
-        returns (bool found, DenariaLiquidityMoveLog memory liquidityMove)
-    {
-        PhEvm.Log[] memory logs =
-            ph.getLogsQuery(PhEvm.LogQuery({emitter: PERP_PAIR, signature: LIQUIDITY_MOVED_TOPIC0}), fork);
-
-        for (uint256 i = logs.length; i != 0; --i) {
-            PhEvm.Log memory log = logs[i - 1];
-            liquidityMove.user = _topicAddress(log.topics[1]);
-            (
-                liquidityMove.liquidityStable,
-                liquidityMove.liquidityAsset,
-                liquidityMove.stableShares,
-                liquidityMove.assetShares,
-                liquidityMove.feeValue,
-                liquidityMove.added
-            ) = abi.decode(log.data, (uint256, uint256, uint256, uint256, uint256, bool));
-
-            if (liquidityMove.user == account && !liquidityMove.added) {
-                return (true, liquidityMove);
-            }
-        }
-    }
-
-    function _computeMarginRatio(int256 equity, uint256 openNotional) internal pure returns (uint256 marginRatio) {
-        if (equity < 0) {
-            return 0;
-        }
-        if (openNotional == 0) {
-            return MARGIN_RATIO_DECIMALS;
-        }
-        return _toUint256(equity) * MARGIN_RATIO_DECIMALS / openNotional;
-    }
-
-    function _isLpLeverageHealthy(DenariaAccountMetrics memory metrics) internal pure returns (bool) {
-        if (metrics.lpStableBalance + metrics.lpAssetBalance == 0) {
-            return true;
-        }
-
-        return metrics.collateral * metrics.maxLpLeverage >= metrics.lpLeverageDebtValue;
-    }
-
-    function _hasTrackedState(DenariaAccountMetrics memory metrics) internal pure returns (bool) {
-        return metrics.balanceStable != 0 || metrics.balanceAsset != 0 || metrics.debtStable != 0
-            || metrics.debtAsset != 0 || metrics.lpStableBalance != 0 || metrics.lpAssetBalance != 0
-            || metrics.lpDebtStable != 0 || metrics.lpDebtAsset != 0;
-    }
-
-    function _absoluteDifference(uint256 left, uint256 right) internal pure returns (uint256 difference) {
-        return left >= right ? left - right : right - left;
-    }
-
-    function _signedPnl(uint256 magnitude, bool pnlSign) internal pure returns (int256 signedPnl) {
-        int256 signedMagnitude = _toInt256(magnitude);
-        return pnlSign ? signedMagnitude : -signedMagnitude;
-    }
-
-    function _signedFundingContribution(uint256 magnitude, bool fundingFeeSign)
-        internal
-        pure
-        returns (int256 signedFunding)
-    {
-        int256 signedMagnitude = _toInt256(magnitude);
-        return fundingFeeSign ? -signedMagnitude : signedMagnitude;
-    }
-
-    function _computeMarkPnl(DenariaAccountMetrics memory metrics) internal pure returns (int256 markPnl) {
-        int256 stableSide = _toInt256(metrics.balanceStable + metrics.lpStableBalance)
-            - _toInt256(metrics.debtStable + metrics.lpDebtStable);
-        int256 assetSide = _toInt256(metrics.balanceAsset + metrics.lpAssetBalance)
-            - _toInt256(metrics.debtAsset + metrics.lpDebtAsset);
-
-        return stableSide + metrics.totalFundingContribution + _markAssetContribution(assetSide, metrics.price);
-    }
-
-    function _computeLpLeverageDebtValue(DenariaAccountMetrics memory metrics)
-        internal
-        pure
-        returns (uint256 totalDebtValue)
-    {
-        if (metrics.lpStableBalance + metrics.lpAssetBalance == 0) {
-            return 0;
-        }
-
-        uint256 traderNetStableDebt =
-            metrics.debtStable > metrics.balanceStable ? metrics.debtStable - metrics.balanceStable : 0;
-        uint256 traderNetAssetDebt =
-            metrics.debtAsset > metrics.balanceAsset ? metrics.debtAsset - metrics.balanceAsset : 0;
-        return traderNetStableDebt + metrics.lpDebtStable
-            + _mulDivDown(traderNetAssetDebt + metrics.lpDebtAsset, metrics.price, ORACLE_PRICE_DECIMALS);
-    }
-
-    function _markAssetContribution(int256 assetDelta, uint256 price) internal pure returns (int256 contribution) {
-        if (assetDelta == 0) {
-            return 0;
-        }
-
-        if (assetDelta > 0) {
-            return _toInt256(_toUint256(assetDelta) * price / ORACLE_PRICE_DECIMALS);
-        }
-
-        return -_toInt256(_toUint256(-assetDelta) * price / ORACLE_PRICE_DECIMALS);
-    }
-
-    function _lpLeverageCapacity(DenariaAccountMetrics memory metrics) internal pure returns (int256 capacity) {
-        return _toInt256(metrics.collateral * metrics.maxLpLeverage) - _toInt256(metrics.lpLeverageDebtValue);
-    }
-
-    function _decreaseBetween(int256 beforeValue, int256 afterValue) internal pure returns (uint256 decrease) {
-        return afterValue < beforeValue ? _toUint256(beforeValue - afterValue) : 0;
-    }
-
-    function _topicAddress(bytes32 topic) internal pure returns (address account) {
-        return address(uint160(uint256(topic)));
-    }
-
-    function _toInt256(uint256 value) internal pure returns (int256 signedValue) {
-        if (value > uint256(type(int256).max)) {
-            return type(int256).max;
-        }
-        // forge-lint: disable-next-line(unsafe-typecast)
-        return int256(value);
-    }
-
-    function _toUint256(int256 value) internal pure returns (uint256 unsignedValue) {
-        require(value >= 0, "negative int");
-        // forge-lint: disable-next-line(unsafe-typecast)
-        return uint256(value);
-    }
-
-    function _mulDivDown(uint256 x, uint256 y, uint256 denominator) internal pure returns (uint256 result) {
-        return x * y / denominator;
     }
 }
 

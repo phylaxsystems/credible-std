@@ -3,7 +3,125 @@ pragma solidity ^0.8.13;
 
 import {Assertion} from "../../Assertion.sol";
 import {PhEvm} from "../../PhEvm.sol";
+import {ForkUtils} from "../../utils/ForkUtils.sol";
 import {IPerpetualProtectionSuite} from "./IPerpetualProtectionSuite.sol";
+
+/// @title PerpetualProtectionSuiteBase
+/// @author Phylax Systems
+/// @notice Shared default implementations for perpetual protection suites.
+abstract contract PerpetualProtectionSuiteBase is ForkUtils, IPerpetualProtectionSuite {
+    /// @notice Default execution-price implementation for suites with no shared execution check.
+    function getExecutionPriceChecks(
+        TriggeredCall calldata triggered,
+        OperationContext calldata operation,
+        PhEvm.ForkId calldata beforeFork,
+        PhEvm.ForkId calldata afterFork
+    ) external view virtual override returns (ExecutionPriceCheck[] memory checks) {
+        triggered;
+        operation;
+        beforeFork;
+        afterFork;
+        checks = new ExecutionPriceCheck[](0);
+    }
+
+    /// @notice Default liquidity-coverage implementation for suites with no shared coverage check.
+    function getLiquidityCoverageChecks(
+        TriggeredCall calldata triggered,
+        OperationContext calldata operation,
+        PhEvm.ForkId calldata beforeFork,
+        PhEvm.ForkId calldata afterFork
+    ) external view virtual override returns (LiquidityCoverageCheck[] memory checks) {
+        triggered;
+        operation;
+        beforeFork;
+        afterFork;
+        checks = new LiquidityCoverageCheck[](0);
+    }
+
+    /// @notice Default funding-delta implementation for suites with no shared funding check.
+    function getFundingDeltaChecks(
+        TriggeredCall calldata triggered,
+        OperationContext calldata operation,
+        PhEvm.ForkId calldata beforeFork,
+        PhEvm.ForkId calldata afterFork
+    ) external view virtual override returns (FundingDeltaCheck[] memory checks) {
+        triggered;
+        operation;
+        beforeFork;
+        afterFork;
+        checks = new FundingDeltaCheck[](0);
+    }
+
+    /// @notice Default liquidation implementation for suites with no shared liquidation checks.
+    function getLiquidationChecks(
+        TriggeredCall calldata triggered,
+        OperationContext calldata operation,
+        PhEvm.ForkId calldata beforeFork,
+        PhEvm.ForkId calldata afterFork
+    ) external view virtual override returns (LiquidationCheck[] memory checks) {
+        triggered;
+        operation;
+        beforeFork;
+        afterFork;
+        checks = new LiquidationCheck[](0);
+    }
+
+    /// @notice Default oracle-anchor implementation for suites with no shared oracle check.
+    function getOracleAnchorChecks(
+        TriggeredCall calldata triggered,
+        OperationContext calldata operation,
+        PhEvm.ForkId calldata beforeFork,
+        PhEvm.ForkId calldata afterFork
+    ) external view virtual override returns (OracleAnchorCheck[] memory checks) {
+        triggered;
+        operation;
+        beforeFork;
+        afterFork;
+        checks = new OracleAnchorCheck[](0);
+    }
+
+    /// @notice Default accounting-conservation implementation for suites with no shared accounting check.
+    function getAccountingConservationChecks(
+        TriggeredCall calldata triggered,
+        OperationContext calldata operation,
+        PhEvm.ForkId calldata beforeFork,
+        PhEvm.ForkId calldata afterFork
+    ) external view virtual override returns (AccountingConservationCheck[] memory checks) {
+        triggered;
+        operation;
+        beforeFork;
+        afterFork;
+        checks = new AccountingConservationCheck[](0);
+    }
+
+    /// @notice Default post-mutation snapshot implementation for suites with account-only risk reads.
+    function getPostMutationSnapshot(
+        TriggeredCall calldata triggered,
+        OperationContext calldata operation,
+        PhEvm.ForkId calldata fork
+    ) external view virtual override returns (AccountSnapshot memory snapshot) {
+        triggered;
+        snapshot = this.getAccountSnapshot(operation.account, fork);
+    }
+
+    /// @notice Composes a full account snapshot from the step-oriented suite functions.
+    function getAccountSnapshot(address account, PhEvm.ForkId calldata fork)
+        external
+        view
+        virtual
+        override
+        returns (AccountSnapshot memory snapshot)
+    {
+        snapshot.state = this.getAccountState(account, fork);
+        snapshot.positions = this.getAccountPositions(account, fork);
+        snapshot.risk = this.evaluateRisk(snapshot.state, snapshot.positions, fork);
+    }
+
+    /// @notice Returns the suite-specific revert string for failed fork-time static calls.
+    function _viewFailureMessage() internal pure virtual override returns (string memory) {
+        return "perpetual suite staticcall failed";
+    }
+}
 
 /// @title PerpetualBaseAssertion
 /// @author Phylax Systems
@@ -61,6 +179,16 @@ abstract contract PerpetualBaseAssertion is Assertion {
         uint256 minOraclePrice,
         uint256 maxOraclePrice
     );
+    error PerpetualAccountingConservationViolated(
+        address account,
+        bytes4 selector,
+        IPerpetualProtectionSuite.OperationKind kind,
+        bytes32 checkName,
+        address market,
+        int256 actualDelta,
+        int256 minAllowedDelta,
+        int256 maxAllowedDelta
+    );
     error PerpetualSelfBadDebtCreated(
         address account, bytes4 selector, IPerpetualProtectionSuite.OperationKind kind, int256 equity
     );
@@ -107,6 +235,7 @@ abstract contract PerpetualBaseAssertion is Assertion {
         _assertFundingDeltaChecks(suite, triggered, operation, beforeFork, afterFork);
         _assertLiquidationChecks(suite, triggered, operation, beforeFork, afterFork);
         _assertOracleAnchorChecks(suite, triggered, operation, beforeFork, afterFork);
+        _assertAccountingConservationChecks(suite, triggered, operation, beforeFork, afterFork);
         _assertPostMutationRisk(suite, triggered, operation, afterFork);
     }
 
@@ -242,6 +371,37 @@ abstract contract PerpetualBaseAssertion is Assertion {
                     checks[i].usedPrice,
                     checks[i].minOraclePrice,
                     checks[i].maxOraclePrice
+                );
+            }
+        }
+    }
+
+    /// @notice Enforces suite-provided accounting-conservation bounds for settlement paths.
+    /// @dev Solvency-only checks are insufficient for exploit families where stale LP share math,
+    ///      double-counted PnL, or accounting drift create unjustified economic gain while the
+    ///      account remains non-negative. These checks compare the actual economic delta of an
+    ///      operation against protocol-derived bounds.
+    function _assertAccountingConservationChecks(
+        IPerpetualProtectionSuite suite,
+        IPerpetualProtectionSuite.TriggeredCall memory triggered,
+        IPerpetualProtectionSuite.OperationContext memory operation,
+        PhEvm.ForkId memory beforeFork,
+        PhEvm.ForkId memory afterFork
+    ) internal view {
+        IPerpetualProtectionSuite.AccountingConservationCheck[] memory checks =
+            suite.getAccountingConservationChecks(triggered, operation, beforeFork, afterFork);
+
+        for (uint256 i; i < checks.length; ++i) {
+            if (!_isWithinIntRange(checks[i].actualDelta, checks[i].minAllowedDelta, checks[i].maxAllowedDelta)) {
+                revert PerpetualAccountingConservationViolated(
+                    checks[i].account == address(0) ? operation.account : checks[i].account,
+                    operation.selector,
+                    operation.kind,
+                    checks[i].checkName,
+                    checks[i].market,
+                    checks[i].actualDelta,
+                    checks[i].minAllowedDelta,
+                    checks[i].maxAllowedDelta
                 );
             }
         }

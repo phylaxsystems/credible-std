@@ -248,6 +248,27 @@ interface IPerpetualProtectionSuite {
         bytes metadata;
     }
 
+    /// @notice One concrete accounting-conservation bound for a non-liquidation settlement path.
+    /// @dev Catches exploit families where an operation creates unjustified economic gain through
+    ///      stale LP share math, double-counted PnL, or accounting drift — scenarios that pass a
+    ///      solvency-only check because the account never goes negative.
+    struct AccountingConservationCheck {
+        /// @notice Identifier for the bound being asserted, e.g. "EQUITY_CONSERVATION".
+        bytes32 checkName;
+        /// @notice The account whose accounting is being inspected.
+        address account;
+        /// @notice The market whose accounting path is being inspected.
+        address market;
+        /// @notice Actual economic delta observed across the operation (e.g. post-equity minus pre-equity).
+        int256 actualDelta;
+        /// @notice Inclusive lower bound on the allowed economic delta.
+        int256 minAllowedDelta;
+        /// @notice Inclusive upper bound on the allowed economic delta.
+        int256 maxAllowedDelta;
+        /// @notice Extension point for protocol-specific evidence or decoded fields.
+        bytes metadata;
+    }
+
     /// @notice One concrete oracle-anchor bound for a risk-critical transition.
     struct OracleAnchorCheck {
         /// @notice Identifier for the bound being asserted, e.g. "RISK_MARK_ANCHORED".
@@ -320,6 +341,17 @@ interface IPerpetualProtectionSuite {
         PhEvm.ForkId calldata beforeFork,
         PhEvm.ForkId calldata afterFork
     ) external view returns (OracleAnchorCheck[] memory checks);
+
+    /// @notice Returns suite-provided accounting-conservation bounds for the decoded operation.
+    /// @dev These checks catch exploit families where a non-liquidation settlement or
+    ///      liquidity-removal path creates unjustified economic gain through LP accounting
+    ///      drift, stale share math, or double-counted PnL.
+    function getAccountingConservationChecks(
+        TriggeredCall calldata triggered,
+        OperationContext calldata operation,
+        PhEvm.ForkId calldata beforeFork,
+        PhEvm.ForkId calldata afterFork
+    ) external view returns (AccountingConservationCheck[] memory checks);
 
     /// @notice Reads the operation-aware snapshot used by the post-mutation risk assertion.
     /// @dev Implementations may return the same result as `getAccountSnapshot(...)` when their
