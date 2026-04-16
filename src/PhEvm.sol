@@ -418,6 +418,17 @@ interface PhEvm {
         external
         returns (bool);
 
+    /// @notice Checks that an account's token balance is unchanged between two forks.
+    /// @dev Compares balanceOf(account) at fork0 and fork1. Returns false if the values differ.
+    /// @param fork0 The baseline fork (typically PreTx or PreCall).
+    /// @param fork1 The comparison fork (typically PostTx or PostCall).
+    /// @param token The ERC20 token address to check.
+    /// @param account The account whose balance should remain unchanged.
+    /// @return True if balanceOf(account) is identical at both forks, false otherwise.
+    function conserveBalance(ForkId calldata fork0, ForkId calldata fork1, address token, address account)
+        external
+        returns (bool);
+
     // ---------------------------------------------------------------
     //  V2: Protection suite — cumulative outflow circuit breaker
     // ---------------------------------------------------------------
