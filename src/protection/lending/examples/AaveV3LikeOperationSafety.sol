@@ -147,10 +147,9 @@ contract AaveV3LikeProtectionSuite is LendingProtectionSuiteBase {
         returns (bool shouldCheck)
     {
         return operation.account != address(0)
-            && (
-                operation.increasesDebt || operation.reducesEffectiveCollateral
-                    || operation.kind == OperationKind.SetEMode
-            );
+            && (operation.increasesDebt
+                || operation.reducesEffectiveCollateral
+                || operation.kind == OperationKind.SetEMode);
     }
 
     /// @notice Returns the bounded-consumption checks implied by the decoded Aave v3-like operation.

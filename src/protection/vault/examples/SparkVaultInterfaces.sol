@@ -10,3 +10,24 @@ interface ISparkVaultReferralLike {
     function deposit(uint256 assets, address receiver, uint16 referral) external returns (uint256 shares);
     function mint(uint256 shares, address receiver, uint16 referral) external returns (uint256 assets);
 }
+
+/// @title ISparkVaultRateLike
+/// @author Phylax Systems
+/// @notice Minimal Spark rate-accumulator surface needed by the example assertion bundle.
+interface ISparkVaultRateLike {
+    function chi() external view returns (uint192);
+    function rho() external view returns (uint64);
+    function vsr() external view returns (uint256);
+    function nowChi() external view returns (uint256);
+
+    function drip() external returns (uint256 nChi);
+    function setVsr(uint256 newVsr) external;
+}
+
+/// @title ISparkVaultLiquidityLike
+/// @author Phylax Systems
+/// @notice Minimal Spark managed-liquidity surface needed by the example assertion bundle.
+interface ISparkVaultLiquidityLike {
+    function take(uint256 value) external;
+    function assetsOutstanding() external view returns (uint256);
+}
