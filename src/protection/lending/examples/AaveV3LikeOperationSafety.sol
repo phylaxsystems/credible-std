@@ -45,12 +45,13 @@ contract AaveV3LikeProtectionSuite is LendingProtectionSuiteBase {
 
     /// @notice Returns the Aave v3-like pool selectors relevant to the shared lending invariants.
     function getMonitoredSelectors() external pure override returns (bytes4[] memory selectors) {
-        selectors = new bytes4[](5);
+        selectors = new bytes4[](6);
         selectors[0] = IAaveV3LikePool.borrow.selector;
         selectors[1] = IAaveV3LikePool.withdraw.selector;
         selectors[2] = IAaveV3LikePool.liquidationCall.selector;
         selectors[3] = IAaveV3LikePool.setUserUseReserveAsCollateral.selector;
         selectors[4] = IAaveV3LikePool.finalizeTransfer.selector;
+        selectors[5] = IAaveV3LikePool.setUserEMode.selector;
     }
 
     /// @notice Decodes an Aave v3-like pool call into the shared lending operation model.
@@ -126,6 +127,16 @@ contract AaveV3LikeProtectionSuite is LendingProtectionSuiteBase {
             operation.reducesEffectiveCollateral = from != to && amount != 0;
             return operation;
         }
+
+        if (triggered.selector == IAaveV3LikePool.setUserEMode.selector) {
+            (uint8 categoryId) = abi.decode(triggered.input[4:], (uint8));
+
+            operation.kind = OperationKind.SetEMode;
+            operation.account = triggered.caller;
+            operation.amount = uint256(categoryId);
+            operation.metadata = abi.encode(categoryId);
+            return operation;
+        }
     }
 
     /// @notice Filters decoded Aave v3-like operations down to the ones that must preserve solvency.
@@ -135,7 +146,11 @@ contract AaveV3LikeProtectionSuite is LendingProtectionSuiteBase {
         override
         returns (bool shouldCheck)
     {
-        return operation.account != address(0) && (operation.increasesDebt || operation.reducesEffectiveCollateral);
+        return operation.account != address(0)
+            && (
+                operation.increasesDebt || operation.reducesEffectiveCollateral
+                    || operation.kind == OperationKind.SetEMode
+            );
     }
 
     /// @notice Returns the bounded-consumption checks implied by the decoded Aave v3-like operation.

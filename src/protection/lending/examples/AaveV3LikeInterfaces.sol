@@ -49,6 +49,8 @@ interface IAaveV3LikePool {
 
     function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external;
 
+    function setUserEMode(uint8 categoryId) external;
+
     function finalizeTransfer(
         address asset,
         address from,

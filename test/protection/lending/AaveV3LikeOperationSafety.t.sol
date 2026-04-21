@@ -40,12 +40,13 @@ contract AaveV3LikeOperationSafetyTest is Test {
     function testMonitoredSelectorsMatchAaveV3LikeSurface() external view {
         bytes4[] memory selectors = sparkSuite.getMonitoredSelectors();
 
-        assertEq(selectors.length, 5);
+        assertEq(selectors.length, 6);
         assertEq(selectors[0], IAaveV3LikePool.borrow.selector);
         assertEq(selectors[1], IAaveV3LikePool.withdraw.selector);
         assertEq(selectors[2], IAaveV3LikePool.liquidationCall.selector);
         assertEq(selectors[3], IAaveV3LikePool.setUserUseReserveAsCollateral.selector);
         assertEq(selectors[4], IAaveV3LikePool.finalizeTransfer.selector);
+        assertEq(selectors[5], IAaveV3LikePool.setUserEMode.selector);
     }
 
     function testSparkBorrowDecodeMarksDebtIncrease() external view {
@@ -168,6 +169,24 @@ contract AaveV3LikeOperationSafetyTest is Test {
         assertEq(selfTransferOperation.account, address(0xF00D01));
         assertFalse(selfTransferOperation.reducesEffectiveCollateral);
         assertFalse(sparkSuite.shouldCheckPostOperationSolvency(selfTransferOperation));
+    }
+
+    function testSparkSetUserEModeChecksPostOperationSolvency() external view {
+        ILendingProtectionSuite.OperationContext memory operation = sparkSuite.decodeOperation(
+            _triggered(
+                IAaveV3LikePool.setUserEMode.selector,
+                address(0xABCD01),
+                abi.encodeCall(IAaveV3LikePool.setUserEMode, (uint8(1)))
+            )
+        );
+
+        assertEq(uint256(operation.kind), uint256(ILendingProtectionSuite.OperationKind.SetEMode));
+        assertEq(operation.account, address(0xABCD01));
+        assertEq(operation.amount, 1);
+        assertEq(operation.metadata, abi.encode(uint8(1)));
+        assertFalse(operation.increasesDebt);
+        assertFalse(operation.reducesEffectiveCollateral);
+        assertTrue(sparkSuite.shouldCheckPostOperationSolvency(operation));
     }
 
     function testAaveAndSparkAssertionsDeploy() external {
