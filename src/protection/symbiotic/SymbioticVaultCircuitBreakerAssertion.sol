@@ -2,8 +2,8 @@
 pragma solidity ^0.8.13;
 
 import {PhEvm} from "../../PhEvm.sol";
-import {SymbioticHelpers} from "./SymbioticHelpers.sol";
 import {ISymbioticVaultLike} from "./SymbioticInterfaces.sol";
+import {SymbioticVaultBaseAssertion} from "./SymbioticVaultBaseAssertion.sol";
 
 /// @title SymbioticVaultCircuitBreakerAssertion
 /// @author Phylax Systems
@@ -21,7 +21,11 @@ import {ISymbioticVaultLike} from "./SymbioticInterfaces.sol";
 ///
 ///      The hard tier is a full stop: once the larger rolling-window threshold is breached, all
 ///      later touching transactions revert until the outflow state recovers below the threshold.
-abstract contract SymbioticVaultCircuitBreakerAssertion is SymbioticHelpers {
+///      - protects against rapid collateral flight that may indicate a bank-run or exploit;
+///      - keeps the smaller breaker liquidation-aware so bad debt can still be resolved;
+///      - preserves healing paths by allowing deposits or net-neutral transactions during stress;
+///      - escalates to a hard stop when outflows reach a much larger 24-hour threshold.
+abstract contract SymbioticVaultCircuitBreakerAssertion is SymbioticVaultBaseAssertion {
     struct LiquidationRoute {
         address target;
         bytes4 selector;
@@ -35,30 +39,24 @@ abstract contract SymbioticVaultCircuitBreakerAssertion is SymbioticHelpers {
     uint256 public constant DAILY_THRESHOLD_BPS = 3_000;
     uint256 public constant DAILY_WINDOW_DURATION = 24 hours;
 
-    address internal immutable vault;
-    address internal immutable asset;
-
     /// @notice Allowlisted liquidation entry points that may legitimately increase outflow.
     LiquidationRoute[] public liquidationRoutes;
 
-    constructor(address vault_, LiquidationRoute[] memory liquidationRoutes_) {
-        require(vault_ != address(0), "SymbioticCircuitBreaker: vault is zero");
+    constructor(LiquidationRoute[] memory liquidationRoutes_) {
         require(liquidationRoutes_.length != 0, "SymbioticCircuitBreaker: missing liquidation routes");
-
-        vault = vault_;
-        asset = ISymbioticVaultLike(vault_).collateral();
 
         for (uint256 i; i < liquidationRoutes_.length; ++i) {
             require(liquidationRoutes_[i].target != address(0), "SymbioticCircuitBreaker: liquidation target is zero");
             require(
-                liquidationRoutes_[i].selector != bytes4(0),
-                "SymbioticCircuitBreaker: liquidation selector is zero"
+                liquidationRoutes_[i].selector != bytes4(0), "SymbioticCircuitBreaker: liquidation selector is zero"
             );
             liquidationRoutes.push(liquidationRoutes_[i]);
         }
     }
 
     /// @notice Register both cumulative outflow tiers on the vault collateral.
+    /// @dev These are rolling-window watchers rather than selector-based triggers because the
+    ///      risk is cumulative asset flight, not misuse of one particular function.
     function _registerCircuitBreakerTriggers() internal view {
         watchCumulativeOutflow(
             asset,
@@ -91,8 +89,7 @@ abstract contract SymbioticVaultCircuitBreakerAssertion is SymbioticHelpers {
 
         // Net new outflow is only acceptable here when it comes from a known liquidation path.
         require(
-            _hasApprovedLiquidationCall(),
-            "SymbioticCircuitBreaker: hourly outflow breach without approved liquidation"
+            _hasApprovedLiquidationCall(), "SymbioticCircuitBreaker: hourly outflow breach without approved liquidation"
         );
     }
 
@@ -145,11 +142,16 @@ abstract contract SymbioticVaultCircuitBreakerAssertion is SymbioticHelpers {
 
 /// @title SymbioticVaultCircuitBreakerProtection
 /// @notice Ready-to-use bundle for the Symbiotic vault liquidation-aware circuit breaker.
+/// @dev Use this when you only want the rolling outflow breakers without the flow or config checks.
 contract SymbioticVaultCircuitBreakerProtection is SymbioticVaultCircuitBreakerAssertion {
     constructor(address vault_, LiquidationRoute[] memory liquidationRoutes_)
-        SymbioticVaultCircuitBreakerAssertion(vault_, liquidationRoutes_)
+        SymbioticVaultBaseAssertion(vault_)
+        SymbioticVaultCircuitBreakerAssertion(liquidationRoutes_)
     {}
 
+    /// @notice Wires only the cumulative-outflow circuit-breaker triggers.
+    /// @dev This bundle protects against abnormal asset drains while still allowing approved
+    ///      liquidation routes and balance-healing transactions during the soft breach window.
     function triggers() external view override {
         _registerCircuitBreakerTriggers();
     }

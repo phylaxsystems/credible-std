@@ -2,24 +2,23 @@
 pragma solidity ^0.8.13;
 
 import {PhEvm} from "../../PhEvm.sol";
-import {SymbioticHelpers} from "./SymbioticHelpers.sol";
 import {ISymbioticVaultLike} from "./SymbioticInterfaces.sol";
+import {SymbioticVaultBaseAssertion} from "./SymbioticVaultBaseAssertion.sol";
+import {SymbioticVaultFlowHelpers} from "./SymbioticVaultFlowHelpers.sol";
 
 /// @title SymbioticVaultFlowAssertion
 /// @author Phylax Systems
 /// @notice Assertions for Symbiotic Core vault deposit, withdraw, redeem, and claim flow.
-/// @dev These checks target the base Symbiotic vault flow used by relay auto-deployed vaults,
-///      not ERC-4626 tokenized vault semantics.
-abstract contract SymbioticVaultFlowAssertion is SymbioticHelpers {
-    address internal immutable vault;
-    address internal immutable asset;
-
-    constructor(address vault_) {
-        vault = vault_;
-        asset = ISymbioticVaultLike(vault_).collateral();
-    }
-
+/// @dev These checks target the base Symbiotic vault flow used by relay auto-deployed vaults.
+///
+///      - protects against deposits minting the wrong amount of stake or shares;
+///      - protects against withdraw/redeem paying out immediately instead of queueing;
+///      - protects against claims for immature or already-claimed epochs;
+///      - protects against drift between `totalStake` and the vault's internal stake buckets.
+abstract contract SymbioticVaultFlowAssertion is SymbioticVaultFlowHelpers {
     /// @notice Register the standard Symbiotic vault flow triggers.
+    /// @dev Use per-call triggers for user operations where we need precise pre/post-call deltas,
+    ///      and a tx-end trigger for the global `totalStake` bucket identity.
     function _registerVaultFlowTriggers() internal view {
         registerFnCallTrigger(this.assertDepositAccounting.selector, ISymbioticVaultLike.deposit.selector);
         registerFnCallTrigger(this.assertWithdrawScheduling.selector, ISymbioticVaultLike.withdraw.selector);
@@ -30,6 +29,8 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticHelpers {
     }
 
     /// @notice Successful deposits must match token/accounting deltas and vault policy.
+    /// @dev Protects against deposits that move collateral but mis-account stake or shares.
+    ///      After a successful deposit, the reported return values must match the observed deltas.
     function assertDepositAccounting() external view {
         PhEvm.TriggerContext memory ctx = ph.context();
         PhEvm.TriggerCall memory call_ = _currentTriggerCall(vault, ctx);
@@ -38,41 +39,20 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticHelpers {
         (address onBehalfOf,) = abi.decode(_stripSelector(ph.callinputAt(ctx.callStart)), (address, uint256));
         (uint256 depositedAmount, uint256 mintedShares) = abi.decode(ph.callOutputAt(ctx.callStart), (uint256, uint256));
 
-        uint256 preAssetBalance = _readBalanceAt(asset, vault, preFork);
-        uint256 postAssetBalance = _readBalanceAt(asset, vault, postFork);
-        uint256 preActiveStake = _activeStakeAt(vault, preFork);
+        DepositDeltas memory deltas = _depositDeltasAt(onBehalfOf, preFork, postFork);
         uint256 postActiveStake = _activeStakeAt(vault, postFork);
-        uint256 preActiveShares = _activeSharesAt(vault, preFork);
-        uint256 postActiveShares = _activeSharesAt(vault, postFork);
-        uint256 preBeneficiaryShares = _activeSharesOfAt(vault, onBehalfOf, preFork);
-        uint256 postBeneficiaryShares = _activeSharesOfAt(vault, onBehalfOf, postFork);
 
-        require(postAssetBalance - preAssetBalance == depositedAmount, "SymbioticVault: deposit asset delta mismatch");
-        require(postActiveStake - preActiveStake == depositedAmount, "SymbioticVault: deposit activeStake mismatch");
-        require(postActiveShares - preActiveShares == mintedShares, "SymbioticVault: deposit activeShares mismatch");
-        require(
-            postBeneficiaryShares - preBeneficiaryShares == mintedShares,
-            "SymbioticVault: deposit beneficiary shares mismatch"
-        );
+        require(deltas.assetDelta == depositedAmount, "SymbioticVault: deposit asset delta mismatch");
+        require(deltas.activeStakeDelta == depositedAmount, "SymbioticVault: deposit activeStake mismatch");
+        require(deltas.activeSharesDelta == mintedShares, "SymbioticVault: deposit activeShares mismatch");
+        require(deltas.beneficiarySharesDelta == mintedShares, "SymbioticVault: deposit beneficiary shares mismatch");
 
-        // A successful deposit through a whitelisted vault implies the caller was allowed to deposit.
-        if (_depositWhitelistAt(vault, preFork)) {
-            require(
-                _isDepositorWhitelistedAt(vault, call_.caller, preFork),
-                "SymbioticVault: successful deposit by non-whitelisted caller"
-            );
-        }
-
-        // Deposit caps are meant to be hard limits on active stake, not advisory config.
-        if (_isDepositLimitAt(vault, postFork)) {
-            require(
-                postActiveStake <= _depositLimitAt(vault, postFork),
-                "SymbioticVault: deposit limit exceeded after deposit"
-            );
-        }
+        _assertDepositPolicy(call_.caller, preFork, postFork, postActiveStake);
     }
 
     /// @notice Withdrawals must queue assets into next epoch without moving collateral immediately.
+    /// @dev Protects against a vault paying collateral out too early or minting the wrong queued claim state.
+    ///      After a successful withdraw, active stake/shares should go down and next-epoch claims should go up.
     function assertWithdrawScheduling() external {
         PhEvm.TriggerContext memory ctx = ph.context();
         PhEvm.ForkId memory preFork = _preCall(ctx.callStart);
@@ -84,35 +64,24 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticHelpers {
 
         uint256 nextEpoch = _currentEpochAt(vault, preFork) + 1;
 
-        // Withdraw queues funds for a later claim; no collateral should leave the vault yet.
-        require(
-            ph.conserveBalance(preFork, postFork, asset, vault), "SymbioticVault: withdraw moved collateral immediately"
+        QueueDeltas memory deltas = _queueDeltasAt(claimer, nextEpoch, preFork, postFork);
+
+        _assertNoImmediateCollateralOutflow(
+            preFork, postFork, "SymbioticVault: withdraw moved collateral immediately"
         );
+        require(deltas.activeStakeReduction == amount, "SymbioticVault: withdraw activeStake mismatch");
+        require(deltas.activeSharesReduction == burnedShares, "SymbioticVault: withdraw burned shares mismatch");
+        require(deltas.queuedAssetsIncrease == amount, "SymbioticVault: withdraw next-epoch withdrawals mismatch");
+        require(deltas.queuedSharesIncrease == mintedWithdrawalShares, "SymbioticVault: withdraw epoch share mint mismatch");
         require(
-            _activeStakeAt(vault, preFork) - _activeStakeAt(vault, postFork) == amount,
-            "SymbioticVault: withdraw activeStake mismatch"
-        );
-        require(
-            _activeSharesAt(vault, preFork) - _activeSharesAt(vault, postFork) == burnedShares,
-            "SymbioticVault: withdraw burned shares mismatch"
-        );
-        require(
-            _withdrawalsAt(vault, nextEpoch, postFork) - _withdrawalsAt(vault, nextEpoch, preFork) == amount,
-            "SymbioticVault: withdraw next-epoch withdrawals mismatch"
-        );
-        require(
-            _withdrawalSharesAt(vault, nextEpoch, postFork) - _withdrawalSharesAt(vault, nextEpoch, preFork)
-                == mintedWithdrawalShares,
-            "SymbioticVault: withdraw epoch share mint mismatch"
-        );
-        require(
-            _withdrawalSharesOfAt(vault, nextEpoch, claimer, postFork)
-                    - _withdrawalSharesOfAt(vault, nextEpoch, claimer, preFork) == mintedWithdrawalShares,
+            deltas.claimerQueuedSharesIncrease == mintedWithdrawalShares,
             "SymbioticVault: withdraw claimer share mint mismatch"
         );
     }
 
     /// @notice Redeems must mirror withdraw scheduling and avoid immediate asset outflow.
+    /// @dev Protects against share-based exits bypassing the normal withdrawal queue.
+    ///      After a successful redeem, the vault should only reshuffle internal buckets for the next epoch.
     function assertRedeemScheduling() external {
         PhEvm.TriggerContext memory ctx = ph.context();
         PhEvm.ForkId memory preFork = _preCall(ctx.callStart);
@@ -124,35 +93,22 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticHelpers {
 
         uint256 nextEpoch = _currentEpochAt(vault, preFork) + 1;
 
-        // redeem is the share-based version of withdraw: queue now, claim in a later epoch.
+        QueueDeltas memory deltas = _queueDeltasAt(claimer, nextEpoch, preFork, postFork);
+
+        _assertNoImmediateCollateralOutflow(preFork, postFork, "SymbioticVault: redeem moved collateral immediately");
+        require(deltas.activeSharesReduction == shares, "SymbioticVault: redeem activeShares mismatch");
+        require(deltas.activeStakeReduction == withdrawnAssets, "SymbioticVault: redeem withdrawn assets mismatch");
+        require(deltas.queuedAssetsIncrease == withdrawnAssets, "SymbioticVault: redeem withdrawals mismatch");
+        require(deltas.queuedSharesIncrease == mintedWithdrawalShares, "SymbioticVault: redeem epoch share mint mismatch");
         require(
-            ph.conserveBalance(preFork, postFork, asset, vault), "SymbioticVault: redeem moved collateral immediately"
-        );
-        require(
-            _activeSharesAt(vault, preFork) - _activeSharesAt(vault, postFork) == shares,
-            "SymbioticVault: redeem activeShares mismatch"
-        );
-        require(
-            _activeStakeAt(vault, preFork) - _activeStakeAt(vault, postFork) == withdrawnAssets,
-            "SymbioticVault: redeem withdrawn assets mismatch"
-        );
-        require(
-            _withdrawalsAt(vault, nextEpoch, postFork) - _withdrawalsAt(vault, nextEpoch, preFork) == withdrawnAssets,
-            "SymbioticVault: redeem withdrawals mismatch"
-        );
-        require(
-            _withdrawalSharesAt(vault, nextEpoch, postFork) - _withdrawalSharesAt(vault, nextEpoch, preFork)
-                == mintedWithdrawalShares,
-            "SymbioticVault: redeem epoch share mint mismatch"
-        );
-        require(
-            _withdrawalSharesOfAt(vault, nextEpoch, claimer, postFork)
-                    - _withdrawalSharesOfAt(vault, nextEpoch, claimer, preFork) == mintedWithdrawalShares,
+            deltas.claimerQueuedSharesIncrease == mintedWithdrawalShares,
             "SymbioticVault: redeem claimer share mint mismatch"
         );
     }
 
     /// @notice Mature claims must pay exactly the amount reported by the vault and mark the epoch claimed.
+    /// @dev Protects against early, duplicate, underpaid, or untracked claims.
+    ///      After a successful claim, one mature epoch should be paid exactly once and marked claimed.
     function assertClaimFlow() external view {
         PhEvm.TriggerContext memory ctx = ph.context();
         PhEvm.TriggerCall memory call_ = _currentTriggerCall(vault, ctx);
@@ -161,28 +117,17 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticHelpers {
         (address recipient, uint256 epoch) =
             abi.decode(_stripSelector(ph.callinputAt(ctx.callStart)), (address, uint256));
         uint256 claimedAmount = abi.decode(ph.callOutputAt(ctx.callStart), (uint256));
+        ClaimDeltas memory deltas = _claimDeltasAt(recipient, preFork, postFork);
 
-        // Claims should only succeed once the withdrawal epoch is already in the past.
         require(epoch < _currentEpochAt(vault, preFork), "SymbioticVault: claim succeeded for immature epoch");
-        require(
-            _readBalanceAt(asset, vault, preFork) - _readBalanceAt(asset, vault, postFork) == claimedAmount,
-            "SymbioticVault: claim vault outflow mismatch"
-        );
-        require(
-            _readBalanceAt(asset, recipient, postFork) - _readBalanceAt(asset, recipient, preFork) == claimedAmount,
-            "SymbioticVault: claim recipient inflow mismatch"
-        );
-        require(
-            !_isWithdrawalsClaimedAt(vault, epoch, call_.caller, preFork),
-            "SymbioticVault: claim was already marked claimed before call"
-        );
-        require(
-            _isWithdrawalsClaimedAt(vault, epoch, call_.caller, postFork),
-            "SymbioticVault: claim did not mark epoch claimed"
-        );
+        require(deltas.vaultOutflow == claimedAmount, "SymbioticVault: claim vault outflow mismatch");
+        require(deltas.recipientInflow == claimedAmount, "SymbioticVault: claim recipient inflow mismatch");
+        _assertClaimStateTransition(epoch, call_.caller, preFork, postFork, false);
     }
 
     /// @notice Batch claims must only include mature epochs and pay exact collateral.
+    /// @dev Protects against a batch claim sneaking in immature epochs or failing to mark epochs as consumed.
+    ///      After a successful batch claim, every epoch in the batch must be mature, newly claimed, and fully paid.
     function assertClaimBatchFlow() external view {
         PhEvm.TriggerContext memory ctx = ph.context();
         PhEvm.TriggerCall memory call_ = _currentTriggerCall(vault, ctx);
@@ -191,33 +136,21 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticHelpers {
         (address recipient, uint256[] memory epochs) =
             abi.decode(_stripSelector(ph.callinputAt(ctx.callStart)), (address, uint256[]));
         uint256 claimedAmount = abi.decode(ph.callOutputAt(ctx.callStart), (uint256));
-
+        ClaimDeltas memory deltas = _claimDeltasAt(recipient, preFork, postFork);
         uint256 currentEpoch = _currentEpochAt(vault, preFork);
 
-        // Batch claims are still exact claims: the vault outflow and recipient inflow must match the reported amount.
-        require(
-            _readBalanceAt(asset, vault, preFork) - _readBalanceAt(asset, vault, postFork) == claimedAmount,
-            "SymbioticVault: claimBatch vault outflow mismatch"
-        );
-        require(
-            _readBalanceAt(asset, recipient, postFork) - _readBalanceAt(asset, recipient, preFork) == claimedAmount,
-            "SymbioticVault: claimBatch recipient inflow mismatch"
-        );
+        require(deltas.vaultOutflow == claimedAmount, "SymbioticVault: claimBatch vault outflow mismatch");
+        require(deltas.recipientInflow == claimedAmount, "SymbioticVault: claimBatch recipient inflow mismatch");
 
         for (uint256 i; i < epochs.length; ++i) {
             require(epochs[i] < currentEpoch, "SymbioticVault: claimBatch succeeded for immature epoch");
-            require(
-                !_isWithdrawalsClaimedAt(vault, epochs[i], call_.caller, preFork),
-                "SymbioticVault: claimBatch epoch was already claimed before call"
-            );
-            require(
-                _isWithdrawalsClaimedAt(vault, epochs[i], call_.caller, postFork),
-                "SymbioticVault: claimBatch epoch not marked claimed"
-            );
+            _assertClaimStateTransition(epochs[i], call_.caller, preFork, postFork, true);
         }
     }
 
     /// @notice Symbiotic vault total stake must equal active stake plus current and next epoch withdrawals.
+    /// @dev Protects against the vault's aggregate stake drifting away from its three storage buckets.
+    ///      After any transaction, all stake should live in exactly one of: active, current queued, next queued.
     function assertTotalStakeIdentity() external view {
         PhEvm.ForkId memory postTx = _postTx();
         uint256 epoch = _currentEpochAt(vault, postTx);
@@ -233,13 +166,19 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticHelpers {
             "SymbioticVault: totalStake identity broken"
         );
     }
+
 }
 
 /// @title SymbioticVaultProtection
 /// @notice Ready-to-use bundle for Symbiotic Core vault-flow assertions.
+/// @dev Use this when you only want deposit/withdraw/claim accounting checks without the
+///      config-policy or circuit-breaker layers.
 contract SymbioticVaultProtection is SymbioticVaultFlowAssertion {
-    constructor(address vault_) SymbioticVaultFlowAssertion(vault_) {}
+    constructor(address vault_) SymbioticVaultBaseAssertion(vault_) {}
 
+    /// @notice Wires only the vault-flow triggers.
+    /// @dev This bundle protects the happy-path accounting surface: deposit, withdraw, redeem,
+    ///      claim, claimBatch, and the tx-wide total-stake identity.
     function triggers() external view override {
         _registerVaultFlowTriggers();
     }

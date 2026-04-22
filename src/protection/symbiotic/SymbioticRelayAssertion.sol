@@ -13,6 +13,11 @@ import {
 /// @notice Relay-side assertions for operator vault registration, collateral coherence,
 ///         equal-stake voting power, and the optional auto-deploy network-limit hook.
 /// @dev Register this against the relay VotingPowerProvider / OpNetVaultAutoDeploy contract.
+///
+///      - protects against stale relay pointers to unregistered or missing operator vaults;
+///      - protects against voting power being sourced from unsupported collateral;
+///      - protects against drift between Symbiotic stake and relay voting power under equal-stake math;
+///      - protects against auto-deploy hooks silently failing to open the intended subnetwork limit.
 contract SymbioticRelayAssertion is SymbioticHelpers {
     address internal immutable provider;
     bytes32 internal immutable subnetwork;
@@ -24,6 +29,9 @@ contract SymbioticRelayAssertion is SymbioticHelpers {
         operatorVotingPowerExtraData = operatorVotingPowerExtraData_;
     }
 
+    /// @notice Wires the relay-side tx-end checks.
+    /// @dev Relay risk is mostly global consistency risk, so these assertions run once after the
+    ///      transaction to inspect the final operator/vault/voting-power view.
     function triggers() external view override {
         registerTxEndTrigger(this.assertRegisteredOperatorVaultsUseRegisteredCollateral.selector);
         registerTxEndTrigger(this.assertAutoDeployedVaultRegistrationCoherence.selector);
@@ -32,6 +40,8 @@ contract SymbioticRelayAssertion is SymbioticHelpers {
     }
 
     /// @notice Every registered operator vault should still use a relay-registered collateral token.
+    /// @dev Protects against the relay sourcing voting power from stale vault lists or unsupported assets.
+    ///      After the transaction, every listed operator vault should still be both registered and collateral-valid.
     function assertRegisteredOperatorVaultsUseRegisteredCollateral() external view {
         address[] memory operators = _asProvider(provider).getOperators();
         for (uint256 i; i < operators.length; ++i) {
@@ -52,6 +62,8 @@ contract SymbioticRelayAssertion is SymbioticHelpers {
     }
 
     /// @notice Auto-deployed vault pointers must agree with the operator vault registry.
+    /// @dev Protects against stale auto-deploy pointers that no longer correspond to the relay's actual registry view.
+    ///      After the transaction, every nonzero auto-deployed vault pointer should still be registered and enumerable.
     function assertAutoDeployedVaultRegistrationCoherence() external view {
         address[] memory operators = _asProvider(provider).getOperators();
         for (uint256 i; i < operators.length; ++i) {
@@ -73,6 +85,8 @@ contract SymbioticRelayAssertion is SymbioticHelpers {
     }
 
     /// @notice Under EqualStakeVPCalc, voting power should match stake for registered-collateral vaults.
+    /// @dev Protects against the relay drifting away from its "1 stake = 1 voting power" assumption.
+    ///      After the transaction, each registered-collateral vault should report the same stake and voting power.
     function assertEqualStakeVotingPower() external view {
         address[] memory operators = _asProvider(provider).getOperators();
         for (uint256 i; i < operators.length; ++i) {
@@ -96,6 +110,8 @@ contract SymbioticRelayAssertion is SymbioticHelpers {
     }
 
     /// @notice When the max-network-limit hook is enabled, auto-deployed vaults should expose full subnetwork availability.
+    /// @dev Protects against deployments that think they opened full subnetwork capacity but left the delegator capped.
+    ///      After the transaction, the hook-enabled path should expose `type(uint256).max` for the target subnetwork.
     function assertAutoDeployMaxNetworkLimitHook() external view {
         if (!_asAutoDeploy(provider).isSetMaxNetworkLimitHookEnabled()) {
             return;
