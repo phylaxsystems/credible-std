@@ -3,8 +3,14 @@ pragma solidity ^0.8.13;
 
 interface ISymbioticVaultLike {
     function collateral() external view returns (address);
+    function burner() external view returns (address);
     function delegator() external view returns (address);
+    function slasher() external view returns (address);
+    function isInitialized() external view returns (bool);
+    function isDelegatorInitialized() external view returns (bool);
+    function isSlasherInitialized() external view returns (bool);
     function currentEpoch() external view returns (uint256);
+    function epochDuration() external view returns (uint48);
     function depositWhitelist() external view returns (bool);
     function isDepositorWhitelisted(address account) external view returns (bool);
     function isDepositLimit() external view returns (bool);
@@ -28,6 +34,7 @@ interface ISymbioticVaultLike {
 }
 
 interface ISymbioticDelegatorLike {
+    function vault() external view returns (address);
     function stake(bytes32 subnetwork, address operator) external view returns (uint256);
     function maxNetworkLimit(bytes32 subnetwork) external view returns (uint256);
 }
@@ -57,4 +64,14 @@ interface ISymbioticVotingPowerProviderLike {
 interface ISymbioticOpNetVaultAutoDeployLike is ISymbioticVotingPowerProviderLike {
     function getAutoDeployedVault(address operator) external view returns (address);
     function isSetMaxNetworkLimitHookEnabled() external view returns (bool);
+}
+
+interface ISymbioticBaseSlasherLike {
+    function vault() external view returns (address);
+    function isBurnerHook() external view returns (bool);
+}
+
+interface ISymbioticVetoSlasherLike is ISymbioticBaseSlasherLike {
+    function vetoDuration() external view returns (uint48);
+    function resolverSetEpochsDelay() external view returns (uint256);
 }

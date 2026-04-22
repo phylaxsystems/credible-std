@@ -4,7 +4,10 @@ pragma solidity ^0.8.13;
 import {Assertion} from "../../Assertion.sol";
 import {PhEvm} from "../../PhEvm.sol";
 import {
+    ISymbioticBaseSlasherLike,
+    ISymbioticDelegatorLike,
     ISymbioticOpNetVaultAutoDeployLike,
+    ISymbioticVetoSlasherLike,
     ISymbioticVaultLike,
     ISymbioticVotingPowerProviderLike
 } from "./SymbioticInterfaces.sol";
@@ -13,6 +16,34 @@ import {
 /// @author Phylax Systems
 /// @notice Shared reads and small utilities used by Symbiotic relay- and vault-side assertions.
 abstract contract SymbioticHelpers is Assertion {
+    function _burnerAt(address vault, PhEvm.ForkId memory fork) internal view returns (address) {
+        return _readAddressAt(vault, abi.encodeCall(ISymbioticVaultLike.burner, ()), fork);
+    }
+
+    function _delegatorAddressAt(address vault, PhEvm.ForkId memory fork) internal view returns (address) {
+        return _readAddressAt(vault, abi.encodeCall(ISymbioticVaultLike.delegator, ()), fork);
+    }
+
+    function _slasherAddressAt(address vault, PhEvm.ForkId memory fork) internal view returns (address) {
+        return _readAddressAt(vault, abi.encodeCall(ISymbioticVaultLike.slasher, ()), fork);
+    }
+
+    function _isInitializedAt(address vault, PhEvm.ForkId memory fork) internal view returns (bool) {
+        return _readBoolAt(vault, abi.encodeCall(ISymbioticVaultLike.isInitialized, ()), fork);
+    }
+
+    function _isDelegatorInitializedAt(address vault, PhEvm.ForkId memory fork) internal view returns (bool) {
+        return _readBoolAt(vault, abi.encodeCall(ISymbioticVaultLike.isDelegatorInitialized, ()), fork);
+    }
+
+    function _isSlasherInitializedAt(address vault, PhEvm.ForkId memory fork) internal view returns (bool) {
+        return _readBoolAt(vault, abi.encodeCall(ISymbioticVaultLike.isSlasherInitialized, ()), fork);
+    }
+
+    function _epochDurationAt(address vault, PhEvm.ForkId memory fork) internal view returns (uint256) {
+        return _readUintAt(vault, abi.encodeCall(ISymbioticVaultLike.epochDuration, ()), fork);
+    }
+
     function _currentEpochAt(address vault, PhEvm.ForkId memory fork) internal view returns (uint256) {
         return _readUintAt(vault, abi.encodeCall(ISymbioticVaultLike.currentEpoch, ()), fork);
     }
@@ -85,6 +116,34 @@ abstract contract SymbioticHelpers is Assertion {
         return _readUintAt(vault, abi.encodeCall(ISymbioticVaultLike.totalStake, ()), fork);
     }
 
+    function _delegatorVaultAt(address delegator, PhEvm.ForkId memory fork) internal view returns (address) {
+        return _readAddressAt(delegator, abi.encodeCall(ISymbioticDelegatorLike.vault, ()), fork);
+    }
+
+    function _slasherVaultAt(address slasher, PhEvm.ForkId memory fork) internal view returns (address) {
+        return _readAddressAt(slasher, abi.encodeCall(ISymbioticBaseSlasherLike.vault, ()), fork);
+    }
+
+    function _slasherIsBurnerHookAt(address slasher, PhEvm.ForkId memory fork) internal view returns (bool) {
+        return _readBoolAt(slasher, abi.encodeCall(ISymbioticBaseSlasherLike.isBurnerHook, ()), fork);
+    }
+
+    function _tryVetoDurationAt(address slasher, PhEvm.ForkId memory fork)
+        internal
+        view
+        returns (bool ok, uint256 value)
+    {
+        return _tryReadUintAt(slasher, abi.encodeCall(ISymbioticVetoSlasherLike.vetoDuration, ()), fork);
+    }
+
+    function _tryResolverSetEpochsDelayAt(address slasher, PhEvm.ForkId memory fork)
+        internal
+        view
+        returns (bool ok, uint256 value)
+    {
+        return _tryReadUintAt(slasher, abi.encodeCall(ISymbioticVetoSlasherLike.resolverSetEpochsDelay, ()), fork);
+    }
+
     function _asProvider(address provider) internal pure returns (ISymbioticVotingPowerProviderLike) {
         return ISymbioticVotingPowerProviderLike(provider);
     }
@@ -137,5 +196,27 @@ abstract contract SymbioticHelpers is Assertion {
             }
         }
         return (false, 0);
+    }
+
+    function _tryViewAt(address target, bytes memory data, PhEvm.ForkId memory fork)
+        internal
+        view
+        returns (bool ok, bytes memory resultData)
+    {
+        PhEvm.StaticCallResult memory result = ph.staticcallAt(target, data, FORK_VIEW_GAS, fork);
+        return (result.ok, result.data);
+    }
+
+    function _tryReadUintAt(address target, bytes memory data, PhEvm.ForkId memory fork)
+        internal
+        view
+        returns (bool ok, uint256 value)
+    {
+        bytes memory resultData;
+        (ok, resultData) = _tryViewAt(target, data, fork);
+        if (!ok) {
+            return (false, 0);
+        }
+        value = abi.decode(resultData, (uint256));
     }
 }
