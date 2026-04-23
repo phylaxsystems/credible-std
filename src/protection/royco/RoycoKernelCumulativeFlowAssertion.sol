@@ -38,7 +38,9 @@ abstract contract RoycoKernelCumulativeFlowAssertion is RoycoKernelCumulativeOut
         watchCumulativeInflow(stAsset, inflowThresholdBps, inflowWindowDuration, this.assertCumulativeInflow.selector);
 
         if (!_hasIdenticalAssets()) {
-            watchCumulativeInflow(jtAsset, inflowThresholdBps, inflowWindowDuration, this.assertCumulativeInflow.selector);
+            watchCumulativeInflow(
+                jtAsset, inflowThresholdBps, inflowWindowDuration, this.assertCumulativeInflow.selector
+            );
         }
     }
 

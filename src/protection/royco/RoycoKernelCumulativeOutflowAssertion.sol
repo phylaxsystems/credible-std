@@ -2,7 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {PhEvm} from "../../PhEvm.sol";
-import {RoycoKernelBaseAssertion} from "./RoycoKernelBaseAssertion.sol";
+import {RoycoKernelHelpers} from "./RoycoHelpers.sol";
 
 /// @title RoycoKernelCumulativeOutflowAssertion
 /// @author Phylax Systems
@@ -23,7 +23,7 @@ import {RoycoKernelBaseAssertion} from "./RoycoKernelBaseAssertion.sol";
 ///
 ///      Override `assertCumulativeOutflow` for smarter breaker behavior. The default
 ///      implementation is a hard breaker.
-abstract contract RoycoKernelCumulativeOutflowAssertion is RoycoKernelBaseAssertion {
+abstract contract RoycoKernelCumulativeOutflowAssertion is RoycoKernelHelpers {
     /// @notice Maximum cumulative outflow as basis points of the kernel-balance snapshot.
     uint256 public immutable outflowThresholdBps;
 
@@ -37,10 +37,14 @@ abstract contract RoycoKernelCumulativeOutflowAssertion is RoycoKernelBaseAssert
 
     /// @notice Registers the cumulative outflow triggers for Royco tranche assets.
     function _registerCumulativeOutflowTriggers() internal view {
-        watchCumulativeOutflow(stAsset, outflowThresholdBps, outflowWindowDuration, this.assertCumulativeOutflow.selector);
+        watchCumulativeOutflow(
+            stAsset, outflowThresholdBps, outflowWindowDuration, this.assertCumulativeOutflow.selector
+        );
 
         if (!_hasIdenticalAssets()) {
-            watchCumulativeOutflow(jtAsset, outflowThresholdBps, outflowWindowDuration, this.assertCumulativeOutflow.selector);
+            watchCumulativeOutflow(
+                jtAsset, outflowThresholdBps, outflowWindowDuration, this.assertCumulativeOutflow.selector
+            );
         }
     }
 
