@@ -457,6 +457,33 @@ interface PhEvm {
     /// @return ctx The outflow context for the current trigger invocation.
     function outflowContext() external view returns (OutflowContext memory ctx);
 
+    /// @notice Context about the inflow that triggered an assertion via watchCumulativeInflow.
+    /// @dev Only valid inside an assertion function triggered by watchCumulativeInflow.
+    ///      Returns a zeroed struct if called from a non-inflow trigger context.
+    struct InflowContext {
+        /// @notice The ERC20 token that breached the threshold
+        address token;
+        /// @notice Net inflow within the window (token units)
+        uint256 cumulativeInflow;
+        /// @notice Total absolute inflow within the window (token units, ignoring withdrawals)
+        uint256 absoluteInflow;
+        /// @notice Current inflow as basis points of TVL snapshot
+        uint256 currentBps;
+        /// @notice Adopter's token balance at window start
+        uint256 tvlSnapshot;
+        /// @notice Timestamp when the current window began
+        uint256 windowStart;
+        /// @notice Timestamp when the current window expires
+        uint256 windowEnd;
+    }
+
+    /// @notice Returns context about the inflow that triggered this assertion.
+    /// @dev Only valid inside an assertion function triggered by
+    ///      watchCumulativeInflow. Returns a zeroed struct if called from a
+    ///      non-inflow trigger context.
+    /// @return ctx The inflow context for the current trigger invocation.
+    function inflowContext() external view returns (InflowContext memory ctx);
+
     // ---------------------------------------------------------------
     //  V2: Protection suite — oracle sanity
     // ---------------------------------------------------------------
