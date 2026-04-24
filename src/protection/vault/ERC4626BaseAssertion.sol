@@ -52,11 +52,11 @@ abstract contract ERC4626BaseAssertion is Assertion {
     }
 
     function _shareBalanceAt(address account, PhEvm.ForkId memory fork) internal view returns (uint256) {
-        return _readUintAt(vault, abi.encodeCall(IERC4626.balanceOf, (account)), fork);
+        return _readBalanceAt(vault, account, fork);
     }
 
     /// @dev Uses the same `balanceOf(address)` selector — valid for any ERC-20.
     function _assetBalanceAt(address account, PhEvm.ForkId memory fork) internal view returns (uint256) {
-        return _readUintAt(asset, abi.encodeCall(IERC4626.balanceOf, (account)), fork);
+        return _readBalanceAt(asset, account, fork);
     }
 }

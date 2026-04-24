@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Credible} from "./Credible.sol";
 import {PhEvm} from "./PhEvm.sol";
 import {TriggerRecorder} from "./TriggerRecorder.sol";
 import {SpecRecorder, AssertionSpec} from "./SpecRecorder.sol";
 import {StateChanges} from "./StateChanges.sol";
+import {ForkUtils} from "./utils/ForkUtils.sol";
 
 /// @title Assertion
 /// @author Phylax Systems
@@ -27,10 +27,7 @@ import {StateChanges} from "./StateChanges.sol";
 ///     }
 /// }
 /// ```
-abstract contract Assertion is Credible, StateChanges {
-    /// @notice Gas budget forwarded to staticcallAt view calls.
-    uint64 internal constant VIEW_GAS = 500_000;
-
+abstract contract Assertion is ForkUtils, StateChanges {
     /// @notice The trigger recorder precompile for registering assertion triggers
     /// @dev Address is derived from a deterministic hash for consistency
     TriggerRecorder constant triggerRecorder = TriggerRecorder(address(uint160(uint256(keccak256("TriggerRecorder")))));
@@ -138,36 +135,6 @@ abstract contract Assertion is Credible, StateChanges {
         returns (PhEvm.TriggerCall[] memory)
     {
         return ph.matchingCalls(target, selector, _successOnlyFilter(), limit);
-    }
-
-    // ---------------------------------------------------------------
-    //  V2 state-reading helpers
-    // ---------------------------------------------------------------
-
-    /// @notice Execute a view call against a snapshot fork and return the raw result bytes.
-    function _viewAt(address target, bytes memory data, PhEvm.ForkId memory fork) internal view returns (bytes memory) {
-        PhEvm.StaticCallResult memory result = ph.staticcallAt(target, data, VIEW_GAS, fork);
-        require(result.ok, "staticcallAt failed");
-        return result.data;
-    }
-
-    /// @notice Read a single uint256 from target at fork.
-    function _readUintAt(address target, bytes memory data, PhEvm.ForkId memory fork) internal view returns (uint256) {
-        return abi.decode(_viewAt(target, data, fork), (uint256));
-    }
-
-    /// @notice Read a single address from target at fork.
-    function _readAddressAt(address target, bytes memory data, PhEvm.ForkId memory fork)
-        internal
-        view
-        returns (address)
-    {
-        return abi.decode(_viewAt(target, data, fork), (address));
-    }
-
-    /// @notice Read a single bool from target at fork.
-    function _readBoolAt(address target, bytes memory data, PhEvm.ForkId memory fork) internal view returns (bool) {
-        return abi.decode(_viewAt(target, data, fork), (bool));
     }
 
     // ---------------------------------------------------------------
