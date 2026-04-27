@@ -5,8 +5,12 @@ import {PhEvm} from "../../../../PhEvm.sol";
 import {CurveLlammaProtocolHelpers} from "./CurveLlammaProtocol.sol";
 
 /// @title CurveLlammaAssertion
-/// @notice Example LLAMMA checks for band custody, band layout, and swap price bounds.
+/// @notice Example LLAMMA checks for band custody, band layout, swap price bounds,
+///         and a hard cumulative inflow circuit breaker on both token legs.
 contract CurveLlammaAssertion is CurveLlammaProtocolHelpers {
+    uint256 public constant INFLOW_THRESHOLD_BPS = 1_000;
+    uint256 public constant INFLOW_WINDOW_DURATION = 6 hours;
+
     constructor(
         address amm_,
         uint256 borrowedPrecision_,
@@ -20,11 +24,23 @@ contract CurveLlammaAssertion is CurveLlammaProtocolHelpers {
         )
     {}
 
-    /// @notice Registers checks over band sums vs ERC20 custody, one-sided inactive bands, and swap prices.
+    /// @notice Registers checks over band sums vs ERC20 custody, one-sided inactive bands, swap prices,
+    ///         and 10% token inflow caps over a rolling 6 hour window for both AMM legs.
     function triggers() external view override {
+        watchCumulativeInflow(
+            borrowedToken, INFLOW_THRESHOLD_BPS, INFLOW_WINDOW_DURATION, this.assertCumulativeInflow.selector
+        );
+        watchCumulativeInflow(
+            collateralToken, INFLOW_THRESHOLD_BPS, INFLOW_WINDOW_DURATION, this.assertCumulativeInflow.selector
+        );
         registerTxEndTrigger(this.assertAMMCustodyCoversBands.selector);
         registerTxEndTrigger(this.assertBandShape.selector);
         _registerLlammaSwapTriggers(this.assertPostSwapPriceInsideActiveBand.selector);
+    }
+
+    /// @notice Hard circuit breaker that blocks transactions while either monitored inflow stays above threshold.
+    function assertCumulativeInflow() external pure {
+        revert("CurveLLAMMA: cumulative inflow breaker tripped");
     }
 
     /// @notice Compares AMM ERC20 balances with summed `bands_x` and `bands_y` across scanned bands.
