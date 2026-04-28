@@ -274,6 +274,43 @@ abstract contract EulerLiquidationQuoteMixin is EulerEVaultBase {
     }
 }
 
+/// @title EulerSmartInflowCircuitBreakerMixin
+/// @author Phylax Systems
+/// @notice Blocks EVK supply-entry paths when underlying inflow breaches a rolling cap.
+/// @dev The executor tracks cumulative inflow for `inflowAsset`. When the cap is tripped,
+///      this smart breaker blocks deposit, mint, and skim while leaving stabilizing operations
+///      such as repay, liquidation, and touch available.
+abstract contract EulerSmartInflowCircuitBreakerMixin is EulerEVaultBase {
+    address public immutable inflowAsset;
+    uint256 public immutable inflowThresholdBps;
+    uint256 public immutable inflowWindowDuration;
+
+    constructor(address asset_, uint256 thresholdBps_, uint256 windowDuration_) {
+        inflowAsset = asset_;
+        inflowThresholdBps = thresholdBps_;
+        inflowWindowDuration = windowDuration_;
+    }
+
+    function _registerInflowBreaker() internal view {
+        watchCumulativeInflow(
+            inflowAsset, inflowThresholdBps, inflowWindowDuration, this.assertNoSupplyEntryDuringInflowBreaker.selector
+        );
+    }
+
+    /// @notice Ensures a tripped inflow breaker does not include successful EVK supply-entry calls.
+    /// @dev A failure identifies a successful supply expansion path in the same transaction
+    ///      after the configured cumulative inflow threshold has been breached.
+    function assertNoSupplyEntryDuringInflowBreaker() external view {
+        address vault = _vault();
+        PhEvm.InflowContext memory ctx = ph.inflowContext();
+        require(ctx.token == inflowAsset, "EulerEVault: wrong inflow token context");
+
+        require(_matchingCalls(vault, IEulerEVaultLike.deposit.selector, 1).length == 0, "EulerEVault: deposit blocked");
+        require(_matchingCalls(vault, IEulerEVaultLike.mint.selector, 1).length == 0, "EulerEVault: mint blocked");
+        require(_matchingCalls(vault, IEulerEVaultLike.skim.selector, 1).length == 0, "EulerEVault: skim blocked");
+    }
+}
+
 /// @title EulerSmartOutflowCircuitBreakerMixin
 /// @author Phylax Systems
 /// @notice Blocks EVK risk-increasing outflow paths when underlying outflow breaches a rolling cap.
@@ -320,32 +357,97 @@ abstract contract EulerSmartOutflowCircuitBreakerMixin is EulerEVaultBase {
     }
 }
 
+/// @title EulerLayeredOutflowCircuitBreakerMixin
+/// @author Phylax Systems
+/// @notice Applies EVK outflow response tiers: liquidation-only at 10%, full pause at 15% in 24h.
+/// @dev Both tiers use the same underlying asset balance-delta trigger. Above 10% cumulative
+///      outflow, a transaction must include a successful liquidation. Above 15% cumulative outflow in 24h,
+///      every transaction that still breaches the outflow window reverts.
+abstract contract EulerLayeredOutflowCircuitBreakerMixin is EulerEVaultBase {
+    uint256 public constant LIQUIDATION_ONLY_OUTFLOW_THRESHOLD_BPS = 1_000;
+    uint256 public constant FULL_PAUSE_OUTFLOW_THRESHOLD_BPS = 1_500;
+    uint256 public constant OUTFLOW_PAUSE_WINDOW_DURATION = 24 hours;
+
+    address public immutable layeredOutflowAsset;
+
+    constructor(address asset_) {
+        layeredOutflowAsset = asset_;
+    }
+
+    function _registerLayeredOutflowBreakers() internal view {
+        watchCumulativeOutflow(
+            layeredOutflowAsset,
+            LIQUIDATION_ONLY_OUTFLOW_THRESHOLD_BPS,
+            OUTFLOW_PAUSE_WINDOW_DURATION,
+            this.assertLiquidationOnlyAfterLargeOutflow.selector
+        );
+        watchCumulativeOutflow(
+            layeredOutflowAsset,
+            FULL_PAUSE_OUTFLOW_THRESHOLD_BPS,
+            OUTFLOW_PAUSE_WINDOW_DURATION,
+            this.assertPauseAfterCriticalOutflow.selector
+        );
+    }
+
+    /// @notice Enforces liquidation-only mode after 10% cumulative outflow in the rolling window.
+    /// @dev A failure means the transaction breached the 10% outflow tier without a successful
+    ///      liquidation call.
+    function assertLiquidationOnlyAfterLargeOutflow() external view {
+        PhEvm.OutflowContext memory ctx = ph.outflowContext();
+        require(ctx.token == layeredOutflowAsset, "EulerEVault: wrong layered outflow token");
+
+        require(
+            _matchingCalls(_vault(), IEulerEVaultLike.liquidate.selector, 1).length != 0,
+            "EulerEVault: liquidation required"
+        );
+    }
+
+    /// @notice Fully pauses the EVault after 15% cumulative outflow in 24 hours.
+    /// @dev This hard breaker reverts any transaction that still breaches the critical outflow tier.
+    function assertPauseAfterCriticalOutflow() external view {
+        PhEvm.OutflowContext memory ctx = ph.outflowContext();
+        require(ctx.token == layeredOutflowAsset, "EulerEVault: wrong critical outflow token");
+
+        revert("EulerEVault: critical outflow pause");
+    }
+}
+
 /// @title EulerEVaultAssertion
 /// @author Phylax Systems
 /// @notice Example assertion bundle for Euler Vault Kit EVaults.
-/// @dev Covers four EVK-specific properties:
+/// @dev Covers six EVK-specific properties:
 ///      - changed user storage stays consistent with direct account views
 ///      - per-call virtual share price cannot drop except for same-call debt socialization
 ///      - liquidations stay within the exact pre-call `checkLiquidation()` quote
+///      - cumulative underlying inflow blocks supply-entry paths after the threshold trips
 ///      - cumulative underlying outflow blocks risk-increasing outflow paths after the threshold trips
+///      - layered cumulative outflow response: liquidation-only at 10%, full pause at 15% in 24h
 contract EulerEVaultAssertion is
     EulerUserStorageAccountingMixin,
     EulerPerCallSharePriceMixin,
     EulerLiquidationQuoteMixin,
-    EulerSmartOutflowCircuitBreakerMixin
+    EulerSmartInflowCircuitBreakerMixin,
+    EulerSmartOutflowCircuitBreakerMixin,
+    EulerLayeredOutflowCircuitBreakerMixin
 {
-    /// @param asset_ Underlying asset of the EVault adopter, used by the outflow watcher.
+    /// @param asset_ Underlying asset of the EVault adopter, used by the flow watchers.
     /// @param sharePriceToleranceBps_ Maximum tolerated call-level virtual share-price decrease.
+    /// @param inflowThresholdBps_ Rolling-window inflow cap as basis points of TVL.
+    /// @param inflowWindowDuration_ Rolling-window inflow duration in seconds.
     /// @param outflowThresholdBps_ Rolling-window outflow cap as basis points of TVL.
-    /// @param outflowWindowDuration_ Rolling-window duration in seconds.
+    /// @param outflowWindowDuration_ Rolling-window outflow duration in seconds.
     constructor(
         address asset_,
         uint256 sharePriceToleranceBps_,
+        uint256 inflowThresholdBps_,
+        uint256 inflowWindowDuration_,
         uint256 outflowThresholdBps_,
         uint256 outflowWindowDuration_
     )
         EulerPerCallSharePriceMixin(sharePriceToleranceBps_)
+        EulerSmartInflowCircuitBreakerMixin(asset_, inflowThresholdBps_, inflowWindowDuration_)
         EulerSmartOutflowCircuitBreakerMixin(asset_, outflowThresholdBps_, outflowWindowDuration_)
+        EulerLayeredOutflowCircuitBreakerMixin(asset_)
     {}
 
     /// @notice Registers all EVK example assertion triggers.
@@ -354,7 +456,9 @@ contract EulerEVaultAssertion is
         _registerUserStorageAccounting();
         _registerPerCallSharePrice();
         _registerLiquidationQuote();
+        _registerInflowBreaker();
         _registerOutflowBreaker();
+        _registerLayeredOutflowBreakers();
     }
 }
 
@@ -390,6 +494,20 @@ contract EulerLiquidationQuoteAssertion is EulerLiquidationQuoteMixin {
     }
 }
 
+/// @title EulerSmartInflowCircuitBreakerAssertion
+/// @author Phylax Systems
+/// @notice Standalone EVK smart inflow circuit breaker for incremental rollout.
+contract EulerSmartInflowCircuitBreakerAssertion is EulerSmartInflowCircuitBreakerMixin {
+    constructor(address asset_, uint256 thresholdBps_, uint256 windowDuration_)
+        EulerSmartInflowCircuitBreakerMixin(asset_, thresholdBps_, windowDuration_)
+    {}
+
+    /// @notice Registers the EVK cumulative-inflow breaker trigger.
+    function triggers() external view override {
+        _registerInflowBreaker();
+    }
+}
+
 /// @title EulerSmartOutflowCircuitBreakerAssertion
 /// @author Phylax Systems
 /// @notice Standalone EVK smart outflow circuit breaker for incremental rollout.
@@ -401,5 +519,17 @@ contract EulerSmartOutflowCircuitBreakerAssertion is EulerSmartOutflowCircuitBre
     /// @notice Registers the EVK cumulative-outflow breaker trigger.
     function triggers() external view override {
         _registerOutflowBreaker();
+    }
+}
+
+/// @title EulerLayeredOutflowCircuitBreakerAssertion
+/// @author Phylax Systems
+/// @notice Standalone EVK outflow breaker with liquidation-only and hard-pause response tiers.
+contract EulerLayeredOutflowCircuitBreakerAssertion is EulerLayeredOutflowCircuitBreakerMixin {
+    constructor(address asset_) EulerLayeredOutflowCircuitBreakerMixin(asset_) {}
+
+    /// @notice Registers the 10% liquidation-only and 15%/24h full-pause outflow triggers.
+    function triggers() external view override {
+        _registerLayeredOutflowBreakers();
     }
 }

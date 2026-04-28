@@ -5,8 +5,10 @@ import {Test} from "forge-std/Test.sol";
 
 import {
     EulerEVaultAssertion,
+    EulerLayeredOutflowCircuitBreakerAssertion,
     EulerLiquidationQuoteAssertion,
     EulerPerCallSharePriceAssertion,
+    EulerSmartInflowCircuitBreakerAssertion,
     EulerSmartOutflowCircuitBreakerAssertion,
     EulerUserStorageAccountingAssertion
 } from "../../../src/protection/lending/examples/EulerEVaultAssertion.sol";
@@ -16,18 +18,24 @@ contract EulerEVaultAssertionTest is Test {
     function testEulerEVaultAssertionsDeploy() external {
         address asset = address(0xA11CE);
 
-        EulerEVaultAssertion bundled = new EulerEVaultAssertion(asset, 50, 1_000, 24 hours);
+        EulerEVaultAssertion bundled = new EulerEVaultAssertion(asset, 50, 2_000, 24 hours, 1_000, 24 hours);
         EulerUserStorageAccountingAssertion storageAccounting = new EulerUserStorageAccountingAssertion();
         EulerPerCallSharePriceAssertion sharePrice = new EulerPerCallSharePriceAssertion(50);
         EulerLiquidationQuoteAssertion liquidationQuote = new EulerLiquidationQuoteAssertion();
+        EulerSmartInflowCircuitBreakerAssertion inflow =
+            new EulerSmartInflowCircuitBreakerAssertion(asset, 2_000, 24 hours);
         EulerSmartOutflowCircuitBreakerAssertion outflow =
             new EulerSmartOutflowCircuitBreakerAssertion(asset, 1_000, 24 hours);
+        EulerLayeredOutflowCircuitBreakerAssertion layeredOutflow =
+            new EulerLayeredOutflowCircuitBreakerAssertion(asset);
 
         assertTrue(address(bundled) != address(0));
         assertTrue(address(storageAccounting) != address(0));
         assertTrue(address(sharePrice) != address(0));
         assertTrue(address(liquidationQuote) != address(0));
+        assertTrue(address(inflow) != address(0));
         assertTrue(address(outflow) != address(0));
+        assertTrue(address(layeredOutflow) != address(0));
     }
 
     function testEulerEVaultSelectorsMatchExpectedSignatures() external pure {
