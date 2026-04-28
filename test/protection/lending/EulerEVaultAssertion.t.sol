@@ -13,6 +13,9 @@ import {
     EulerUserStorageAccountingAssertion
 } from "../../../src/protection/lending/examples/EulerEVaultAssertion.sol";
 import {IEulerEVaultLike} from "../../../src/protection/lending/examples/EulerEVaultInterfaces.sol";
+import {
+    EulerERC4626CallSandwichAssertion
+} from "../../../src/protection/lending/examples/EulerEVaultSandwichAssertion.sol";
 
 contract EulerEVaultAssertionTest is Test {
     function testEulerEVaultAssertionsDeploy() external {
@@ -28,6 +31,7 @@ contract EulerEVaultAssertionTest is Test {
             new EulerSmartOutflowCircuitBreakerAssertion(asset, 1_000, 24 hours);
         EulerLayeredOutflowCircuitBreakerAssertion layeredOutflow =
             new EulerLayeredOutflowCircuitBreakerAssertion(asset);
+        EulerERC4626CallSandwichAssertion sandwich = new EulerERC4626CallSandwichAssertion();
 
         assertTrue(address(bundled) != address(0));
         assertTrue(address(storageAccounting) != address(0));
@@ -36,6 +40,7 @@ contract EulerEVaultAssertionTest is Test {
         assertTrue(address(inflow) != address(0));
         assertTrue(address(outflow) != address(0));
         assertTrue(address(layeredOutflow) != address(0));
+        assertTrue(address(sandwich) != address(0));
     }
 
     function testEulerEVaultSelectorsMatchExpectedSignatures() external pure {
