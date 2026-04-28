@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {PhEvm} from "../../../PhEvm.sol";
+import {PhEvm} from "../../../../PhEvm.sol";
 
 import {IEulerEVaultLike} from "./EulerEVaultInterfaces.sol";
 import {EulerEVaultSandwichBase, IEulerEVaultSandwichLike} from "./EulerEVaultSandwichHelpers.sol";
@@ -12,7 +12,9 @@ import {EulerEVaultSandwichBase, IEulerEVaultSandwichLike} from "./EulerEVaultSa
 /// @dev For each successful deposit/mint/withdraw/redeem, the assertion compares:
 ///      1. calldata decoded from the exact triggered call,
 ///      2. preview output from immediately before that same call,
-///      3. return data and logs emitted by that same call frame.
+///      3. return data and logs emitted after execution of that same call frame.
+///      This defends the intra-call expectation that the pre-call preview and post-call result
+///      match; it does not claim to prevent unrelated state changes before the transaction lands.
 contract EulerERC4626CallSandwichAssertion is EulerEVaultSandwichBase {
     /// @notice Run the same call-sandwich invariant for each ERC-4626 mutator.
     /// @dev `assertErc4626CallWasHonest` once per successful matching EVault call,
@@ -26,7 +28,7 @@ contract EulerERC4626CallSandwichAssertion is EulerEVaultSandwichBase {
 
     /// @notice Checks that the triggered ERC-4626 call matches its immediate pre-call preview and same-call event.
     /// @dev A failure means the EVault return value diverged from its pre-call preview, or the event emitted for
-    ///      the call frame did not agree with the operation's calldata and return value.
+    ///      the call frame did not agree with the operation's calldata and post-call return value.
     function assertErc4626CallWasHonest() external view {
         address vault = _vault();
         PhEvm.TriggerContext memory ctx = ph.context();
@@ -36,7 +38,7 @@ contract EulerERC4626CallSandwichAssertion is EulerEVaultSandwichBase {
         uint256 actualReturn = abi.decode(ph.callOutputAt(ctx.callStart), (uint256));
 
         if (ctx.selector == IEulerEVaultLike.deposit.selector) {
-            // deposit(assets, receiver): assets are the input, returned shares must match pre-call previewDeposit.
+            // deposit(assets, receiver): pre-call previewDeposit must match the post-call shares returned.
             (uint256 assets,) = abi.decode(_stripSelector(input), (uint256, address));
             if (assets != type(uint256).max) {
                 uint256 expectedShares = _readUintAt(
@@ -45,7 +47,7 @@ contract EulerERC4626CallSandwichAssertion is EulerEVaultSandwichBase {
                 require(actualReturn == expectedShares, "EulerEVault: deposit return != pre-call preview");
             }
 
-            // Same-call Deposit event must report the requested assets and returned shares.
+            // Same-call Deposit event must report the requested assets and post-call returned shares.
             _assertDepositLogForCall(vault, ctx.callStart, assets, actualReturn, assets == type(uint256).max);
             return;
         }
@@ -58,7 +60,7 @@ contract EulerERC4626CallSandwichAssertion is EulerEVaultSandwichBase {
             );
             require(actualReturn == expectedAssets, "EulerEVault: mint return != pre-call preview");
 
-            // Mint emits the ERC-4626 Deposit event; it must report returned assets and requested shares.
+            // mint must report returned assets and requested shares.
             _assertDepositLogForCall(vault, ctx.callStart, actualReturn, shares, false);
             return;
         }
