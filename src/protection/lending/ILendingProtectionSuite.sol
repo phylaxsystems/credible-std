@@ -54,7 +54,8 @@ interface ILendingProtectionSuite {
         WithdrawCollateral,
         DisableCollateral,
         TransferCollateral,
-        Liquidation
+        Liquidation,
+        SetEMode
     }
 
     /// @notice Comparison rule for the protocol-defined solvency metric.
