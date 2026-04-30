@@ -418,6 +418,17 @@ interface PhEvm {
         external
         returns (bool);
 
+    /// @notice Checks that an account's token balance is unchanged between two forks.
+    /// @dev Compares balanceOf(account) at fork0 and fork1. Returns false if the values differ.
+    /// @param fork0 The baseline fork (typically PreTx or PreCall).
+    /// @param fork1 The comparison fork (typically PostTx or PostCall).
+    /// @param token The ERC20 token address to check.
+    /// @param account The account whose balance should remain unchanged.
+    /// @return True if balanceOf(account) is identical at both forks, false otherwise.
+    function conserveBalance(ForkId calldata fork0, ForkId calldata fork1, address token, address account)
+        external
+        returns (bool);
+
     // ---------------------------------------------------------------
     //  V2: Protection suite — cumulative outflow circuit breaker
     // ---------------------------------------------------------------
@@ -448,6 +459,64 @@ interface PhEvm {
     ///      non-outflow trigger context.
     /// @return ctx The outflow context for the current trigger invocation.
     function outflowContext() external view returns (OutflowContext memory ctx);
+
+    /// @notice Context about the inflow that triggered an assertion via watchCumulativeInflow.
+    /// @dev Only valid inside an assertion function triggered by watchCumulativeInflow.
+    ///      Returns a zeroed struct if called from a non-inflow trigger context.
+    struct InflowContext {
+        /// @notice The ERC20 token that breached the threshold
+        address token;
+        /// @notice Net inflow within the window (token units)
+        uint256 cumulativeInflow;
+        /// @notice Total absolute inflow within the window (token units, ignoring withdrawals)
+        uint256 absoluteInflow;
+        /// @notice Current inflow as basis points of TVL snapshot
+        uint256 currentBps;
+        /// @notice Adopter's token balance at window start
+        uint256 tvlSnapshot;
+        /// @notice Timestamp when the current window began
+        uint256 windowStart;
+        /// @notice Timestamp when the current window expires
+        uint256 windowEnd;
+    }
+
+    /// @notice Returns context about the inflow that triggered this assertion.
+    /// @dev Only valid inside an assertion function triggered by
+    ///      watchCumulativeInflow. Returns a zeroed struct if called from a
+    ///      non-inflow trigger context.
+    /// @return ctx The inflow context for the current trigger invocation.
+    function inflowContext() external view returns (InflowContext memory ctx);
+
+    // ---------------------------------------------------------------
+    //  V2: Protection suite — cumulative inflow circuit breaker
+    // ---------------------------------------------------------------
+
+    /// @notice Context about the inflow that triggered an assertion via watchCumulativeInflow.
+    /// @dev Only valid inside an assertion function triggered by watchCumulativeInflow.
+    ///      Returns a zeroed struct if called from a non-inflow trigger context.
+    struct InflowContext {
+        /// @notice The ERC20 token that breached the threshold
+        address token;
+        /// @notice Net inflow within the window (token units)
+        uint256 cumulativeInflow;
+        /// @notice Total absolute inflow within the window (token units, ignoring withdrawals)
+        uint256 absoluteInflow;
+        /// @notice Current inflow as basis points of TVL snapshot
+        uint256 currentBps;
+        /// @notice Adopter's token balance at window start
+        uint256 tvlSnapshot;
+        /// @notice Timestamp when the current window began
+        uint256 windowStart;
+        /// @notice Timestamp when the current window expires
+        uint256 windowEnd;
+    }
+
+    /// @notice Returns context about the inflow that triggered this assertion.
+    /// @dev Only valid inside an assertion function triggered by
+    ///      watchCumulativeInflow. Returns a zeroed struct if called from a
+    ///      non-inflow trigger context.
+    /// @return ctx The inflow context for the current trigger invocation.
+    function inflowContext() external view returns (InflowContext memory ctx);
 
     // ---------------------------------------------------------------
     //  V2: Protection suite — oracle sanity
