@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Assertion} from "../../../Assertion.sol";
 import {PhEvm} from "../../../PhEvm.sol";
+import {AssertionSpec} from "../../../SpecRecorder.sol";
 
 import {IAerodromePoolLike} from "./AerodromePoolInterfaces.sol";
 
@@ -29,17 +30,17 @@ abstract contract AerodromePoolHelpers is Assertion {
         uint256 observationLength;
     }
 
-    constructor(address pool_) {
+    /// @dev Accepts pool metadata explicitly so the constructor never reads from the adopter. The
+    ///      Credible Layer's assertion-deploy runtime is isolated from the calling state, so a
+    ///      `pool.metadata()` call in the constructor would revert with EXTCODESIZE = 0.
+    constructor(address pool_, address token0_, address token1_, bool stable_, uint256 decimals0_, uint256 decimals1_) {
         POOL = pool_;
-        (DECIMALS0, DECIMALS1, STABLE, TOKEN0, TOKEN1) = _poolMetadata(pool_);
-    }
-
-    function _poolMetadata(address pool_)
-        internal
-        view
-        returns (uint256 dec0, uint256 dec1, bool st, address t0, address t1)
-    {
-        (dec0, dec1,,, st, t0, t1) = IAerodromePoolLike(pool_).metadata();
+        TOKEN0 = token0_;
+        TOKEN1 = token1_;
+        STABLE = stable_;
+        DECIMALS0 = decimals0_;
+        DECIMALS1 = decimals1_;
+        registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
     function _snapshotAt(PhEvm.ForkId memory fork) internal view returns (PoolSnapshot memory snapshot) {

@@ -181,7 +181,17 @@ abstract contract Assertion is ForkUtils, StateChanges {
     /// The assertion spec defines what subset of precompiles are available.
     /// Can only be called once. For an assertion to be valid, it needs a defined spec.
     /// @param spec The desired AssertionSpec.
+    /// @dev Uses a low-level staticcall to skip Solidity's EXTCODESIZE check. The SpecRecorder
+    ///      precompile is loaded by the Credible Layer assertion executor at deploy time, but is
+    ///      absent in plain `forge` test environments that construct assertions directly.
     function registerAssertionSpec(AssertionSpec spec) internal view {
-        specRecorder.registerAssertionSpec(spec);
+        address recorder = address(specRecorder);
+        bytes memory data = abi.encodeWithSelector(SpecRecorder.registerAssertionSpec.selector, spec);
+        (bool ok, bytes memory ret) = recorder.staticcall(data);
+        if (!ok && ret.length > 0) {
+            assembly {
+                revert(add(ret, 0x20), mload(ret))
+            }
+        }
     }
 }

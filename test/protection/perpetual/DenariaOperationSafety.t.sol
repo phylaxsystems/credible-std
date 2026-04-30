@@ -36,13 +36,18 @@ contract DenariaOperationSafetyTest is Test, CredibleTest {
         pair.setMaxLpLeverage(5);
         pair.setGlobalLiquidity(1_000_000 * TOKEN_UNIT, 10_000 * TOKEN_UNIT);
         pair.setInsuranceFund(100_000 * TOKEN_UNIT, true);
+    }
 
-        // Register the assertion against both the PerpPair and the Vault.
+    /// @dev `cl.assertion` arms a one-shot assertion that must be consumed by
+    ///      the very next monitored external call. Each behavior test arms it
+    ///      inline immediately before the call it wants the assertion to run
+    ///      against. Smoke tests that don't trigger a monitored call must not
+    ///      arm an assertion.
+    function _armPairAssertion() internal {
         bytes memory createData = abi.encodePacked(
             type(DenariaOperationSafetyAssertion).creationCode, abi.encode(address(pair), address(vault))
         );
         cl.assertion(address(pair), createData, bytes4(keccak256("assertOperationSafety()")));
-        cl.assertion(address(vault), createData, bytes4(keccak256("assertOperationSafety()")));
     }
 
     // ---------------------------------------------------------------
@@ -63,6 +68,7 @@ contract DenariaOperationSafetyTest is Test, CredibleTest {
         pair.setFundingResult(alice, 0, true);
 
         // removeLiquidity — assertion checks equity conservation.
+        _armPairAssertion();
         vm.prank(alice);
         pair.removeLiquidity(1_000 * TOKEN_UNIT, 10 * TOKEN_UNIT, 0, "");
 
@@ -71,6 +77,7 @@ contract DenariaOperationSafetyTest is Test, CredibleTest {
         pair.setLpPosition(alice, 0, 0, 0, 0);
 
         // closeAndWithdraw — assertion checks execution + solvency.
+        _armPairAssertion();
         vm.prank(alice);
         pair.closeAndWithdraw(0, 0, address(0), "");
     }
@@ -85,6 +92,7 @@ contract DenariaOperationSafetyTest is Test, CredibleTest {
         pair.setFundingResult(bob, 0, true);
 
         // Long trade: size = 100 tokens, execution at mark price.
+        _armPairAssertion();
         vm.prank(bob);
         pair.trade(true, 100 * TOKEN_UNIT, 0, 0, address(0), 1, "");
     }
@@ -128,6 +136,7 @@ contract DenariaOperationSafetyTest is Test, CredibleTest {
         // control per-fork returns in a standard mock, this test is structured to verify
         // compilation and the assertion registration path. The full behavioral test
         // requires the Credible Layer runtime with fork-aware state reads.
+        _armPairAssertion();
         vm.prank(alice);
         pair.removeLiquidity(1_000 * TOKEN_UNIT, 10 * TOKEN_UNIT, 0, "");
     }
@@ -196,6 +205,7 @@ contract DenariaOperationSafetyTest is Test, CredibleTest {
 
         // Step 3: Attacker calls realizePnL. The assertion should detect that
         // lpAssetBalance == globalLiquidityAsset (the overflow cap fingerprint).
+        _armPairAssertion();
         vm.prank(attacker);
         pair.realizePnL("");
     }

@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Assertion} from "../../../Assertion.sol";
 import {PhEvm} from "../../../PhEvm.sol";
+import {AssertionSpec} from "../../../SpecRecorder.sol";
 
 import {IUniswapV3PoolLike} from "./UniswapV3PoolInterfaces.sol";
 
@@ -38,10 +39,14 @@ abstract contract UniswapV3PoolHelpers is Assertion {
         uint256 balance1;
     }
 
-    constructor(address pool_) {
+    /// @dev Accepts pool tokens explicitly so the constructor never reads from the adopter. The
+    ///      Credible Layer's assertion-deploy runtime is isolated from the calling state, so a
+    ///      `pool.token0()` call in the constructor would revert with EXTCODESIZE = 0.
+    constructor(address pool_, address token0_, address token1_) {
         POOL = pool_;
-        TOKEN0 = IUniswapV3PoolLike(pool_).token0();
-        TOKEN1 = IUniswapV3PoolLike(pool_).token1();
+        TOKEN0 = token0_;
+        TOKEN1 = token1_;
+        registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
     function _snapshotAt(PhEvm.ForkId memory fork) internal view returns (PoolSnapshot memory snapshot) {

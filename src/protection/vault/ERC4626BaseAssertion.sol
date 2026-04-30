@@ -14,8 +14,8 @@ import {IERC4626} from "./IERC4626.sol";
 /// Example – combine share-price, preview, and outflow invariants:
 /// ```solidity
 /// contract MyVaultAssertion is ERC4626SharePriceAssertion, ERC4626PreviewAssertion, ERC4626CumulativeOutflowAssertion {
-///     constructor(address _vault)
-///         ERC4626BaseAssertion(_vault)
+///     constructor(address _vault, address _asset)
+///         ERC4626BaseAssertion(_vault, _asset)
 ///         ERC4626SharePriceAssertion(50) // 50 bps tolerance
 ///         ERC4626CumulativeOutflowAssertion(1_000, 24 hours) // 10% in 24h
 ///     {}
@@ -34,9 +34,14 @@ abstract contract ERC4626BaseAssertion is Assertion {
     /// @notice The underlying ERC-20 asset of the vault.
     address internal immutable asset;
 
-    constructor(address _vault) {
+    /// @dev Accepts the asset address explicitly so the constructor never reads from the adopter.
+    ///      The Credible Layer's assertion-deploy runtime is isolated from the calling test state,
+    ///      so a `vault.asset()` call inside the constructor would revert with EXTCODESIZE = 0.
+    /// @param _vault The ERC-4626 vault being monitored (assertion adopter).
+    /// @param _asset The vault's underlying ERC-20 asset.
+    constructor(address _vault, address _asset) {
         vault = _vault;
-        asset = IERC4626(_vault).asset();
+        asset = _asset;
     }
 
     // ---------------------------------------------------------------

@@ -15,7 +15,9 @@ import {IAerodromePoolLike} from "./AerodromePoolInterfaces.sol";
 ///      - TWAP accumulators and observations remain monotonic and internally consistent;
 ///      - fee claims cannot touch pool liquidity, reserves, or LP supply.
 contract AerodromePoolAssertion is AerodromePoolHelpers {
-    constructor(address pool_) AerodromePoolHelpers(pool_) {}
+    constructor(address pool_, address token0_, address token1_, bool stable_, uint256 decimals0_, uint256 decimals1_)
+        AerodromePoolHelpers(pool_, token0_, token1_, stable_, decimals0_, decimals1_)
+    {}
 
     /// @notice Registers Aerodrome pool selectors against the assertion functions that protect them.
     /// @dev The pool is the assertion adopter. Each registered selector fires with a call-scoped

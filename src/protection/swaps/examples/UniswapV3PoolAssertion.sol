@@ -15,7 +15,7 @@ import {IUniswapV3PoolLike} from "./UniswapV3PoolInterfaces.sol";
 ///      - oracle observation cardinality and indexes remain internally consistent;
 ///      - protocol-fee accounting stays covered by pool token custody.
 contract UniswapV3PoolAssertion is UniswapV3PoolHelpers {
-    constructor(address pool_) UniswapV3PoolHelpers(pool_) {}
+    constructor(address pool_, address token0_, address token1_) UniswapV3PoolHelpers(pool_, token0_, token1_) {}
 
     /// @notice Registers Uniswap v3 pool selectors against their protection assertions.
     /// @dev The pool is the assertion adopter. Call-scoped triggers compare the exact

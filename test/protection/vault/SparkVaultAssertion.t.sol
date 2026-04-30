@@ -17,7 +17,7 @@ contract SparkVaultAssertionTest is Test {
     function testSparkVaultAssertionDeploys() external {
         ERC20Mock asset = new ERC20Mock();
         ERC4626Mock vault = new ERC4626Mock(address(asset));
-        SparkVaultAssertion assertion = new SparkVaultAssertion(address(vault), 50, 1_000, 24 hours);
+        SparkVaultAssertion assertion = new SparkVaultAssertion(address(vault), address(asset), 50, 1_000, 24 hours);
 
         assertTrue(address(assertion) != address(0));
     }

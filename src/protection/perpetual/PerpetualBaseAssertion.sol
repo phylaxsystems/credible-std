@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Assertion} from "../../Assertion.sol";
 import {PhEvm} from "../../PhEvm.sol";
+import {AssertionSpec} from "../../SpecRecorder.sol";
 import {ForkUtils} from "../../utils/ForkUtils.sol";
 import {IPerpetualProtectionSuite} from "./IPerpetualProtectionSuite.sol";
 
@@ -203,6 +204,10 @@ abstract contract PerpetualBaseAssertion is Assertion {
 
     /// @notice Returns the protocol-specific perpetual suite that powers this assertion.
     function _suite() internal view virtual returns (IPerpetualProtectionSuite);
+
+    constructor() {
+        registerAssertionSpec(AssertionSpec.Reshiram);
+    }
 
     /// @notice Registers one generic perpetual operation-safety check for every monitored selector.
     function triggers() external view virtual override {

@@ -28,7 +28,7 @@ contract MockUniswapV3PoolConstructorSurface {
 }
 
 contract UniswapV3PoolAssertionHarness is UniswapV3PoolHelpers {
-    constructor(address pool_) UniswapV3PoolHelpers(pool_) {}
+    constructor(address pool_, address token0_, address token1_) UniswapV3PoolHelpers(pool_, token0_, token1_) {}
 
     function triggers() external view override {}
 
@@ -68,11 +68,11 @@ contract UniswapV3PoolAssertionTest is Test {
         token0 = new ERC20Mock();
         token1 = new ERC20Mock();
         pool = new MockUniswapV3PoolConstructorSurface(address(token0), address(token1));
-        harness = new UniswapV3PoolAssertionHarness(address(pool));
+        harness = new UniswapV3PoolAssertionHarness(address(pool), address(token0), address(token1));
     }
 
     function testUniswapV3PoolAssertionDeploys() external {
-        UniswapV3PoolAssertion assertion = new UniswapV3PoolAssertion(address(pool));
+        UniswapV3PoolAssertion assertion = new UniswapV3PoolAssertion(address(pool), address(token0), address(token1));
 
         assertTrue(address(assertion) != address(0));
     }

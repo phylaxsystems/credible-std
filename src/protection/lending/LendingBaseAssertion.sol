@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Assertion} from "../../Assertion.sol";
 import {PhEvm} from "../../PhEvm.sol";
+import {AssertionSpec} from "../../SpecRecorder.sol";
 import {ForkUtils} from "../../utils/ForkUtils.sol";
 import {ILendingProtectionSuite} from "./ILendingProtectionSuite.sol";
 
@@ -93,6 +94,10 @@ abstract contract LendingBaseAssertion is Assertion {
     /// @return suite The suite used to decode operations and evaluate solvency.
     function _suite() internal view virtual returns (ILendingProtectionSuite);
 
+    constructor() {
+        registerAssertionSpec(AssertionSpec.Reshiram);
+    }
+
     /// @notice Registers one generic lending operation-safety check for every monitored selector.
     /// @dev This is the only trigger wiring most lending assertions need to implement. The suite
     ///      decides which selectors matter through `getMonitoredSelectors()`, and this base maps all
@@ -181,6 +186,7 @@ abstract contract LendingBaseAssertion is Assertion {
         ILendingProtectionSuite.OperationContext memory operation,
         PhEvm.ForkId memory afterFork
     ) internal view {
+        // bug: false positive on partial liquidation or adding new cross collateral reserve asset or e mode switch if undercolalteralized
         if (!suite.shouldCheckPostOperationSolvency(operation)) {
             return;
         }

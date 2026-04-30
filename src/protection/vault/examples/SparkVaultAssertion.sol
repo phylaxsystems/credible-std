@@ -40,11 +40,12 @@ contract SparkVaultAssertion is
     /// @param outflowWindowDuration_ Rolling window (seconds) the outflow assertion uses.
     constructor(
         address vault_,
+        address asset_,
         uint256 sharePriceToleranceBps_,
         uint256 outflowThresholdBps_,
         uint256 outflowWindowDuration_
     )
-        ERC4626BaseAssertion(vault_)
+        ERC4626BaseAssertion(vault_, asset_)
         ERC4626SharePriceAssertion(sharePriceToleranceBps_)
         ERC4626CumulativeOutflowAssertion(outflowThresholdBps_, outflowWindowDuration_)
     {}

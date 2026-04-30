@@ -329,6 +329,7 @@ contract AaveV3LikeProtectionSuite is LendingProtectionSuiteBase {
         PhEvm.ForkId calldata beforeFork,
         PhEvm.ForkId calldata afterFork
     ) internal view returns (ConsumptionCheck memory check) {
+        // bug: different decimals break return asset accounting
         bool receiveAToken = abi.decode(operation.metadata, (bool));
         AaveV3LikeTypes.ReserveData memory reserveData = _getReserveData(operation.relatedAsset, beforeFork);
         uint256 collateralBefore = _readBalanceAt(reserveData.aTokenAddress, operation.account, beforeFork);

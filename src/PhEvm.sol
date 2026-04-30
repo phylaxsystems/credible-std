@@ -408,13 +408,6 @@ interface PhEvm {
     //  V2: Protection suite — supply conservation
     // ---------------------------------------------------------------
 
-    /// @notice Checks that a token's totalSupply is unchanged between two forks.
-    /// @param fork0 The baseline fork.
-    /// @param fork1 The comparison fork.
-    /// @param token The ERC20 token address.
-    /// @return True if totalSupply is identical at both forks.
-    function conserveBalance(ForkId calldata fork0, ForkId calldata fork1, address token) external returns (bool);
-
     /// @notice Checks that an account's token balance is unchanged between two forks.
     /// @dev Compares balanceOf(account) at fork0 and fork1. Returns false if the values differ.
     /// @param fork0 The baseline fork (typically PreTx or PreCall).
