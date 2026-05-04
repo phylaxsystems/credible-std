@@ -1,0 +1,9 @@
+environment = "production"
+
+[contracts.aave_v3_base_pool]
+address = "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5"
+name = "aave_v3_base_pool"
+
+assertions = [
+	{file = "src/protection/lending/examples/AaveV3PostOperationSolvency.sol", contract = "AaveV3HorizonOperationSafetyAssertion", args = ["0xA238Dd80C259a72e81d7e4664a9801593F98d1c5", "0xe20fCBdBfFC4Dd138cE8b2E6FBb6CB49777ad64D"]}
+]

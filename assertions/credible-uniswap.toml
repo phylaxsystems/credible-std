@@ -1,0 +1,41 @@
+environment = "production"
+
+[contracts.univ4_eth_cbbtc_3000]
+address = "0x498581fF718922c3f8e6A244956aF099B2652b2b"
+name = "univ4_eth_cbbtc_3000"
+
+assertions = [
+	{file = "src/protection/swaps/examples/UniswapV4PoolManagerAssertion.sol", args = ["0x498581fF718922c3f8e6A244956aF099B2652b2b", ["0x0000000000000000000000000000000000000000", "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf", "3000", "300", "0x5cd525c621AfCa515bF58631D4733FbA7b72aaE4"]]}
+]
+
+[contracts.univ4_eth_cbbtc_90]
+address = "0x498581fF718922c3f8e6A244956aF099B2652b2b"
+name = "univ4_eth_cbbtc_90"
+
+assertions = [
+	{file = "src/protection/swaps/examples/UniswapV4PoolManagerAssertion.sol", args = ["0x498581fF718922c3f8e6A244956aF099B2652b2b", ["0x0000000000000000000000000000000000000000", "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf", "90", "2", "0x0000000000000000000000000000000000000000"]]}
+]
+
+[contracts.univ4_eth_usdc_3000]
+address = "0x498581fF718922c3f8e6A244956aF099B2652b2b"
+name = "univ4_eth_usdc_3000"
+
+assertions = [
+	{file = "src/protection/swaps/examples/UniswapV4PoolManagerAssertion.sol", args = ["0x498581fF718922c3f8e6A244956aF099B2652b2b", ["0x0000000000000000000000000000000000000000", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "3000", "60", "0x0000000000000000000000000000000000000000"]]}
+]
+
+[contracts.univ4_eth_usdc_500]
+address = "0x498581fF718922c3f8e6A244956aF099B2652b2b"
+name = "univ4_eth_usdc_500"
+
+assertions = [
+	{file = "src/protection/swaps/examples/UniswapV4PoolManagerAssertion.sol", args = ["0x498581fF718922c3f8e6A244956aF099B2652b2b", ["0x0000000000000000000000000000000000000000", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "500", "10", "0x0000000000000000000000000000000000000000"]]}
+]
+
+[contracts.univ4_usdc_usdt_20]
+address = "0x498581fF718922c3f8e6A244956aF099B2652b2b"
+name = "univ4_usdc_usdt_20"
+
+assertions = [
+	{file = "src/protection/swaps/examples/UniswapV4PoolManagerAssertion.sol", args = ["0x498581fF718922c3f8e6A244956aF099B2652b2b", ["0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2", "20", "1", "0x0000000000000000000000000000000000000000"]]}
+]

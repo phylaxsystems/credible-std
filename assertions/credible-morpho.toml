@@ -1,0 +1,41 @@
+environment = "production"
+
+[contracts.steakhouse_prime_usdc]
+address = "0xBEEFE94c8aD530842bfE7d8B397938fFc1cb83b2"
+name = "steakhouse_prime_usdc"
+
+assertions = [
+	{file = "src/protection/vault/examples/MorphoVaultBundle.sol", args = ["0xBEEFE94c8aD530842bfE7d8B397938fFc1cb83b2", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "50", "1000", "86400"]}
+]
+
+[contracts.gauntlet_usdc_prime]
+address = "0xeE8F4eC5672F09119b96Ab6fB59C27E1b7e44b61"
+name = "gauntlet_usdc_prime"
+
+assertions = [
+	{file = "src/protection/vault/examples/MorphoVaultBundle.sol", args = ["0xeE8F4eC5672F09119b96Ab6fB59C27E1b7e44b61", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "50", "1000", "86400"]}
+]
+
+[contracts.steakhouse_usdc]
+address = "0xbeeF010f9cb27031ad51e3333f9aF9C6B1228183"
+name = "steakhouse_usdc"
+
+assertions = [
+	{file = "src/protection/vault/examples/MorphoVaultBundle.sol", args = ["0xbeeF010f9cb27031ad51e3333f9aF9C6B1228183", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "50", "1000", "86400"]}
+]
+
+[contracts.pangolins_usdc]
+address = "0x1401d1271C47648AC70cBcdfA3776D4A87CE006B"
+name = "pangolins_usdc"
+
+assertions = [
+	{file = "src/protection/vault/examples/MorphoVaultBundle.sol", args = ["0x1401d1271C47648AC70cBcdfA3776D4A87CE006B", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "50", "1000", "86400"]}
+]
+
+[contracts.froges_usdc]
+address = "0x2C6D169782bF18Cc634D076Fe639092227B82fdA"
+name = "froges_usdc"
+
+assertions = [
+	{file = "src/protection/vault/examples/MorphoVaultBundle.sol", args = ["0x2C6D169782bF18Cc634D076Fe639092227B82fdA", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "50", "1000", "86400"]}
+]

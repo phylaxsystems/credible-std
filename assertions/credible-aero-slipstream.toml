@@ -1,0 +1,41 @@
+environment = "production"
+
+[contracts.aero_slipstream_weth_mseth_50]
+address = "0x74F72788f4814D7Ff3c49B44684Aa98EEE140C0E"
+name = "aero_slipstream_weth_mseth_50"
+
+assertions = [
+	{file = "src/protection/swaps/examples/UniswapV3PoolAssertion.sol", args = ["0x74F72788f4814D7Ff3c49B44684Aa98EEE140C0E", "0x4200000000000000000000000000000000000006", "0x7Ba6F01772924a82D9626c126347A28299E98c98"]}
+]
+
+[contracts.aero_slipstream_weth_cbbtc_100]
+address = "0x70aCDF2Ad0bf2402C957154f944c19Ef4e1cbAE1"
+name = "aero_slipstream_weth_cbbtc_100"
+
+assertions = [
+	{file = "src/protection/swaps/examples/UniswapV3PoolAssertion.sol", args = ["0x70aCDF2Ad0bf2402C957154f944c19Ef4e1cbAE1", "0x4200000000000000000000000000000000000006", "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf"]}
+]
+
+[contracts.aero_slipstream_msusd_usdc_50]
+address = "0x7501bc8Bb51616F79bfA524E464fb7B41f0B10fB"
+name = "aero_slipstream_msusd_usdc_50"
+
+assertions = [
+	{file = "src/protection/swaps/examples/UniswapV3PoolAssertion.sol", args = ["0x7501bc8Bb51616F79bfA524E464fb7B41f0B10fB", "0x526728DBc96689597F85ae4cd716d4f7fCcBAE9d", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"]}
+]
+
+[contracts.aero_slipstream_weth_usdc_100]
+address = "0xb2cc224c1c9feE385f8ad6a55b4d94E92359DC59"
+name = "aero_slipstream_weth_usdc_100"
+
+assertions = [
+	{file = "src/protection/swaps/examples/UniswapV3PoolAssertion.sol", args = ["0xb2cc224c1c9feE385f8ad6a55b4d94E92359DC59", "0x4200000000000000000000000000000000000006", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"]}
+]
+
+[contracts.aero_slipstream_usdc_cbbtc_100]
+address = "0x4e962BB3889Bf030368F56810A9c96B83CB3E778"
+name = "aero_slipstream_usdc_cbbtc_100"
+
+assertions = [
+	{file = "src/protection/swaps/examples/UniswapV3PoolAssertion.sol", args = ["0x4e962BB3889Bf030368F56810A9c96B83CB3E778", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf"]}
+]
