@@ -38,9 +38,11 @@ contract AaveV3LikeProtectionSuite is LendingProtectionSuiteBase {
 
     /// @notice Creates an Aave v3-like suite bound to a specific pool.
     /// @param pool_ Pool address whose accounting and selectors this suite targets.
-    constructor(address pool_) {
+    /// @param addressesProvider_ The pool's `ADDRESSES_PROVIDER`. Passed in explicitly because
+    ///        assertions are deployed against an empty state where calling the pool would fail.
+    constructor(address pool_, address addressesProvider_) {
         POOL = pool_;
-        ADDRESSES_PROVIDER = IAaveV3LikePool(pool_).ADDRESSES_PROVIDER();
+        ADDRESSES_PROVIDER = addressesProvider_;
     }
 
     /// @notice Returns the Aave v3-like pool selectors relevant to the shared lending invariants.

@@ -33,8 +33,8 @@ contract AaveV3LikeOperationSafetyTest is Test {
 
     function setUp() external {
         pool = new MockAaveV3LikePool(address(0xBEEF));
-        sparkSuite = new SparkLendV1ProtectionSuite(address(pool));
-        aaveSuite = new AaveV3HorizonProtectionSuite(address(pool));
+        sparkSuite = new SparkLendV1ProtectionSuite(address(pool), address(0xBEEF));
+        aaveSuite = new AaveV3HorizonProtectionSuite(address(pool), address(0xBEEF));
     }
 
     function testMonitoredSelectorsMatchAaveV3LikeSurface() external view {
@@ -190,8 +190,10 @@ contract AaveV3LikeOperationSafetyTest is Test {
     }
 
     function testAaveAndSparkAssertionsDeploy() external {
-        AaveV3HorizonOperationSafetyAssertion aaveAssertion = new AaveV3HorizonOperationSafetyAssertion(address(pool));
-        SparkLendV1OperationSafetyAssertion sparkAssertion = new SparkLendV1OperationSafetyAssertion(address(pool));
+        AaveV3HorizonOperationSafetyAssertion aaveAssertion =
+            new AaveV3HorizonOperationSafetyAssertion(address(pool), address(0xBEEF));
+        SparkLendV1OperationSafetyAssertion sparkAssertion =
+            new SparkLendV1OperationSafetyAssertion(address(pool), address(0xBEEF));
 
         assertTrue(address(aaveAssertion) != address(0));
         assertTrue(address(sparkAssertion) != address(0));
