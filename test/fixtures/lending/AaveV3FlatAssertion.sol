@@ -15,7 +15,7 @@ import {IAaveV3LikePool} from "../../../src/protection/lending/examples/AaveV3Li
 ///      registration or at execution time. This flat variant fuses the Aave borrow → health
 ///      factor check directly into the assertion contract.
 contract AaveV3FlatAssertion is Assertion {
-    error AaveV3UnhealthyAfterBorrow(address account, uint256 healthFactor);
+    error AaveV3NewlyUnhealthyAfterBorrow(address account, uint256 beforeHealthFactor, uint256 afterHealthFactor);
 
     uint256 internal constant HEALTH_FACTOR_THRESHOLD = 1e18;
 
@@ -30,22 +30,32 @@ contract AaveV3FlatAssertion is Assertion {
         registerFnCallTrigger(this.assertBorrowSolvency.selector, IAaveV3LikePool.borrow.selector);
     }
 
-    /// @notice Asserts that the borrower's health factor stays at or above 1.0 after a borrow.
-    /// @dev Reads `getUserAccountData(onBehalfOf)` at the post-call snapshot fork. The
-    ///      `onBehalfOf` address is the fifth borrow argument (index 4 in the calldata payload).
+    /// @notice Asserts that a borrow does not move the borrower from healthy to unhealthy.
+    /// @dev Reads `getUserAccountData(onBehalfOf)` before and after the call. Accounts that were
+    ///      already below 1.0 before the call are allowed so existing unhealthy positions do not
+    ///      cause false positives.
     function assertBorrowSolvency() external view {
         PhEvm.TriggerContext memory ctx = ph.context();
         bytes memory input = ph.callinputAt(ctx.callStart);
         (,,,, address onBehalfOf) = abi.decode(_args(input), (address, uint256, uint256, uint16, address));
 
-        bytes memory data = abi.encodeCall(IAaveV3LikePool.getUserAccountData, (onBehalfOf));
-        PhEvm.StaticCallResult memory result = ph.staticcallAt(POOL, data, 500_000, _postCall(ctx.callEnd));
-        require(result.ok, "AaveV3FlatAssertion: pool view failed");
-        (,,,,, uint256 healthFactor) = abi.decode(result.data, (uint256, uint256, uint256, uint256, uint256, uint256));
-
-        if (healthFactor < HEALTH_FACTOR_THRESHOLD) {
-            revert AaveV3UnhealthyAfterBorrow(onBehalfOf, healthFactor);
+        uint256 beforeHealthFactor = _healthFactorAt(onBehalfOf, _preCall(ctx.callStart));
+        if (beforeHealthFactor < HEALTH_FACTOR_THRESHOLD) {
+            return;
         }
+
+        uint256 afterHealthFactor = _healthFactorAt(onBehalfOf, _postCall(ctx.callEnd));
+
+        if (afterHealthFactor < HEALTH_FACTOR_THRESHOLD) {
+            revert AaveV3NewlyUnhealthyAfterBorrow(onBehalfOf, beforeHealthFactor, afterHealthFactor);
+        }
+    }
+
+    function _healthFactorAt(address account, PhEvm.ForkId memory fork) internal view returns (uint256 healthFactor) {
+        bytes memory data = abi.encodeCall(IAaveV3LikePool.getUserAccountData, (account));
+        PhEvm.StaticCallResult memory result = ph.staticcallAt(POOL, data, 500_000, fork);
+        require(result.ok, "AaveV3FlatAssertion: pool view failed");
+        (,,,,, healthFactor) = abi.decode(result.data, (uint256, uint256, uint256, uint256, uint256, uint256));
     }
 
     function _args(bytes memory input) internal pure returns (bytes memory args) {

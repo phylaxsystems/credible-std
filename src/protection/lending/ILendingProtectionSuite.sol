@@ -8,8 +8,8 @@ import {PhEvm} from "../../PhEvm.sol";
 /// @notice Step-oriented interface for protocol-specific lending protection suites.
 /// @dev Implementations expose the protocol-specific plumbing needed to assert a shared family of
 ///      lending-protocol invariants:
-///      - any successful action that increases debt or reduces effective collateral must leave the
-///        affected account solvent under the protocol's own risk metric
+///      - any successful action that increases debt or reduces effective collateral must not move a
+///        solvent account into insolvency under the protocol's own risk metric
 ///      - successful withdrawals must not consume more claim than the account had before the call
 ///      - successful liquidations must not consume more debt or collateral than existed before the call
 ///      The bounded-consumption portion should be measured from the successful call's actual effect,
@@ -24,7 +24,7 @@ import {PhEvm} from "../../PhEvm.sol";
 ///         `consumed <= availableBefore` for each returned check.
 ///      5. Filter to solvency-relevant operations with `shouldCheckPostOperationSolvency(...)`.
 ///      6. Read the account snapshot with `getAccountSnapshot(...)`.
-///      7. Require `snapshot.solvency.isSolvent == true`.
+///      7. Require that a solvent pre-call account remains solvent after the call.
 ///
 ///      Different protocols can encode different solvency metrics while preserving the same invariant:
 ///      - Aave-like systems can expose `metric = healthFactor`, `threshold = 1e18`, `comparison = Gte`.

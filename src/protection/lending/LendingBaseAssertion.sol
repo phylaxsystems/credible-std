@@ -65,7 +65,7 @@ abstract contract LendingProtectionSuiteBase is ForkUtils, ILendingProtectionSui
 /// @dev Inherit this together with a concrete `ILendingProtectionSuite` implementation. The base
 ///      contract handles one decode pass per triggered call, then enforces both:
 ///      - any bounded-consumption checks returned by the suite
-///      - post-operation solvency for risk-increasing operations
+///      - healthy accounts are not made insolvent by risk-increasing operations
 abstract contract LendingBaseAssertion is Assertion {
     error LendingTriggeredCallNotFound(bytes4 selector, uint256 callStart);
     error LendingOperationAccountMissing(bytes4 selector);
@@ -135,7 +135,7 @@ abstract contract LendingBaseAssertion is Assertion {
         PhEvm.ForkId memory afterFork = _postCall(triggered.callEnd);
 
         _assertConsumptionChecks(suite, triggered, operation, beforeFork, afterFork);
-        _assertPostOperationSolvency(suite, triggered, operation, afterFork);
+        _assertPostOperationSolvency(suite, triggered, operation, beforeFork, afterFork);
     }
 
     /// @notice Enforces the suite-provided bounded-consumption checks for the triggered operation.
@@ -172,10 +172,10 @@ abstract contract LendingBaseAssertion is Assertion {
         }
     }
 
-    /// @notice Enforces post-operation solvency for risk-increasing operations.
-    /// @dev Operations that do not increase debt or reduce effective collateral are skipped. This is
-    ///      the original shared lending invariant, now run as one stage of the broader
-    ///      operation-safety pipeline.
+    /// @notice Enforces that risk-increasing operations do not newly make an account insolvent.
+    /// @dev Operations that do not increase debt or reduce effective collateral are skipped. Accounts
+    ///      already insolvent before the call are also skipped so existing bad debt or liquidatable
+    ///      positions do not cause false positives on unrelated account-management actions.
     /// @param suite The protocol-specific lending suite.
     /// @param triggered The exact adopter frame that caused the assertion to run.
     /// @param operation The decoded lending operation.
@@ -184,15 +184,21 @@ abstract contract LendingBaseAssertion is Assertion {
         ILendingProtectionSuite suite,
         ILendingProtectionSuite.TriggeredCall memory triggered,
         ILendingProtectionSuite.OperationContext memory operation,
+        PhEvm.ForkId memory beforeFork,
         PhEvm.ForkId memory afterFork
     ) internal view {
-        // bug: false positive on partial liquidation or adding new cross collateral reserve asset or e mode switch if undercolalteralized
         if (!suite.shouldCheckPostOperationSolvency(operation)) {
             return;
         }
 
         if (operation.account == address(0)) {
             revert LendingOperationAccountMissing(triggered.selector);
+        }
+
+        ILendingProtectionSuite.AccountSnapshot memory beforeSnapshot =
+            suite.getAccountSnapshot(operation.account, beforeFork);
+        if (!beforeSnapshot.solvency.isSolvent) {
+            return;
         }
 
         ILendingProtectionSuite.AccountSnapshot memory snapshot = suite.getAccountSnapshot(operation.account, afterFork);

@@ -56,14 +56,32 @@ contract AaveV3OperationSafetyBehaviorTest is Test, CredibleTest {
         pool.borrow(asset, 10e18, 2, 0, alice);
     }
 
-    /// @notice A borrow that pushes the borrower's health factor below 1.0 must trip the
-    ///         post-operation solvency check.
+    /// @notice A borrow that moves a healthy borrower below 1.0 must trip the solvency check.
     function testUnsolventBorrowTripsSolvencyCheck() public {
         pool.setNextHealthFactor(alice, UNHEALTHY_HF);
 
         _arm();
         vm.prank(alice);
         vm.expectRevert();
+        pool.borrow(asset, 10e18, 2, 0, alice);
+    }
+
+    /// @notice A borrow from an already unhealthy account should not fail solely because the
+    ///         post-call account remains unhealthy.
+    function testAlreadyUnhealthyBorrowPassesWhenStillUnhealthy() public {
+        pool.setAccount({
+            user: alice,
+            totalCollateralBase: 200e18,
+            totalDebtBase: 100e18,
+            availableBorrowsBase: 0,
+            currentLiquidationThreshold: 8000,
+            ltv: 7000,
+            healthFactor: UNHEALTHY_HF
+        });
+        pool.setNextHealthFactor(alice, 8e17);
+
+        _arm();
+        vm.prank(alice);
         pool.borrow(asset, 10e18, 2, 0, alice);
     }
 
