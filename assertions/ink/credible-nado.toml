@@ -1,0 +1,9 @@
+environment = "production"
+
+[contracts.nado_clearinghouse]
+address = "0xD218103918C19D0A10cf35300E4CfAfbD444c5fE"
+name = "nado_clearinghouse"
+
+assertions = [
+	{file = "src/protection/perpetual/examples/nado/NadoClearinghouseAssertion.sol", args = ["0x05ec92D78ED421f3D3Ada77FFdE167106565974E", "0xD218103918C19D0A10cf35300E4CfAfbD444c5fE", "0xFCD94770B95fD9cC67143132bb172Eb17A0907FE", "0x0200C29006150606B650577BBE7B6248F58470c1", "0x09Fb495aA7859635f755E827d64C4C9a2e5B9651", "1000000000000", "5000", "1000", "2000", "86400"]}
+]
