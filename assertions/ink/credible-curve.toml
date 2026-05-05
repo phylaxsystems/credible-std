@@ -1,0 +1,17 @@
+environment = "production"
+
+[contracts.curve_stableng_wrseth_weth]
+address = "0xfadcec57cce100e5767a9f9a0ab2d0bd848f43c5"
+name = "curve_stableng_wrseth_weth"
+
+assertions = [
+	{file = "src/protection/swaps/examples/stableswap-ng/StableSwapNGPoolAssertion.sol", args = ["0xfadcec57cce100e5767a9f9a0ab2d0bd848f43c5", "8", "1000000", "1000000000000"]}
+]
+
+[contracts.curve_stableng_usdc_usdt0]
+address = "0xcFB5FbBd2fB13Ef5216b91e00cFF794654c8B4dD"
+name = "curve_stableng_usdc_usdt0"
+
+assertions = [
+	{file = "src/protection/swaps/examples/stableswap-ng/StableSwapNGPoolAssertion.sol", args = ["0xcFB5FbBd2fB13Ef5216b91e00cFF794654c8B4dD", "8", "1000000", "1000000000000"]}
+]

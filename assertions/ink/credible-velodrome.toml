@@ -1,0 +1,34 @@
+environment = "production"
+
+[contracts.velodrome_slipstream_usdt0_weth_0_05]
+address = "0xac7fc3e9b9d3377a90650fe62b858ff56bd841c9"
+name = "velodrome_slipstream_usdt0_weth_0_05"
+
+assertions = [
+	{file = "src/protection/swaps/examples/UniswapV3PoolAssertion.sol", args = ["0xac7fc3e9b9d3377a90650fe62b858ff56bd841c9", "0x0200c29006150606b650577bbe7b6248f58470c1", "0x4200000000000000000000000000000000000006"]}
+]
+
+[contracts.velodrome_slipstream_usdt0_usdc_0_01]
+address = "0x62c92624b8583156fc9345a7a0ed8a1f6a9ad848"
+name = "velodrome_slipstream_usdt0_usdc_0_01"
+
+assertions = [
+	{file = "src/protection/swaps/examples/UniswapV3PoolAssertion.sol", args = ["0x62c92624b8583156fc9345a7a0ed8a1f6a9ad848", "0x0200c29006150606b650577bbe7b6248f58470c1", "0x2d270e6886d130d724215a266106e6832161eaed"]}
+]
+
+[contracts.velodrome_slipstream_usdc_weth_0_05]
+address = "0xcc7c17cc1e74016fccd8ef413ca811595f76c67a"
+name = "velodrome_slipstream_usdc_weth_0_05"
+
+assertions = [
+	{file = "src/protection/swaps/examples/UniswapV3PoolAssertion.sol", args = ["0xcc7c17cc1e74016fccd8ef413ca811595f76c67a", "0x2d270e6886d130d724215a266106e6832161eaed", "0x4200000000000000000000000000000000000006"]}
+]
+
+[contracts.velodrome_v2_ieth_weth]
+address = "0x685e46328d8eea70a2d60e51a14e3443ab2882bc"
+name = "velodrome_v2_ieth_weth"
+
+assertions = [
+	{file = "src/protection/swaps/examples/AerodromePoolAssertion.sol", args = ["0x685e46328d8eea70a2d60e51a14e3443ab2882bc", "0x11476323d8dfcbafac942588e2f38823d2dd308e", "0x4200000000000000000000000000000000000006", "false", "1000000000000000000", "1000000000000000000"]}
+]
+

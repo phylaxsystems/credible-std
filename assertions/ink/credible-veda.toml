@@ -1,0 +1,33 @@
+environment = "production"
+
+[contracts.sentora_advanced_yields_usd]
+address = "0x63D124cF1afC22F0CCEa376168200508d2A0868E"
+name = "sentora_advanced_yields_usd"
+
+assertions = [
+	{file = "src/protection/vault/examples/veda/base/BoringVaultAssertion.sol", args = ["0x63D124cF1afC22F0CCEa376168200508d2A0868E", "0x8C9C454C51eCc717eA03eC03B904565f405DEAF7", "6", ["0x2D270e6886d130D724215A266106e6832161EAEd"], "50", "115792089237316195423570985008687907853269984665640564039457584007913129639935", "1000", "1000", "86400"]}
+]
+
+[contracts.advanced_strategies_usdc]
+address = "0x9761DDF8e79930b334f1Be1BD93aBE3695061CcA"
+name = "advanced_strategies_usdc"
+
+assertions = [
+	{file = "src/protection/vault/examples/veda/base/BoringVaultAssertion.sol", args = ["0x9761DDF8e79930b334f1Be1BD93aBE3695061CcA", "0x427a3c091F09fa6212d177060bb7456Abf538b22", "6", ["0x2D270e6886d130D724215A266106e6832161EAEd"], "50", "115792089237316195423570985008687907853269984665640564039457584007913129639935", "1000", "1000", "86400"]}
+]
+
+[contracts.balanced_yield_usdc]
+address = "0xcaae49fb7f74cCFBE8A05E6104b01c097a78789f"
+name = "balanced_yield_usdc"
+
+assertions = [
+	{file = "src/protection/vault/examples/veda/base/BoringVaultAssertion.sol", args = ["0xcaae49fb7f74cCFBE8A05E6104b01c097a78789f", "0x0C4dF79d9e35E5C4876BC1aE4663E834312DDc67", "6", ["0x2D270e6886d130D724215A266106e6832161EAEd"], "50", "115792089237316195423570985008687907853269984665640564039457584007913129639935", "1000", "1000", "86400"]}
+]
+
+[contracts.boosted_yield_usdc]
+address = "0xDbD87325D7b1189Dcc9255c4926076fF4a96A271"
+name = "boosted_yield_usdc"
+
+assertions = [
+	{file = "src/protection/vault/examples/veda/base/BoringVaultAssertion.sol", args = ["0xDbD87325D7b1189Dcc9255c4926076fF4a96A271", "0x9c2477D4Ea17d3cCC45e6b1087c94d14926F54C9", "6", ["0x2D270e6886d130D724215A266106e6832161EAEd"], "50", "115792089237316195423570985008687907853269984665640564039457584007913129639935", "1000", "1000", "86400"]}
+]
