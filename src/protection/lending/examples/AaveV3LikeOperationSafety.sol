@@ -46,7 +46,7 @@ contract AaveV3LikeProtectionSuite is LendingProtectionSuiteBase {
     }
 
     /// @notice Returns the Aave v3-like pool selectors relevant to the shared lending invariants.
-    function getMonitoredSelectors() external pure override returns (bytes4[] memory selectors) {
+    function getMonitoredSelectors() external pure virtual override returns (bytes4[] memory selectors) {
         selectors = new bytes4[](6);
         selectors[0] = IAaveV3LikePool.borrow.selector;
         selectors[1] = IAaveV3LikePool.withdraw.selector;
@@ -59,7 +59,8 @@ contract AaveV3LikeProtectionSuite is LendingProtectionSuiteBase {
     /// @notice Decodes an Aave v3-like pool call into the shared lending operation model.
     function decodeOperation(TriggeredCall calldata triggered)
         external
-        pure
+        view
+        virtual
         override
         returns (OperationContext memory operation)
     {

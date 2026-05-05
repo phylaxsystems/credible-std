@@ -1,0 +1,9 @@
+environment = "production"
+
+[contracts.tydro_pool]
+address = "0x2816cf15F6d2A220E789aA011D5EE4eB6c47FEbA"
+name = "tydro_pool"
+
+assertions = [
+	{file = "src/protection/lending/examples/TydroOperationSafety.sol", contract = "TydroOperationSafetyAssertion", args = ["0x2816cf15F6d2A220E789aA011D5EE4eB6c47FEbA", "0x4172E6aAEC070ACB31aaCE343A58c93E4C70f44D"]}
+]
