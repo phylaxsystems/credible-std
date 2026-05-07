@@ -14,9 +14,21 @@ gas_limit = 100000000
 # Include test directory
 test = "test"
 
+[profile.assertions-book]
+src = "examples/assertions-book/assertions/src"
+test = "examples/assertions-book/test"
+out = "examples/assertions-book/out"
+cache_path = "examples/assertions-book/cache"
+libs = ["lib"]
+remappings = [
+  "credible-std/=src/",
+  "forge-std/=lib/forge-std/src/",
+  "openzeppelin-contracts/=lib/openzeppelin-contracts/contracts/"
+]
+
 [doc]
 title = "Credible Standard Library"
 repository = "https://github.com/phylaxsystems/credible-std"
-ignore = ["test/**", "lib/**"]
+ignore = ["test/**", "lib/**", "examples/**"]
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

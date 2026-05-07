@@ -12,3 +12,19 @@ jobs:
       gas-diff-tolerance: 25
       forge-test-args: "--no-match-path 'test/backtesting/**'"
       disable-gas-snapshot: true
+
+  assertions-book-examples:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Build Assertions Book examples
+        run: FOUNDRY_PROFILE=assertions-book forge build
