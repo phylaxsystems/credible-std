@@ -64,9 +64,7 @@ contract V2PrecompilesTest is Test, CredibleTest {
     function test_CallInputAt_emptyCalldataReturnsEmptyBytes() public {
         _etchTarget();
         _arm(
-            address(TARGET),
-            type(TestCallInputAt).creationCode,
-            TestCallInputAt.emptyCalldataReturnsEmptyBytes.selector
+            address(TARGET), type(TestCallInputAt).creationCode, TestCallInputAt.emptyCalldataReturnsEmptyBytes.selector
         );
         new CallInputAtTx();
     }
@@ -137,9 +135,7 @@ contract V2PrecompilesTest is Test, CredibleTest {
     function test_GetLogsForCall_logsAreScopedToTheirCall() public {
         _etchTarget();
         _arm(
-            address(TARGET),
-            type(TestGetLogsForCall).creationCode,
-            TestGetLogsForCall.logsAreScopedToTheirCall.selector
+            address(TARGET), type(TestGetLogsForCall).creationCode, TestGetLogsForCall.logsAreScopedToTheirCall.selector
         );
         new LogsForCallTx();
     }
@@ -336,7 +332,9 @@ contract V2PrecompilesTest is Test, CredibleTest {
     function test_Erc20_unknownTokenReturnsEmpty() public {
         _etchErc20();
         _arm(
-            address(TOKEN_A), type(TestErc20Transfers).creationCode, TestErc20Transfers.unknownTokenReturnsEmpty.selector
+            address(TOKEN_A),
+            type(TestErc20Transfers).creationCode,
+            TestErc20Transfers.unknownTokenReturnsEmpty.selector
         );
         new Erc20Tx();
     }

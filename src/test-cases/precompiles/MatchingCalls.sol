@@ -10,11 +10,7 @@ contract TestMatchingCalls is Assertion {
 
     function _anyFilter() internal pure returns (PhEvm.CallFilter memory) {
         return PhEvm.CallFilter({
-            callType: 0,
-            minDepth: 0,
-            maxDepth: type(uint32).max,
-            topLevelOnly: false,
-            successOnly: false
+            callType: 0, minDepth: 0, maxDepth: type(uint32).max, topLevelOnly: false, successOnly: false
         });
     }
 
@@ -33,8 +29,7 @@ contract TestMatchingCalls is Assertion {
         PhEvm.CallFilter memory filter = _anyFilter();
         filter.callType = 2; // STATICCALL
 
-        PhEvm.TriggerCall[] memory calls =
-            ph.matchingCalls(address(TARGET), Target.readStorage.selector, filter, 10);
+        PhEvm.TriggerCall[] memory calls = ph.matchingCalls(address(TARGET), Target.readStorage.selector, filter, 10);
         require(calls.length == 1, "expected exactly 1 staticcall to readStorage");
         require(calls[0].callType == 2, "callType != STATICCALL");
     }
@@ -43,8 +38,7 @@ contract TestMatchingCalls is Assertion {
         PhEvm.CallFilter memory filter = _anyFilter();
         filter.callType = 1; // CALL
 
-        PhEvm.TriggerCall[] memory calls =
-            ph.matchingCalls(address(TARGET), Target.readStorage.selector, filter, 10);
+        PhEvm.TriggerCall[] memory calls = ph.matchingCalls(address(TARGET), Target.readStorage.selector, filter, 10);
         require(calls.length == 0, "CALL filter should not match staticcall");
     }
 
@@ -52,8 +46,7 @@ contract TestMatchingCalls is Assertion {
         PhEvm.CallFilter memory filter = _anyFilter();
         filter.topLevelOnly = true;
 
-        PhEvm.TriggerCall[] memory calls =
-            ph.matchingCalls(address(TARGET), Target.writeStorage.selector, filter, 10);
+        PhEvm.TriggerCall[] memory calls = ph.matchingCalls(address(TARGET), Target.writeStorage.selector, filter, 10);
         // Only the top-level writeStorage(1) call is depth==1; the call from incrementStorage is nested.
         require(calls.length == 1, "expected 1 top-level writeStorage");
         require(calls[0].depth == 1, "depth != 1");

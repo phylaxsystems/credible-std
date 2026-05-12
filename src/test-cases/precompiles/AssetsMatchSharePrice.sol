@@ -43,9 +43,7 @@ contract TestAssetsMatchSharePrice is Assertion {
     }
 
     function identicalForksAlwaysPass() external {
-        require(
-            ph.assetsMatchSharePriceAt(address(VAULT), 0, _postTx(), _postTx()), "same-fork compare must pass"
-        );
+        require(ph.assetsMatchSharePriceAt(address(VAULT), 0, _postTx(), _postTx()), "same-fork compare must pass");
     }
 
     function triggers() external view override {
