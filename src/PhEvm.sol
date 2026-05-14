@@ -506,6 +506,15 @@ interface PhEvm {
         ForkId calldata currentFork
     ) external returns (bool);
 
+    /// @notice Returns an off-chain market reference price for an asset pair.
+    /// @dev `denomAsset == address(0)` means the price is quoted in USD. Any other denominator
+    ///      means the price is quoted in that ERC-20 asset. The return value is normalized to
+    ///      18 decimals and should revert when no credible market reference exists.
+    /// @param asset The asset whose market price should be resolved.
+    /// @param denomAsset The quote asset, or address(0) for USD.
+    /// @return price The 18-decimal market price of `asset` in `denomAsset`.
+    function marketPrice(address asset, address denomAsset) external view returns (uint256 price);
+
     // ---------------------------------------------------------------
     //  V2: Math precompiles
     // ---------------------------------------------------------------
