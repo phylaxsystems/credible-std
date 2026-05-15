@@ -26,6 +26,13 @@ remappings = [
   "openzeppelin-contracts/=lib/openzeppelin-contracts/contracts/"
 ]
 
+[profile.vault-demo]
+src = "examples/vault_demo/src"
+test = "examples/vault_demo/test"
+out = "examples/vault_demo/out"
+cache_path = "examples/vault_demo/cache"
+libs = ["lib"]
+
 [doc]
 title = "Credible Standard Library"
 repository = "https://github.com/phylaxsystems/credible-std"
