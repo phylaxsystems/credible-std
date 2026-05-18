@@ -6,6 +6,11 @@ Standard library for implementing assertions in the Phylax Credible Layer (PCL).
 
 Full API documentation is available at: https://phylaxsystems.github.io/credible-std
 
+## Examples
+
+Assertion Book examples live in `examples/assertions-book`; micro-pattern examples
+live in `examples/micro-patterns`.
+
 ## Installation
 
 ### Using Foundry (Recommended)

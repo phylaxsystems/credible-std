@@ -14,6 +14,18 @@ gas_limit = 100000000
 # Include test directory
 test = "test"
 
+[profile.assertions-book]
+src = "examples/assertions-book/assertions/src"
+test = "examples/assertions-book/test"
+out = "examples/assertions-book/out"
+cache_path = "examples/assertions-book/cache"
+libs = ["lib"]
+remappings = [
+  "credible-std/=src/",
+  "forge-std/=lib/forge-std/src/",
+  "openzeppelin-contracts/=lib/openzeppelin-contracts/contracts/"
+]
+
 [profile.micro-patterns]
 src = "examples/micro-patterns/src"
 test = "examples/micro-patterns/test"
