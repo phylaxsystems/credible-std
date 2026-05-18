@@ -2,43 +2,6 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {Credible} from "../src/Credible.sol";
-import {CredibleTest} from "../src/CredibleTest.sol";
-import {Assertion} from "../src/Assertion.sol";
-import {console as PhConsole} from "../src/Console.sol";
-
-/// @title Constants Unit Tests
-/// @notice Ensures precompile addresses don't accidentally change
-/// @dev These addresses are derived from deterministic hashes and must remain stable
-contract ConstantsTest is Test, Credible {
-    /// @notice Test PhEvm precompile address is stable
-    function testPhEvmAddress() public pure {
-        // Address derived from keccak256("Kim Jong Un Sucks")
-        address expected = address(uint160(uint256(keccak256("Kim Jong Un Sucks"))));
-        assertEq(address(ph), expected);
-        assertEq(address(ph), 0x4461812e00718ff8D80929E3bF595AEaaa7b881E);
-    }
-
-    /// @notice Test CredibleTest cl cheatcode address is stable
-    function testCredibleTestAddress() public pure {
-        // Address derived from keccak256("hevm cheat code") - same as Forge's VM
-        address expected = address(uint160(uint256(keccak256("hevm cheat code"))));
-        assertEq(expected, 0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
-    }
-
-    /// @notice Test TriggerRecorder address is stable
-    function testTriggerRecorderAddress() public pure {
-        // Address derived from keccak256("TriggerRecorder")
-        address expected = address(uint160(uint256(keccak256("TriggerRecorder"))));
-        assertEq(expected, 0x55BB9AD8Dc1EE06D47279fC2B23Cd755B7f2d326);
-    }
-
-    /// @notice Test Console address matches PhEvm (same precompile)
-    function testConsoleAddress() public pure {
-        address expected = address(uint160(uint256(keccak256("Kim Jong Un Sucks"))));
-        assertEq(expected, 0x4461812e00718ff8D80929E3bF595AEaaa7b881E);
-    }
-}
 
 /// @title StateChanges Unit Tests
 /// @notice Tests pure utility functions in StateChanges

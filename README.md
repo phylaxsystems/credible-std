@@ -8,27 +8,8 @@ Full API documentation is available at: https://phylaxsystems.github.io/credible
 
 ## Examples
 
-The Assertions Book examples live in `examples/assertions-book`. This directory
-is the canonical source for the code snippets imported by
-`phylaxsystems/phylax-docs`.
-
-| Directory | Purpose |
-|----------|---------|
-| `examples/assertions-book/assertions/src` | Assertion contracts used by the Assertions Book |
-| `examples/assertions-book/src` | Mock protocols and helper contracts imported by assertion examples |
-
-Compile the Assertions Book example sources with:
-
-```bash
-FOUNDRY_PROFILE=assertions-book forge build
-```
-
-Docs automation imports snippets from
-`examples/assertions-book/assertions/src`; update examples here before updating
-the docs pages that reference them.
-
-After example changes merge, run the `Import Credible Std Assertion Examples`
-workflow in `phylaxsystems/phylax-docs` to refresh the rendered snippets.
+Assertion Book examples live in `examples/assertions-book`; micro-pattern examples
+live in `examples/micro-patterns`.
 
 ## Installation
 
