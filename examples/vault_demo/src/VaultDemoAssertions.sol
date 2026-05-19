@@ -148,18 +148,10 @@ contract VaultCircuitBreakerAssertion is Assertion {
     }
 
     function assertCumulativeInflow() external view {
-        PhEvm.InflowContext memory ctx = ph.inflowContext();
-        require(ph.getAssertionAdopter() == vault, "VaultDemo: wrong vault");
-        require(ctx.token == asset, "VaultDemo: wrong inflow token");
-
         revert("VaultDemo: cumulative inflow breaker tripped");
     }
 
     function assertCumulativeOutflow() external view {
-        PhEvm.OutflowContext memory ctx = ph.outflowContext();
-        require(ph.getAssertionAdopter() == vault, "VaultDemo: wrong vault");
-        require(ctx.token == asset, "VaultDemo: wrong outflow token");
-
         revert("VaultDemo: cumulative outflow breaker tripped");
     }
 }
