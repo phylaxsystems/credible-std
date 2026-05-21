@@ -481,6 +481,26 @@ interface PhEvm {
     function inflowContext() external view returns (InflowContext memory ctx);
 
     // ---------------------------------------------------------------
+    //  V2: Anomaly detection
+    // ---------------------------------------------------------------
+
+    /// @notice Context returned by `anomalyContext(target)` describing the
+    ///         anomaly detector's view of `target` for the current tx.
+    /// @dev `scoreBps` is in basis points (0..=10_000), where 0 is
+    ///      "very likely not anomalous" and 10_000 is "very likely anomalous".
+    struct AnomalyContext {
+        uint16 scoreBps;
+    }
+
+    /// @notice Returns the anomaly detector's view of `target` for the
+    ///         current transaction.
+    /// @dev Returns a zero-filled context when `target` was not 
+    ///      able to be scored, such that it fails open.
+    /// @param target The address whose anomaly context to read.
+    /// @return ctx The anomaly context for `target` in the current tx.
+    function anomalyContext(address target) external view returns (AnomalyContext memory ctx);
+
+    // ---------------------------------------------------------------
     //  V2: Protection suite — oracle sanity
     // ---------------------------------------------------------------
 
