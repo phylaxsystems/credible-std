@@ -1,4 +1,103 @@
-# Safe Config Lock Assertion
+# Safe Assertions
+
+This package contains Safe-native assertion packs. They are intentionally separate because they protect different surfaces:
+
+- `SafeConfigLockAssertion` checks the Safe configuration envelope after a transaction.
+- `SafeTxShapeAssertion` checks the direct actions a Safe is about to execute through owner or module entrypoints.
+
+## Safe Tx Shape Assertion
+
+`SafeTxShapeAssertion` blocks protected Safe executions whose direct action shape is outside policy, even when the Safe signers or a module authorize the transaction.
+
+It watches:
+
+- `execTransaction`
+- `execTransactionFromModule`
+- `execTransactionFromModuleReturnData`
+
+The pack exposes one assertion function per enforced policy: `assertSafeModulePolicy`, `assertSafeDelegateCallPolicy`, `assertSafeTargetSelectorPolicy`, `assertSafeBatchPolicy`, and `assertSafeApprovalPolicy`.
+
+Every watched execution is normalized into one or more actions. A normal owner or module transaction is one action. An approved `MultiSend` transaction is expanded into its packed inner actions, and every inner action is checked with the same rules.
+
+### What It Protects
+
+- Unknown contract targets with calldata are blocked.
+- Known targets must use an explicitly allowed selector unless the target is configured with the advanced `allowAnySelector` escape hatch.
+- Calldata shorter than four bytes is blocked unless the target explicitly allows empty or fallback-style calls.
+- Native value attached to a selector is blocked unless that selector or target allows nonzero value.
+- Direct Safe `DELEGATECALL` and module `DELEGATECALL` are blocked.
+- The only delegatecall exception is a configured batch executor such as Safe `MultiSend`.
+- `MultiSend` payloads are parsed strictly using Safe's packed format: operation byte, target address, value, data length, and data bytes.
+- Malformed, truncated, overlong, nested, or delegatecall-containing batches are blocked.
+- ERC-20 `approve`, ERC-20 `increaseAllowance`, ERC-721 `approve`, ERC-721 `setApprovalForAll`, and ERC-1155 `setApprovalForAll` receive a separate approval-policy check.
+
+### What It Does Not Protect
+
+This is not an outflow circuit breaker and not a Safe configuration lock. It does not measure final asset movement, price impact, solvency, owner changes, threshold changes, guard changes, or module set changes.
+
+This assertion validates the shape of actions the Safe directly executes. It does not fully model arbitrary downstream behavior inside trusted routers. If a trusted router internally moves funds or calls unknown contracts, that must be handled by separate effect-based assertions or by making the router-specific policy narrower.
+
+### How It Differs From SafeConfigLockAssertion
+
+`SafeConfigLockAssertion` runs at transaction end and checks the Safe's final owner, module, threshold, guard, module guard, and fallback-handler state.
+
+`SafeTxShapeAssertion` runs on each Safe execution call and checks the requested action tuple: target, value, calldata, operation, module caller, batch contents, and approval spender/operator. It can block a dangerous action even when the transaction would leave the Safe configuration unchanged.
+
+### Policy Model
+
+The MVP uses constructor-driven policy arrays.
+
+Known target policy:
+
+- `target`: contract address the Safe may call.
+- `allowAnySelector`: permits any selector for that target. This should be rare.
+- `allowEmptyCalldata`: permits empty calldata calls.
+- `allowFallbackCalldata`: permits calldata shorter than four bytes.
+- `allowNonzeroValue`: permits native value for target-level empty, fallback, or any-selector calls.
+
+Selector policy:
+
+- exact `(target, selector)` pairs;
+- per-selector native value permission.
+
+Batch executor policy:
+
+- approved executor address;
+- approved batch selector, normally `multiSend(bytes)`;
+- whether top-level delegatecall to that executor is allowed;
+- maximum inner action count;
+- nested batching flag, reserved for future support and rejected in this MVP.
+
+Module policy:
+
+- module execution can be disabled entirely;
+- when enabled, the module caller must be allowlisted;
+- allowlisted modules still must pass the same target, selector, delegatecall, batch, and approval checks.
+
+Approval policy:
+
+- token address;
+- spender or operator address;
+- approval kind;
+- numeric cap for ERC-20 approval-style calls;
+- explicit unlimited-approval permission.
+
+Approval resets and revocations are allowed by default when the token is configured for that approval kind: ERC-20 `approve(spender, 0)`, ERC-721 `approve(address(0), tokenId)`, and `setApprovalForAll(operator, false)` reduce approval risk. Risk-increasing approvals to untrusted spenders/operators, ERC-20 unlimited approvals without explicit permission, and ERC-20 amounts above cap are blocked.
+
+### Material Effect
+
+- A compromised UI cannot redirect signers to an arbitrary contract with arbitrary calldata.
+- A broad target allowlist is not enough to approve token approvals; spender/operator and amount policy still applies.
+- A module cannot bypass owner-path policy unless module execution is enabled and the module caller is allowlisted.
+- Safe `MultiSend` cannot hide an unknown target, unknown selector, approval grant, nested batch, malformed packed entry, or inner delegatecall.
+
+Conceptual examples:
+
+- Treasury Safe: allow only known token `transfer` selectors, known vesting contract claim selectors, and zero approval resets.
+- Operations Safe: allow an audited bridge adapter selector with no native value and a capped ERC-20 approval only to that adapter.
+- NFT custody Safe: allow marketplace listing functions but block `setApprovalForAll(true)` except to a time-bounded, trusted operator enforced by a separate deployment policy.
+
+## Safe Config Lock Assertion
 
 `SafeConfigLockAssertion` keeps a Safe multisig inside an approved configuration envelope after every protected transaction.
 
