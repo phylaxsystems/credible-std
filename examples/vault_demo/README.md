@@ -13,6 +13,39 @@ Run the demo tests with:
 FOUNDRY_PROFILE=vault-demo pcl test --offline
 ```
 
+## Deployment and attack scripts
+
+The demo also includes script contracts under `script/`:
+
+- `VaultDemoDeploy.s.sol` deploys the OpenZeppelin ERC20-based demo token, vulnerable/unprotected vault, protected vault, oracle, market, and curator vault. On broadcast runs, it sends only 1 wei to the configured Safe, mints demo USDM, then seeds both vaults and the market with 100 USDM from the deployer.
+- `VaultDemoDeploy.s.sol` exposes assertion attachment helpers for the protected vault and curator vault. In local PCL tests, call an attachment helper immediately before the transaction that should trigger that assertion.
+- `VaultDemoAttack.s.sol` sends bad transactions against deployed contracts. Set `VAULT_DEMO_ATTACK` to `unprotected-mint`, `protected-mint`, `donation`, `large-deposit`, or `curator-allocation`.
+
+Ink mainnet deployment:
+
+```sh
+VAULT_DEMO_SAFE=0x... \
+forge script examples/vault_demo/script/VaultDemoDeploy.s.sol:VaultDemoDeploy \
+  --rpc-url "$INK_RPC_URL" --account phy --broadcast
+```
+
+Attack transaction example:
+
+```sh
+VAULT_DEMO_ASSET=0x... \
+VAULT_DEMO_UNPROTECTED_VAULT=0x... \
+VAULT_DEMO_PROTECTED_VAULT=0x... \
+VAULT_DEMO_ATTACK=protected-mint \
+forge script examples/vault_demo/script/VaultDemoAttack.s.sol:VaultDemoAttack \
+  --rpc-url "$INK_RPC_URL" --account phy --broadcast
+```
+
+The script workflow is covered by `VaultDemoScripts.t.sol`:
+
+```sh
+FOUNDRY_PROFILE=vault-demo pcl test --offline --match-contract VaultDemoScriptsTest
+```
+
 Assertion mapping:
 
 - Use case 1: arm `VaultAssetsMatchSharePriceAssertion` on one vulnerable vault, then call the same broken `mint` on the protected and unprotected vaults.

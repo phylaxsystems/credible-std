@@ -1,0 +1,25 @@
+environment = "production"
+
+[contracts.protected_vault]
+address = "0x5C564B8c87Fa581E902AcBeAF37B6BB9300bea57"
+name = "Ink Vault Demo Protected Vault"
+
+[[contracts.protected_vault.assertions]]
+file = "assertions/src/InkVaultDemoAssertions.sol:VaultAssetsMatchSharePriceAssertion"
+args = ["0x5C564B8c87Fa581E902AcBeAF37B6BB9300bea57", "0"]
+
+[[contracts.protected_vault.assertions]]
+file = "assertions/src/InkVaultDemoAssertions.sol:VaultConvertToAssetsOracleSanityAssertion"
+args = ["0x5C564B8c87Fa581E902AcBeAF37B6BB9300bea57", "1000000000000000000", "100"]
+
+[[contracts.protected_vault.assertions]]
+file = "assertions/src/InkVaultDemoAssertions.sol:VaultCircuitBreakerAssertion"
+args = ["0x5C564B8c87Fa581E902AcBeAF37B6BB9300bea57", "0xef3eca0d55649a6e1d64fed0b6dccbf4f6e3162a"]
+
+[contracts.curator_vault]
+address = "0xe8adaa1ad124dd2232fda97c677533fd4668e13b"
+name = "Ink Vault Demo Curator Vault"
+
+[[contracts.curator_vault.assertions]]
+file = "assertions/src/InkVaultDemoAssertions.sol:CuratorMarketHealthAssertion"
+args = ["0xe8adaa1ad124dd2232fda97c677533fd4668e13b", "9900", "100"]
