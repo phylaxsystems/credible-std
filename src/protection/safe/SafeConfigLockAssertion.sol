@@ -55,7 +55,7 @@ contract SafeConfigLockAssertion is SafeConfigLockHelpers {
     }
 
     function triggers() external view override {
-        registerTxEndTrigger(this.assertSafeConfiguration.selector);
+        registerStorageChangeTrigger(this.assertSafeConfiguration.selector);
     }
 
     /// @notice Checks the Safe config after the triggering transaction has completed.

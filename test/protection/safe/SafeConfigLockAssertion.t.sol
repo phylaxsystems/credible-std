@@ -64,8 +64,6 @@ contract MockSafeConfigLockTarget {
         }
     }
 
-    function noop() external {}
-
     function setThreshold(uint256 threshold_) public {
         threshold = threshold_;
     }
@@ -130,7 +128,7 @@ contract SafeConfigLockAssertionTest is Test, CredibleTest {
     function testAllowsApprovedSafeConfiguration() public {
         _armBaselinePolicy();
 
-        safe.noop();
+        safe.setThreshold(3);
     }
 
     function testBlocksThresholdBelowMinimum() public {
@@ -171,7 +169,7 @@ contract SafeConfigLockAssertionTest is Test, CredibleTest {
             _singleHash(_hashAddressSet(_baselineOwners())), _zeroHashList(), GUARD, MODULE_GUARD, FALLBACK_HANDLER
         );
 
-        safe.noop();
+        safe.setThreshold(3);
     }
 
     function testZeroModuleSentinelBlocksEnabledModule() public {
