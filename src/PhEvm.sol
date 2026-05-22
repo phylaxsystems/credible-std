@@ -528,4 +528,10 @@ interface PhEvm {
         external
         pure
         returns (bool);
+
+    /// @notice Returns the market price of `asset` quoted in `denomAsset`, normalized to 18 decimals.
+    /// @param asset The asset whose price is requested.
+    /// @param denomAsset The quote asset, or address(0) for USD.
+    /// @return price The 18-decimal market price of `asset` in `denomAsset`.
+    function marketPrice(address asset, address denomAsset) external view returns (uint256 price);
 }
