@@ -21,9 +21,10 @@ Every watched execution is normalized into one or more actions. A normal owner o
 
 ### What It Protects
 
-- Unknown contract targets with calldata are blocked.
+- Unknown contract targets are blocked.
 - Known targets must use an explicitly allowed selector unless the target is configured with the advanced `allowAnySelector` escape hatch.
-- Calldata shorter than four bytes is blocked unless the target explicitly allows empty or fallback-style calls.
+- Empty calldata (zero bytes) is blocked unless the target sets `allowEmptyCalldata`.
+- Sub-selector calldata (one to three bytes, routed to the fallback) is blocked unless the target sets `allowFallbackCalldata`.
 - Native value attached to a selector is blocked unless that selector or target allows nonzero value.
 - Direct Safe `DELEGATECALL` and module `DELEGATECALL` are blocked.
 - The only delegatecall exception is a configured batch executor such as Safe `MultiSend`.
