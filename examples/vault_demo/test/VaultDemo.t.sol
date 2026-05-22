@@ -137,6 +137,16 @@ contract VaultDemoTest is Test, CredibleTest {
         protectedVault.withdraw(50 ether, alice, alice);
     }
 
+    function testVaultOwnersAreSetToDeployer() public {
+        address deployer = address(0xD00D);
+
+        vm.startPrank(deployer);
+        VulnerableERC4626Vault deployedVault = new VulnerableERC4626Vault(asset, "Deployed Vault", "dDEMO");
+        vm.stopPrank();
+
+        assertEq(deployedVault.owner(), deployer);
+    }
+
     function _seed(VulnerableERC4626Vault vault, uint256 assets) internal {
         vm.startPrank(alice);
         asset.approve(address(vault), assets);

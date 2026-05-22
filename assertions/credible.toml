@@ -1,7 +1,7 @@
 environment = "production"
 
 [contracts.protected_vault]
-address = "0xf5e13ad91af5f0a9d88115367f412959272254cc"
+address = "0xa390825958F42D7b23A490Be2e29311B12381917"
 name = "Ink Vault Demo Protected Vault"
 
 [[contracts.protected_vault.assertions]]
@@ -14,7 +14,7 @@ file = "assertions/src/InkVaultDemoAssertions.sol:InkVaultConvertToAssetsOracleS
 file = "assertions/src/InkVaultDemoAssertions.sol:InkVaultCircuitBreakerAssertion"
 
 [contracts.curator_vault]
-address = "0x7ae85cadf98fc9ac5741f05e11a3ad659d4435cb"
+address = "0xb8719a3d2bea53a739bCA7E47e3E32B25Fe5eB42"
 name = "Ink Vault Demo Curator Vault"
 
 [[contracts.curator_vault.assertions]]
