@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Assertion} from "credible-std/Assertion.sol";
 import {PhEvm} from "credible-std/PhEvm.sol";
+import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 
 /// @title SparkSLLInflowStopgapAssertion
 /// @author Phylax Systems
@@ -48,6 +49,8 @@ contract SparkSLLInflowStopgapAssertion is Assertion {
         watchedAsset = watchedAsset_;
         thresholdBps = thresholdBps_;
         windowDuration = windowDuration_;
+
+        registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
     /// @notice Registers the SLL asset outflow breaker.

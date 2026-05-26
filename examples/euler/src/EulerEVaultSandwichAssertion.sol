@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {PhEvm} from "credible-std/PhEvm.sol";
+import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 
 import {IEulerEVaultLike} from "./EulerEVaultInterfaces.sol";
 import {EulerEVaultSandwichBase, IEulerEVaultSandwichLike} from "./EulerEVaultSandwichHelpers.sol";
@@ -16,6 +17,10 @@ import {EulerEVaultSandwichBase, IEulerEVaultSandwichLike} from "./EulerEVaultSa
 ///      This defends the intra-call expectation that the pre-call preview and post-call result
 ///      match; it does not claim to prevent unrelated state changes before the transaction lands.
 contract EulerERC4626CallSandwichAssertion is EulerEVaultSandwichBase {
+    constructor() {
+        registerAssertionSpec(AssertionSpec.Reshiram);
+    }
+
     /// @notice Run the same call-sandwich invariant for each ERC-4626 mutator.
     /// @dev `assertErc4626CallWasHonest` once per successful matching EVault call,
     ///      with `ph.context()` pointing at that exact call frame.

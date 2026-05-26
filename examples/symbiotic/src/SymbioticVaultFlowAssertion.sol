@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {PhEvm} from "credible-std/PhEvm.sol";
+import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 import {ISymbioticVaultLike} from "./SymbioticInterfaces.sol";
 import {SymbioticVaultBaseAssertion} from "./SymbioticVaultBaseAssertion.sol";
 import {SymbioticVaultFlowHelpers} from "./SymbioticVaultFlowHelpers.sol";
@@ -174,7 +175,9 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticVaultFlowHelpers {
 /// @dev Use this when you only want deposit/withdraw/claim accounting checks without the
 ///      config-policy or circuit-breaker layers.
 contract SymbioticVaultProtection is SymbioticVaultFlowAssertion {
-    constructor(address vault_) SymbioticVaultBaseAssertion(vault_) {}
+    constructor(address vault_, address asset_) SymbioticVaultBaseAssertion(vault_, asset_) {
+        registerAssertionSpec(AssertionSpec.Reshiram);
+    }
 
     /// @notice Wires only the vault-flow triggers.
     /// @dev This bundle protects the happy-path accounting surface: deposit, withdraw, redeem,

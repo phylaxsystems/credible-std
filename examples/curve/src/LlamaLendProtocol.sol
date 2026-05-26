@@ -35,8 +35,11 @@ library LlamaLendControllerSelectors {
 abstract contract LlamaLendVaultProtocolHelpers is ERC4626AssetFlowAssertion {
     address internal immutable controller;
 
-    constructor(address vault_) {
-        controller = ILlamaLendVault(vault_).controller();
+    /// @dev `controller_` is passed explicitly so the constructor never reads `vault_.controller()`.
+    ///      The Credible Layer's assertion-deploy runtime is isolated from the adopter; a live
+    ///      protocol read during construction would revert with EXTCODESIZE = 0.
+    constructor(address controller_) {
+        controller = controller_;
     }
 
     function _netAssetFlow() internal view virtual override returns (int256 netFlow) {
@@ -81,9 +84,13 @@ abstract contract LlamaLendControllerProtocolHelpers is Assertion {
     address internal immutable borrowedToken;
     uint256 internal immutable availableBalanceTolerance;
 
-    constructor(address controller_, uint256 availableBalanceTolerance_) {
+    /// @dev `borrowedToken_` is passed explicitly so the constructor never reads
+    ///      `controller_.borrowed_token()`. The Credible Layer's assertion-deploy runtime is
+    ///      isolated from the adopter; a live protocol read during construction would revert
+    ///      with EXTCODESIZE = 0.
+    constructor(address controller_, address borrowedToken_, uint256 availableBalanceTolerance_) {
         controller = controller_;
-        borrowedToken = ILlamaLendController(controller_).borrowed_token();
+        borrowedToken = borrowedToken_;
         availableBalanceTolerance = availableBalanceTolerance_;
     }
 

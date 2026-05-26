@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
+import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 import {SymbioticVaultBaseAssertion} from "./SymbioticVaultBaseAssertion.sol";
 import {SymbioticVaultCircuitBreakerAssertion} from "./SymbioticVaultCircuitBreakerAssertion.sol";
 import {SymbioticVaultConfigAssertion} from "./SymbioticVaultConfigAssertion.sol";
@@ -23,11 +24,18 @@ contract SymbioticVaultAssertion is
     SymbioticVaultConfigAssertion,
     SymbioticVaultCircuitBreakerAssertion
 {
-    constructor(address vault_, VaultConfigPolicy memory policy_, LiquidationRoute[] memory liquidationRoutes_)
-        SymbioticVaultBaseAssertion(vault_)
+    constructor(
+        address vault_,
+        address asset_,
+        VaultConfigPolicy memory policy_,
+        LiquidationRoute[] memory liquidationRoutes_
+    )
+        SymbioticVaultBaseAssertion(vault_, asset_)
         SymbioticVaultConfigAssertion(policy_)
         SymbioticVaultCircuitBreakerAssertion(liquidationRoutes_)
-    {}
+    {
+        registerAssertionSpec(AssertionSpec.Reshiram);
+    }
 
     /// @notice Wires the full Symbiotic vault protection suite.
     /// @dev Per-call triggers watch user-facing vault mutations, tx-end checks catch config/state

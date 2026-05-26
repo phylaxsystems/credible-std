@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {PhEvm} from "credible-std/PhEvm.sol";
+import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 
 import {EulerEVaultCircuitBreakerMixin} from "./EulerEVaultCircuitBreakerAssertion.sol";
 import {EulerEVaultBase} from "./EulerEVaultHelpers.sol";
@@ -302,7 +303,9 @@ contract EulerEVaultAssertion is
     )
         EulerPerCallSharePriceMixin(sharePriceToleranceBps_)
         EulerEVaultCircuitBreakerMixin(asset_, inflowThresholdBps_, inflowWindowDuration_)
-    {}
+    {
+        registerAssertionSpec(AssertionSpec.Reshiram);
+    }
 
     /// @notice Registers all EVK example assertion triggers.
     /// @dev Intended for factory-scoped installs where the assertion adopter is the concrete EVault.
@@ -318,6 +321,10 @@ contract EulerEVaultAssertion is
 /// @author Phylax Systems
 /// @notice Standalone EVK user-storage/account-view consistency assertion for incremental rollout.
 contract EulerUserStorageAccountingAssertion is EulerUserStorageAccountingMixin {
+    constructor() {
+        registerAssertionSpec(AssertionSpec.Reshiram);
+    }
+
     /// @notice Registers the tx-end EVK user storage consistency assertion.
     function triggers() external view override {
         _registerUserStorageAccounting();
@@ -328,7 +335,9 @@ contract EulerUserStorageAccountingAssertion is EulerUserStorageAccountingMixin 
 /// @author Phylax Systems
 /// @notice Standalone EVK per-call virtual share-price assertion for incremental rollout.
 contract EulerPerCallSharePriceAssertion is EulerPerCallSharePriceMixin {
-    constructor(uint256 sharePriceToleranceBps_) EulerPerCallSharePriceMixin(sharePriceToleranceBps_) {}
+    constructor(uint256 sharePriceToleranceBps_) EulerPerCallSharePriceMixin(sharePriceToleranceBps_) {
+        registerAssertionSpec(AssertionSpec.Reshiram);
+    }
 
     /// @notice Registers EVK call-level share-price triggers.
     function triggers() external view override {
@@ -340,6 +349,10 @@ contract EulerPerCallSharePriceAssertion is EulerPerCallSharePriceMixin {
 /// @author Phylax Systems
 /// @notice Standalone EVK liquidation quote assertion for incremental rollout.
 contract EulerLiquidationQuoteAssertion is EulerLiquidationQuoteMixin {
+    constructor() {
+        registerAssertionSpec(AssertionSpec.Reshiram);
+    }
+
     /// @notice Registers EVK liquidation quote triggers.
     function triggers() external view override {
         _registerLiquidationQuote();

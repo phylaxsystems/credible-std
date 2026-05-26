@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {PhEvm} from "credible-std/PhEvm.sol";
+import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 import {ERC4626BaseAssertion} from "credible-std/protection/vault/ERC4626BaseAssertion.sol";
 import {ERC4626PreviewAssertion} from "credible-std/protection/vault/ERC4626PreviewAssertion.sol";
 import {ERC4626SharePriceAssertion} from "credible-std/protection/vault/ERC4626SharePriceAssertion.sol";
@@ -10,11 +11,13 @@ import {LlamaLendVaultProtocolHelpers} from "./LlamaLendProtocol.sol";
 /// @title LlamaLendVaultAssertion
 /// @notice Example LlamaLend vault checks for controller-backed accounting and borrowed-token custody.
 contract LlamaLendVaultAssertion is ERC4626SharePriceAssertion, ERC4626PreviewAssertion, LlamaLendVaultProtocolHelpers {
-    constructor(address vault_, address asset_, uint256 sharePriceToleranceBps_)
+    constructor(address vault_, address asset_, address controller_, uint256 sharePriceToleranceBps_)
         ERC4626BaseAssertion(vault_, asset_)
         ERC4626SharePriceAssertion(sharePriceToleranceBps_)
-        LlamaLendVaultProtocolHelpers(vault_)
-    {}
+        LlamaLendVaultProtocolHelpers(controller_)
+    {
+        registerAssertionSpec(AssertionSpec.Reshiram);
+    }
 
     /// @notice Registers ERC4626-style checks plus controller-side accounting and custody checks.
     function triggers() external view override {

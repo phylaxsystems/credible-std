@@ -2,14 +2,17 @@
 pragma solidity ^0.8.13;
 
 import {PhEvm} from "credible-std/PhEvm.sol";
+import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 import {CurveUsdControllerProtocolHelpers} from "./CurveUsdProtocol.sol";
 
 /// @title CurveUsdControllerAssertion
 /// @notice Example crvUSD controller checks for loan lists, debt totals, and post-action solvency.
 contract CurveUsdControllerAssertion is CurveUsdControllerProtocolHelpers {
-    constructor(address controller_, uint256 maxLoansToScan_, uint256 debtTolerance_)
-        CurveUsdControllerProtocolHelpers(controller_, maxLoansToScan_, debtTolerance_)
-    {}
+    constructor(address controller_, address amm_, uint256 maxLoansToScan_, uint256 debtTolerance_)
+        CurveUsdControllerProtocolHelpers(controller_, amm_, maxLoansToScan_, debtTolerance_)
+    {
+        registerAssertionSpec(AssertionSpec.Reshiram);
+    }
 
     /// @notice Registers checks over loan-list indexing, aggregate debt, and post-action health rules.
     function triggers() external view override {

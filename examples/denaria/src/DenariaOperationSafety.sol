@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {PhEvm} from "credible-std/PhEvm.sol";
+import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 import {IPerpetualProtectionSuite} from "credible-std/protection/perpetual/IPerpetualProtectionSuite.sol";
 import {PerpetualBaseAssertion} from "credible-std/protection/perpetual/PerpetualBaseAssertion.sol";
 import {DenariaHelpers} from "./DenariaHelpers.sol";
@@ -845,6 +846,7 @@ contract DenariaOperationSafetyAssertion is PerpetualBaseAssertion {
 
     constructor(address perpPair_, address vault_) {
         SUITE = IPerpetualProtectionSuite(address(new DenariaProtectionSuite(perpPair_, vault_)));
+        registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
     function _suite() internal view override returns (IPerpetualProtectionSuite) {

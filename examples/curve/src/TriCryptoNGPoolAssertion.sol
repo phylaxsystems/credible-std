@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {PhEvm} from "credible-std/PhEvm.sol";
+import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 import {TriCryptoNGProtocolHelpers} from "./TriCryptoNGProtocol.sol";
 
 /// @title TriCryptoNGPoolAssertion
@@ -17,7 +18,9 @@ contract TriCryptoNGPoolAssertion is TriCryptoNGProtocolHelpers {
         TriCryptoNGProtocolHelpers(
             pool_, wrappedNativeToken_, dustTolerance_, virtualPriceToleranceBps_, profitTolerance_
         )
-    {}
+    {
+        registerAssertionSpec(AssertionSpec.Reshiram);
+    }
 
     /// @notice Registers checks over ERC20 custody, fee params, oracle state, profit counters, and virtual price.
     function triggers() external view override {

@@ -179,13 +179,24 @@ abstract contract RoycoKernelHelpers is RoycoHelpers {
     address internal immutable stAsset;
     address internal immutable jtAsset;
 
-    constructor(address kernel_) {
+    /// @dev Accountant, tranche, and asset addresses are passed explicitly so the constructor
+    ///      never reads from the kernel. The Credible Layer's assertion-deploy runtime is
+    ///      isolated from the adopter; reads against the kernel during construction would
+    ///      revert with EXTCODESIZE = 0.
+    constructor(
+        address kernel_,
+        address accountant_,
+        address seniorTranche_,
+        address stAsset_,
+        address juniorTranche_,
+        address jtAsset_
+    ) {
         kernel = kernel_;
-        accountant = IRoycoKernel(kernel_).ACCOUNTANT();
-        seniorTranche = IRoycoKernel(kernel_).SENIOR_TRANCHE();
-        stAsset = IRoycoKernel(kernel_).ST_ASSET();
-        juniorTranche = IRoycoKernel(kernel_).JUNIOR_TRANCHE();
-        jtAsset = IRoycoKernel(kernel_).JT_ASSET();
+        accountant = accountant_;
+        seniorTranche = seniorTranche_;
+        stAsset = stAsset_;
+        juniorTranche = juniorTranche_;
+        jtAsset = jtAsset_;
     }
 
     function _hasIdenticalAssets() internal view returns (bool) {
@@ -316,10 +327,14 @@ abstract contract RoycoVaultTrancheHelpers is RoycoHelpers {
     address internal immutable kernel;
     RoycoTrancheType internal immutable trancheType;
 
-    constructor(address tranche_) {
+    /// @dev `kernel_` and `trancheType_` are passed explicitly so the constructor never
+    ///      reads from the tranche. The Credible Layer's assertion-deploy runtime is isolated
+    ///      from the adopter; live tranche reads during construction would revert with
+    ///      EXTCODESIZE = 0.
+    constructor(address tranche_, address kernel_, RoycoTrancheType trancheType_) {
         tranche = tranche_;
-        kernel = IRoycoVaultTranche(tranche_).KERNEL();
-        trancheType = IRoycoVaultTranche(tranche_).TRANCHE_TYPE();
+        kernel = kernel_;
+        trancheType = trancheType_;
     }
 
     function _totalSupplyAt(PhEvm.ForkId memory fork) internal view returns (uint256) {

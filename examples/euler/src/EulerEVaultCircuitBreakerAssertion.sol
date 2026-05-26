@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {PhEvm} from "credible-std/PhEvm.sol";
+import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 
 import {EulerEVaultBase} from "./EulerEVaultHelpers.sol";
 import {IEulerEVaultLike} from "./EulerEVaultInterfaces.sol";
@@ -84,7 +85,9 @@ abstract contract EulerEVaultCircuitBreakerMixin is EulerEVaultBase {
 contract EulerEVaultCircuitBreakerAssertion is EulerEVaultCircuitBreakerMixin {
     constructor(address asset_, uint256 inflowThresholdBps_, uint256 inflowWindowDuration_)
         EulerEVaultCircuitBreakerMixin(asset_, inflowThresholdBps_, inflowWindowDuration_)
-    {}
+    {
+        registerAssertionSpec(AssertionSpec.Reshiram);
+    }
 
     /// @notice Registers inflow hard-pause plus the two outflow response tiers.
     function triggers() external view override {

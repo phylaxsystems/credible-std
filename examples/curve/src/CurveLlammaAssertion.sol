@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {PhEvm} from "credible-std/PhEvm.sol";
+import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 import {CurveLlammaProtocolHelpers} from "./CurveLlammaProtocol.sol";
 
 /// @title CurveLlammaAssertion
@@ -13,6 +14,8 @@ contract CurveLlammaAssertion is CurveLlammaProtocolHelpers {
 
     constructor(
         address amm_,
+        address borrowedToken_,
+        address collateralToken_,
         uint256 borrowedPrecision_,
         uint256 collateralPrecision_,
         uint256 maxBandsToScan_,
@@ -20,9 +23,18 @@ contract CurveLlammaAssertion is CurveLlammaProtocolHelpers {
         uint256 priceTolerance_
     )
         CurveLlammaProtocolHelpers(
-            amm_, borrowedPrecision_, collateralPrecision_, maxBandsToScan_, dustTolerance_, priceTolerance_
+            amm_,
+            borrowedToken_,
+            collateralToken_,
+            borrowedPrecision_,
+            collateralPrecision_,
+            maxBandsToScan_,
+            dustTolerance_,
+            priceTolerance_
         )
-    {}
+    {
+        registerAssertionSpec(AssertionSpec.Reshiram);
+    }
 
     /// @notice Registers checks over band sums vs ERC20 custody, one-sided inactive bands, swap prices,
     ///         and 10% token inflow caps over a rolling 6 hour window for both AMM legs.

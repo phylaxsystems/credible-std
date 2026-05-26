@@ -57,9 +57,12 @@ abstract contract CurveUsdControllerProtocolHelpers is Assertion {
         uint256 callEnd;
     }
 
-    constructor(address controller_, uint256 maxLoansToScan_, uint256 debtTolerance_) {
+    /// @dev `amm_` is passed explicitly so the constructor never reads `controller_.amm()`.
+    ///      The Credible Layer's assertion-deploy runtime is isolated from the adopter, and
+    ///      live protocol reads would revert with EXTCODESIZE = 0 during construction.
+    constructor(address controller_, address amm_, uint256 maxLoansToScan_, uint256 debtTolerance_) {
         controller = controller_;
-        amm = ICurveUsdController(controller_).amm();
+        amm = amm_;
         maxLoansToScan = maxLoansToScan_;
         debtTolerance = debtTolerance_;
     }

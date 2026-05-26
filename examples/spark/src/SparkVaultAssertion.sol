@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {PhEvm} from "credible-std/PhEvm.sol";
+import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 
 import {ERC4626BaseAssertion} from "credible-std/protection/vault/ERC4626BaseAssertion.sol";
 import {ERC4626CumulativeOutflowAssertion} from "credible-std/protection/vault/ERC4626CumulativeOutflowAssertion.sol";
@@ -48,7 +49,9 @@ contract SparkVaultAssertion is
         ERC4626BaseAssertion(vault_, asset_)
         ERC4626SharePriceAssertion(sharePriceToleranceBps_)
         ERC4626CumulativeOutflowAssertion(outflowThresholdBps_, outflowWindowDuration_)
-    {}
+    {
+        registerAssertionSpec(AssertionSpec.Reshiram);
+    }
 
     /// @notice Entry point the Credible executor calls once during setup to wire
     ///         assertion functions to the vault selectors that should trigger them.

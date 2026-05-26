@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
+import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 import {RoycoKernelHelpers} from "./RoycoHelpers.sol";
 import {RoycoKernelAccountingAssertion} from "./RoycoKernelAccountingAssertion.sol";
 import {RoycoKernelCumulativeFlowAssertion} from "./RoycoKernelCumulativeFlowAssertion.sol";
@@ -16,16 +17,23 @@ import {RoycoKernelCumulativeFlowAssertion} from "./RoycoKernelCumulativeFlowAss
 contract RoycoKernelAssertion is RoycoKernelAccountingAssertion, RoycoKernelCumulativeFlowAssertion {
     constructor(
         address kernel_,
+        address accountant_,
+        address seniorTranche_,
+        address stAsset_,
+        address juniorTranche_,
+        address jtAsset_,
         uint256 outflowThresholdBps_,
         uint256 outflowWindowDuration_,
         uint256 inflowThresholdBps_,
         uint256 inflowWindowDuration_
     )
-        RoycoKernelHelpers(kernel_)
+        RoycoKernelHelpers(kernel_, accountant_, seniorTranche_, stAsset_, juniorTranche_, jtAsset_)
         RoycoKernelCumulativeFlowAssertion(
             outflowThresholdBps_, outflowWindowDuration_, inflowThresholdBps_, inflowWindowDuration_
         )
-    {}
+    {
+        registerAssertionSpec(AssertionSpec.Reshiram);
+    }
 
     function triggers() external view override {
         _registerAccountingInvariantTriggers();

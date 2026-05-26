@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {PhEvm} from "credible-std/PhEvm.sol";
+import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 import {LlamaLendControllerProtocolHelpers} from "./LlamaLendProtocol.sol";
 
 /// @title LlamaLendControllerAssertion
@@ -13,9 +14,11 @@ contract LlamaLendControllerAssertion is LlamaLendControllerProtocolHelpers {
     uint256 public constant OUTFLOW_THRESHOLD_BPS = 1_000;
     uint256 public constant OUTFLOW_WINDOW_DURATION = 24 hours;
 
-    constructor(address controller_, uint256 availableBalanceTolerance_)
-        LlamaLendControllerProtocolHelpers(controller_, availableBalanceTolerance_)
-    {}
+    constructor(address controller_, address borrowedToken_, uint256 availableBalanceTolerance_)
+        LlamaLendControllerProtocolHelpers(controller_, borrowedToken_, availableBalanceTolerance_)
+    {
+        registerAssertionSpec(AssertionSpec.Reshiram);
+    }
 
     /// @notice Registers checks over controller token custody, post-borrow debt caps,
     ///         and 10% borrowed-token inflow/outflow caps over rolling 6 hour / 24 hour windows.

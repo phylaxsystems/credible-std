@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {PhEvm} from "credible-std/PhEvm.sol";
+import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 import {StableSwapNGProtocolHelpers} from "./StableSwapNGProtocol.sol";
 
 /// @title StableSwapNGPoolAssertion
@@ -9,7 +10,9 @@ import {StableSwapNGProtocolHelpers} from "./StableSwapNGProtocol.sol";
 contract StableSwapNGPoolAssertion is StableSwapNGProtocolHelpers {
     constructor(address pool_, uint256 maxCoinsToScan_, uint256 dustTolerance_, uint256 virtualPriceTolerance_)
         StableSwapNGProtocolHelpers(pool_, maxCoinsToScan_, dustTolerance_, virtualPriceTolerance_)
-    {}
+    {
+        registerAssertionSpec(AssertionSpec.Reshiram);
+    }
 
     /// @notice Registers checks over pool custody, admin fees, fee caps, oracle bounds, metapool rates, and virtual price.
     function triggers() external view override {

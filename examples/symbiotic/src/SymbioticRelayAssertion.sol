@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
+import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 import {SymbioticHelpers} from "./SymbioticHelpers.sol";
 import {
     ISymbioticVaultLike,
@@ -27,6 +28,7 @@ contract SymbioticRelayAssertion is SymbioticHelpers {
         provider = provider_;
         subnetwork = subnetwork_;
         operatorVotingPowerExtraData = operatorVotingPowerExtraData_;
+        registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
     /// @notice Wires the relay-side tx-end checks.

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {PhEvm} from "credible-std/PhEvm.sol";
+import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 
 import {BoringVaultHelpers} from "./BoringVaultHelpers.sol";
 import {IBoringVaultLike} from "./BoringVaultInterfaces.sol";
@@ -75,6 +76,8 @@ contract BoringVaultAssertion is BoringVaultHelpers {
             require(monitoredAssets_[i] != address(0), "BoringVault: zero monitored asset");
             monitoredAssets.push(monitoredAssets_[i]);
         }
+
+        registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
     /// @notice Wires call-scoped accounting checks and hard cumulative flow breakers.

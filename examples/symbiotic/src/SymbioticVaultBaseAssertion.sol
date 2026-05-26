@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {ISymbioticVaultLike} from "./SymbioticInterfaces.sol";
 import {SymbioticHelpers} from "./SymbioticHelpers.sol";
 
 /// @title SymbioticVaultBaseAssertion
@@ -16,9 +15,12 @@ abstract contract SymbioticVaultBaseAssertion is SymbioticHelpers {
     /// @notice The ERC-20 collateral backing the vault.
     address internal immutable asset;
 
-    constructor(address vault_) {
+    /// @dev `asset_` is passed explicitly so the constructor never reads `vault_.collateral()`.
+    ///      The Credible Layer's assertion-deploy runtime is isolated from the adopter; live
+    ///      protocol reads during construction would revert with EXTCODESIZE = 0.
+    constructor(address vault_, address asset_) {
         require(vault_ != address(0), "SymbioticVaultBase: vault is zero");
         vault = vault_;
-        asset = ISymbioticVaultLike(vault_).collateral();
+        asset = asset_;
     }
 }

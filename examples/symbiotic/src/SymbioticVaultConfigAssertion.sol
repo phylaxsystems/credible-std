@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {PhEvm} from "credible-std/PhEvm.sol";
+import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 import {SymbioticVaultBaseAssertion} from "./SymbioticVaultBaseAssertion.sol";
 
 /// @title SymbioticVaultConfigAssertion
@@ -182,10 +183,12 @@ abstract contract SymbioticVaultConfigAssertion is SymbioticVaultBaseAssertion {
 /// @dev Use this when you want deployment/config sanity checks without the vault-flow or
 ///      circuit-breaker layers.
 contract SymbioticVaultConfigProtection is SymbioticVaultConfigAssertion {
-    constructor(address vault_, VaultConfigPolicy memory policy_)
-        SymbioticVaultBaseAssertion(vault_)
+    constructor(address vault_, address asset_, VaultConfigPolicy memory policy_)
+        SymbioticVaultBaseAssertion(vault_, asset_)
         SymbioticVaultConfigAssertion(policy_)
-    {}
+    {
+        registerAssertionSpec(AssertionSpec.Reshiram);
+    }
 
     /// @notice Wires only the tx-end configuration trigger.
     /// @dev This bundle protects against half-configured or economically dangerous vault setup.
@@ -199,8 +202,8 @@ contract SymbioticVaultConfigProtection is SymbioticVaultConfigAssertion {
 /// @dev This is the opinionated version of `SymbioticVaultConfigProtection`: it keeps the
 ///      documentation-backed safety defaults while still permitting an intentional no-slasher vault.
 contract SymbioticVaultRecommendedConfigProtection is SymbioticVaultConfigAssertion {
-    constructor(address vault_)
-        SymbioticVaultBaseAssertion(vault_)
+    constructor(address vault_, address asset_)
+        SymbioticVaultBaseAssertion(vault_, asset_)
         SymbioticVaultConfigAssertion(VaultConfigPolicy({
                 requireCompleteInitialization: true,
                 requireSlasher: false,
@@ -212,7 +215,9 @@ contract SymbioticVaultRecommendedConfigProtection is SymbioticVaultConfigAssert
                 minVetoExecutionWindow: 0,
                 minResolverSetEpochsDelay: 3
             }))
-    {}
+    {
+        registerAssertionSpec(AssertionSpec.Reshiram);
+    }
 
     /// @notice Wires the recommended tx-end configuration policy.
     /// @dev This bundle is meant to catch the common Symbiotic deployment footguns from the docs.

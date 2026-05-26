@@ -4,13 +4,7 @@ pragma solidity ^0.8.13;
 import {Assertion} from "credible-std/Assertion.sol";
 import {PhEvm} from "credible-std/PhEvm.sol";
 
-interface IERC20MetadataLike {
-    function balanceOf(address account) external view returns (uint256);
-    function decimals() external view returns (uint8);
-}
-
 interface ICurveLlammaAMM {
-    function coins(uint256 i) external view returns (address);
     function active_band() external view returns (int256);
     function min_band() external view returns (int256);
     function max_band() external view returns (int256);
@@ -39,8 +33,14 @@ abstract contract CurveLlammaProtocolHelpers is Assertion {
     uint256 internal immutable dustTolerance;
     uint256 internal immutable priceTolerance;
 
+    /// @dev Token addresses and precisions are passed explicitly so the constructor never
+    ///      reads from the AMM or its coins. The Credible Layer's assertion-deploy runtime
+    ///      is isolated from the adopter; a `coins()` or `decimals()` call inside the
+    ///      constructor would revert with EXTCODESIZE = 0.
     constructor(
         address amm_,
+        address borrowedToken_,
+        address collateralToken_,
         uint256 borrowedPrecision_,
         uint256 collateralPrecision_,
         uint256 maxBandsToScan_,
@@ -48,16 +48,10 @@ abstract contract CurveLlammaProtocolHelpers is Assertion {
         uint256 priceTolerance_
     ) {
         amm = amm_;
-        borrowedToken = ICurveLlammaAMM(amm_).coins(0);
-        collateralToken = ICurveLlammaAMM(amm_).coins(1);
-
-        borrowedPrecision = borrowedPrecision_ == 0
-            ? _precisionFromDecimals(IERC20MetadataLike(borrowedToken).decimals())
-            : borrowedPrecision_;
-        collateralPrecision = collateralPrecision_ == 0
-            ? _precisionFromDecimals(IERC20MetadataLike(collateralToken).decimals())
-            : collateralPrecision_;
-
+        borrowedToken = borrowedToken_;
+        collateralToken = collateralToken_;
+        borrowedPrecision = borrowedPrecision_;
+        collateralPrecision = collateralPrecision_;
         maxBandsToScan = maxBandsToScan_;
         dustTolerance = dustTolerance_;
         priceTolerance = priceTolerance_;
@@ -68,11 +62,6 @@ abstract contract CurveLlammaProtocolHelpers is Assertion {
         registerFnCallTrigger(assertionSelector, CurveLlammaSelectors.EXCHANGE_FOR);
         registerFnCallTrigger(assertionSelector, CurveLlammaSelectors.EXCHANGE_DY);
         registerFnCallTrigger(assertionSelector, CurveLlammaSelectors.EXCHANGE_DY_FOR);
-    }
-
-    function _precisionFromDecimals(uint8 decimals_) internal pure returns (uint256 precision) {
-        require(decimals_ <= 18, "CurveLLAMMA: token decimals too high");
-        precision = 10 ** (18 - uint256(decimals_));
     }
 
     function _readIntAt(address target, bytes memory data, PhEvm.ForkId memory fork)

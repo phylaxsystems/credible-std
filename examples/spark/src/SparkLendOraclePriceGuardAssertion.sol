@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Assertion} from "credible-std/Assertion.sol";
 import {PhEvm} from "credible-std/PhEvm.sol";
+import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 import {AaveV3LikeTypes, IAaveV3LikeOracle, IAaveV3LikePool} from "credible-std/protection/lending/examples/AaveV3LikeInterfaces.sol";
 
 /// @title SparkLendOraclePriceGuardAssertion
@@ -45,16 +46,28 @@ contract SparkLendOraclePriceGuardAssertion is Assertion {
 
     /// @param pool_ SparkLend pool whose risk-increasing selectors are monitored.
     /// @param oracle_ AaveOracle used by the pool to report asset prices.
+    /// @param baseCurrency_ Oracle base currency (matches `IAaveV3LikeOracle.BASE_CURRENCY`).
+    /// @param baseCurrencyUnit_ Oracle base-currency unit (matches `IAaveV3LikeOracle.BASE_CURRENCY_UNIT`).
     /// @param watchEntries_ Per-asset market-pair and tolerance configuration.
-    constructor(address pool_, address oracle_, WatchEntry[] memory watchEntries_) {
+    /// @dev `baseCurrency_` and `baseCurrencyUnit_` are passed explicitly so the constructor
+    ///      never reads from the oracle. The Credible Layer's assertion-deploy runtime is
+    ///      isolated from the adopter; live oracle reads during construction would revert
+    ///      with EXTCODESIZE = 0.
+    constructor(
+        address pool_,
+        address oracle_,
+        address baseCurrency_,
+        uint256 baseCurrencyUnit_,
+        WatchEntry[] memory watchEntries_
+    ) {
         require(pool_ != address(0), "SparkLendOracle: zero pool");
         require(oracle_ != address(0), "SparkLendOracle: zero oracle");
+        require(baseCurrencyUnit_ != 0, "SparkLendOracle: zero base unit");
 
         pool = pool_;
         oracle = oracle_;
-        baseCurrency = IAaveV3LikeOracle(oracle_).BASE_CURRENCY();
-        baseCurrencyUnit = IAaveV3LikeOracle(oracle_).BASE_CURRENCY_UNIT();
-        require(baseCurrencyUnit != 0, "SparkLendOracle: zero base unit");
+        baseCurrency = baseCurrency_;
+        baseCurrencyUnit = baseCurrencyUnit_;
 
         for (uint256 i; i < watchEntries_.length; ++i) {
             if (watchEntries_[i].asset == address(0) || watchEntries_[i].toleranceBps == 0) {
@@ -63,6 +76,8 @@ contract SparkLendOraclePriceGuardAssertion is Assertion {
 
             watchEntries.push(watchEntries_[i]);
         }
+
+        registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
     /// @notice Registers the SparkLend selectors that consume oracle prices on risky paths.

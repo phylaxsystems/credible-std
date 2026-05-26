@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {PhEvm} from "credible-std/PhEvm.sol";
+import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 import {ISymbioticVaultLike} from "./SymbioticInterfaces.sol";
 import {SymbioticVaultBaseAssertion} from "./SymbioticVaultBaseAssertion.sol";
 
@@ -144,10 +145,12 @@ abstract contract SymbioticVaultCircuitBreakerAssertion is SymbioticVaultBaseAss
 /// @notice Ready-to-use bundle for the Symbiotic vault liquidation-aware circuit breaker.
 /// @dev Use this when you only want the rolling outflow breakers without the flow or config checks.
 contract SymbioticVaultCircuitBreakerProtection is SymbioticVaultCircuitBreakerAssertion {
-    constructor(address vault_, LiquidationRoute[] memory liquidationRoutes_)
-        SymbioticVaultBaseAssertion(vault_)
+    constructor(address vault_, address asset_, LiquidationRoute[] memory liquidationRoutes_)
+        SymbioticVaultBaseAssertion(vault_, asset_)
         SymbioticVaultCircuitBreakerAssertion(liquidationRoutes_)
-    {}
+    {
+        registerAssertionSpec(AssertionSpec.Reshiram);
+    }
 
     /// @notice Wires only the cumulative-outflow circuit-breaker triggers.
     /// @dev This bundle protects against abnormal asset drains while still allowing approved
