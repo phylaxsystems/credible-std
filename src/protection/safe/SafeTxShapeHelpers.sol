@@ -33,6 +33,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
     bytes4 public constant SET_APPROVAL_FOR_ALL_SELECTOR = bytes4(keccak256("setApprovalForAll(address,bool)"));
 
     uint256 internal constant MULTISEND_HEADER_LENGTH = 85;
+    uint64 internal constant ALLOWANCE_READ_GAS = 500_000;
 
     struct TargetPolicy {
         address target;
@@ -135,6 +136,11 @@ abstract contract SafeTxShapeHelpers is Assertion {
     BatchExecutorPolicy[] public batchExecutorPolicies;
     ApprovalPolicy[] public approvalPolicies;
     address[] public allowedModules;
+
+    mapping(address token => mapping(address spender => mapping(uint8 kind => ApprovalPolicy))) internal
+        _approvalPolicyByKey;
+    mapping(address token => mapping(address spender => mapping(uint8 kind => bool))) internal _approvalPolicyExists;
+    mapping(address token => mapping(uint8 kind => bool)) internal _tokenApprovalKindRegistered;
 
     bool public immutable moduleExecutionEnabled;
 
@@ -438,7 +444,10 @@ abstract contract SafeTxShapeHelpers is Assertion {
             uint256 addedValue = _readUint256(action.data, action.dataOffset + 36);
             if (addedValue == 0) return;
 
-            _validateNumericApproval(action.target, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE, addedValue);
+            // `increaseAllowance(spender, addedValue)` adds to the current allowance; treating `addedValue`
+            // as the final amount would let two inner calls land above `maxAmount`. Verify the post-state
+            // allowance instead so the cap binds the actual final allowance after the transaction.
+            _validateIncreaseAllowanceFinalState(action.safe, action.target, spender);
             return;
         }
 
@@ -472,22 +481,50 @@ abstract contract SafeTxShapeHelpers is Assertion {
     }
 
     function _validateNumericApproval(address token, address spender, uint8 kind, uint256 amount) internal view {
-        for (uint256 i; i < approvalPolicies.length; ++i) {
-            ApprovalPolicy storage policy = approvalPolicies[i];
-            if (policy.token == token && policy.spender == spender && policy.kind == kind) {
-                if (amount == type(uint256).max) {
-                    if (!policy.allowUnlimited) revert SafeTxShapeApprovalUnlimitedBlocked(token, spender, kind);
-                    return;
-                }
-
-                if (amount > policy.maxAmount) {
-                    revert SafeTxShapeApprovalAmountAboveCap(token, spender, kind, amount, policy.maxAmount);
-                }
-                return;
-            }
+        if (!_approvalPolicyExists[token][spender][kind]) {
+            revert SafeTxShapeApprovalSpenderNotAllowed(token, spender, kind);
         }
 
-        revert SafeTxShapeApprovalSpenderNotAllowed(token, spender, kind);
+        ApprovalPolicy storage policy = _approvalPolicyByKey[token][spender][kind];
+        if (amount == type(uint256).max) {
+            if (!policy.allowUnlimited) revert SafeTxShapeApprovalUnlimitedBlocked(token, spender, kind);
+            return;
+        }
+
+        if (amount > policy.maxAmount) {
+            revert SafeTxShapeApprovalAmountAboveCap(token, spender, kind, amount, policy.maxAmount);
+        }
+    }
+
+    function _validateIncreaseAllowanceFinalState(address safe, address token, address spender) internal view {
+        if (!_approvalPolicyExists[token][spender][APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE]) {
+            revert SafeTxShapeApprovalSpenderNotAllowed(token, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE);
+        }
+
+        PhEvm.TriggerContext memory triggerCtx = ph.context();
+        PhEvm.ForkId memory postFork = PhEvm.ForkId({forkType: 3, callIndex: triggerCtx.callEnd});
+
+        PhEvm.StaticCallResult memory result = ph.staticcallAt(
+            token, abi.encodeWithSignature("allowance(address,address)", safe, spender), ALLOWANCE_READ_GAS, postFork
+        );
+        if (!result.ok || result.data.length < 32) {
+            revert SafeTxShapeApprovalMalformed(token, INCREASE_ALLOWANCE_SELECTOR);
+        }
+
+        uint256 finalAllowance = abi.decode(result.data, (uint256));
+        ApprovalPolicy storage policy = _approvalPolicyByKey[token][spender][APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE];
+
+        if (finalAllowance == type(uint256).max) {
+            if (!policy.allowUnlimited) {
+                revert SafeTxShapeApprovalUnlimitedBlocked(token, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE);
+            }
+            return;
+        }
+        if (finalAllowance > policy.maxAmount) {
+            revert SafeTxShapeApprovalAmountAboveCap(
+                token, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE, finalAllowance, policy.maxAmount
+            );
+        }
     }
 
     function _validateOperatorApproval(address token, address operator, uint8 kind) internal view {
@@ -498,15 +535,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
 
     function _operatorApprovalAllowed(address token, address operator, uint8 kind) internal view returns (bool) {
         if (operator == address(0)) return false;
-
-        for (uint256 i; i < approvalPolicies.length; ++i) {
-            ApprovalPolicy storage policy = approvalPolicies[i];
-            if (policy.token == token && policy.spender == operator && policy.kind == kind) {
-                return true;
-            }
-        }
-
-        return false;
+        return _approvalPolicyExists[token][operator][kind];
     }
 
     function _validateModuleCaller(address module) internal view {
@@ -640,10 +669,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
     }
 
     function _tokenHasApprovalKind(address token, uint8 kind) internal view returns (bool) {
-        for (uint256 i; i < approvalPolicies.length; ++i) {
-            if (approvalPolicies[i].token == token && approvalPolicies[i].kind == kind) return true;
-        }
-        return false;
+        return _tokenApprovalKindRegistered[token][kind];
     }
 
     function _storeTargetPolicies(TargetPolicy[] memory policies) private {
@@ -723,6 +749,9 @@ abstract contract SafeTxShapeHelpers is Assertion {
             }
 
             approvalPolicies.push(policies[i]);
+            _approvalPolicyByKey[policies[i].token][policies[i].spender][policies[i].kind] = policies[i];
+            _approvalPolicyExists[policies[i].token][policies[i].spender][policies[i].kind] = true;
+            _tokenApprovalKindRegistered[policies[i].token][policies[i].kind] = true;
         }
     }
 

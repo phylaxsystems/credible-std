@@ -85,6 +85,8 @@ Approval policy:
 
 Approval resets and revocations are allowed by default when the token is configured for that approval kind: ERC-20 `approve(spender, 0)`, ERC-721 `approve(address(0), tokenId)`, and `setApprovalForAll(operator, false)` reduce approval risk. Risk-increasing approvals to untrusted spenders/operators, ERC-20 unlimited approvals without explicit permission, and ERC-20 amounts above cap are blocked.
 
+For ERC-20 `approve(spender, amount)` the cap binds `amount` directly. For ERC-20 `increaseAllowance(spender, addedValue)` the cap binds the post-state `allowance(safe, spender)` so two consecutive `increaseAllowance` calls inside a `MultiSend` cannot stack above the cap.
+
 ### Material Effect
 
 - A compromised UI cannot redirect signers to an arbitrary contract with arbitrary calldata.
