@@ -13,8 +13,30 @@ jobs:
       forge-test-args: "--no-match-path 'test/backtesting/**'"
       disable-gas-snapshot: true
 
-  assertions-book-examples:
+  example-profile-builds:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - assertions-book
+          - vault-demo
+          - micro-patterns
+          - aave
+          - aerodrome
+          - cap
+          - curve
+          - denaria
+          - euler
+          - nado
+          - royco
+          - safe
+          - spark
+          - symbiotic
+          - tydro
+          - uniswap
+          - veda
+          - zeroex
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,5 +48,5 @@ jobs:
         with:
           version: stable
 
-      - name: Build Assertions Book examples
-        run: FOUNDRY_PROFILE=assertions-book forge build
+      - name: Build example profile
+        run: FOUNDRY_PROFILE=${{ matrix.profile }} forge build

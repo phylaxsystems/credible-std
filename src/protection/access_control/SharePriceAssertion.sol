@@ -25,8 +25,12 @@ import {AccessControlBaseAssertion} from "./AccessControlBaseAssertion.sol";
 ///      enforcing full ERC-4626 compliance.
 ///
 ///      Implementers must override `_protectedVaults()` to declare which vault addresses and
-///      tolerances to check.
+///      tolerances to check. Each configured vault produces one all-forks precompile call, so
+///      large vault families should split coverage or move to a batched primitive when one is
+///      available.
 abstract contract SharePriceAssertion is AccessControlBaseAssertion {
+    error SharePriceChanged(address vault, uint256 toleranceBps);
+
     /// @notice A vault and its maximum acceptable share-price deviation.
     struct ProtectedVault {
         /// @notice The ERC-4626 vault address.
@@ -54,14 +58,13 @@ abstract contract SharePriceAssertion is AccessControlBaseAssertion {
     /// @dev Uses `ph.assetsMatchSharePrice()` for each vault, which reads totalAssets() and
     ///      totalSupply() at every fork point and checks for deviation beyond the tolerance.
     ///      Reverts on the first vault whose share price moved beyond tolerance.
-    function assertSharePrice() external {
+    function assertSharePrice() external view {
         ProtectedVault[] memory vaults = _protectedVaults();
 
         for (uint256 i = 0; i < vaults.length; i++) {
-            require(
-                ph.assetsMatchSharePrice(vaults[i].vault, vaults[i].toleranceBps),
-                "AccessControl: vault share price drift exceeds tolerance"
-            );
+            if (!ph.assetsMatchSharePrice(vaults[i].vault, vaults[i].toleranceBps)) {
+                revert SharePriceChanged(vaults[i].vault, vaults[i].toleranceBps);
+            }
         }
     }
 }

@@ -32,6 +32,8 @@ import {AccessControlBaseAssertion} from "./AccessControlBaseAssertion.sol";
 ///      that need conditional slot changes should use per-function triggers instead and
 ///      verify the change follows the expected governance path.
 abstract contract SlotProtectionAssertion is AccessControlBaseAssertion {
+    error ProtectedSlotChanged(bytes32[] slots);
+
     /// @notice Returns the storage slots that must not be modified during the transaction.
     /// @dev Override to declare the protocol-specific critical slots. Common examples:
     ///      - EIP-1967 admin slot: `0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103`
@@ -52,8 +54,10 @@ abstract contract SlotProtectionAssertion is AccessControlBaseAssertion {
     /// @notice Verifies that none of the protected storage slots were written to during the tx.
     /// @dev Uses `ph.forbidChangeForSlots()` for a single precompile call covering all slots.
     ///      Reverts if any protected slot was modified.
-    function assertSlotProtection() external {
+    function assertSlotProtection() external view {
         bytes32[] memory slots = _protectedSlots();
-        require(ph.forbidChangeForSlots(slots), "AccessControl: protected slot was modified");
+        if (!ph.forbidChangeForSlots(slots)) {
+            revert ProtectedSlotChanged(slots);
+        }
     }
 }

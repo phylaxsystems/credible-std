@@ -29,7 +29,6 @@ contract AaveV3LikeProtectionSuite is LendingProtectionSuiteBase {
     bytes32 internal constant HEALTH_FACTOR_METRIC = 0x4845414c54485f464143544f5200000000000000000000000000000000000000;
     bytes32 internal constant WITHDRAW_CLAIM_CHECK = "WITHDRAW_CLAIM";
     bytes32 internal constant LIQUIDATION_DEBT_CHECK = "LIQUIDATION_DEBT";
-    bytes32 internal constant LIQUIDATION_COLLATERAL_CHECK = "LIQUIDATION_COLLATERAL";
     uint256 internal constant HEALTH_FACTOR_THRESHOLD = 1e18;
     int256 internal constant HEALTH_FACTOR_THRESHOLD_INT = 1e18;
 
@@ -169,9 +168,11 @@ contract AaveV3LikeProtectionSuite is LendingProtectionSuiteBase {
         }
 
         if (operation.kind == OperationKind.Liquidation) {
-            checks = new ConsumptionCheck[](2);
+            // The collateral leg can be denominated in either aTokens or underlying collateral.
+            // Until this example normalizes different-decimal asset pairs, only enforce the
+            // debt-repayment bound rather than shipping a misleading collateral-seizure check.
+            checks = new ConsumptionCheck[](1);
             checks[0] = _getLiquidationDebtCheck(operation, beforeFork, afterFork);
-            checks[1] = _getLiquidationCollateralCheck(operation, beforeFork, afterFork);
         }
     }
 
@@ -280,9 +281,12 @@ contract AaveV3LikeProtectionSuite is LendingProtectionSuiteBase {
             balances[count++] = balance;
         }
 
-        assembly {
-            mstore(balances, count)
+        AccountBalance[] memory includedBalances = new AccountBalance[](count);
+        for (uint256 i; i < count; ++i) {
+            includedBalances[i] = balances[i];
         }
+
+        return includedBalances;
     }
 
     /// @notice Builds the withdraw bounded-consumption check from call output and pre-state.
@@ -323,30 +327,6 @@ contract AaveV3LikeProtectionSuite is LendingProtectionSuiteBase {
             availableBefore: debtBefore,
             consumed: repaidEffective,
             metadata: abi.encode(reserveData.aTokenAddress, operation.counterparty)
-        });
-    }
-
-    /// @notice Builds the liquidation collateral-consumption check from actual collateral transfers.
-    function _getLiquidationCollateralCheck(
-        OperationContext calldata operation,
-        PhEvm.ForkId calldata beforeFork,
-        PhEvm.ForkId calldata afterFork
-    ) internal view returns (ConsumptionCheck memory check) {
-        // bug: different decimals break return asset accounting
-        bool receiveAToken = abi.decode(operation.metadata, (bool));
-        AaveV3LikeTypes.ReserveData memory reserveData = _getReserveData(operation.relatedAsset, beforeFork);
-        uint256 collateralBefore = _readBalanceAt(reserveData.aTokenAddress, operation.account, beforeFork);
-        address seizedToken = receiveAToken ? reserveData.aTokenAddress : operation.relatedAsset;
-        address transferSender = receiveAToken ? operation.account : reserveData.aTokenAddress;
-        uint256 seizedEffective = _transferredValueAt(seizedToken, transferSender, operation.counterparty, afterFork);
-
-        check = ConsumptionCheck({
-            checkName: LIQUIDATION_COLLATERAL_CHECK,
-            account: operation.account,
-            asset: operation.relatedAsset,
-            availableBefore: collateralBefore,
-            consumed: seizedEffective,
-            metadata: abi.encode(reserveData.aTokenAddress, seizedToken, transferSender, receiveAToken)
         });
     }
 

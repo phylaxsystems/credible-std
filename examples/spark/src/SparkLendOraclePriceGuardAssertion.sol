@@ -6,12 +6,15 @@ import {PhEvm} from "credible-std/PhEvm.sol";
 import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 import {AaveV3LikeTypes, IAaveV3LikeOracle, IAaveV3LikePool} from "credible-std/protection/lending/examples/AaveV3LikeInterfaces.sol";
 
+interface IMarketReferenceOracle {
+    function marketPrice(address asset, address denomAsset) external view returns (uint256);
+}
+
 /// @title SparkLendOraclePriceGuardAssertion
 /// @author Phylax Systems
 /// @notice Guards SparkLend risk-increasing calls against synthetic-oracle drift.
-/// @dev The assertion compares SparkLend's AaveOracle price with a hypothetical
-///      Credible Layer off-chain `marketPrice` reference. It is intentionally standalone
-///      so it can be mounted next to
+/// @dev The assertion compares SparkLend's AaveOracle price with an external market-reference
+///      oracle read at the same fork point. It is intentionally standalone so it can be mounted next to
 ///      `SparkLendV1OperationSafetyAssertion` without changing that bundle.
 ///
 ///      The guard is designed for wrapped or rate-bearing assets where the protocol
@@ -39,6 +42,7 @@ contract SparkLendOraclePriceGuardAssertion is Assertion {
 
     address public immutable pool;
     address public immutable oracle;
+    address public immutable marketReference;
     address public immutable baseCurrency;
     uint256 public immutable baseCurrencyUnit;
 
@@ -46,6 +50,7 @@ contract SparkLendOraclePriceGuardAssertion is Assertion {
 
     /// @param pool_ SparkLend pool whose risk-increasing selectors are monitored.
     /// @param oracle_ AaveOracle used by the pool to report asset prices.
+    /// @param marketReference_ Independent market-reference oracle for watched asset pairs.
     /// @param baseCurrency_ Oracle base currency (matches `IAaveV3LikeOracle.BASE_CURRENCY`).
     /// @param baseCurrencyUnit_ Oracle base-currency unit (matches `IAaveV3LikeOracle.BASE_CURRENCY_UNIT`).
     /// @param watchEntries_ Per-asset market-pair and tolerance configuration.
@@ -56,16 +61,19 @@ contract SparkLendOraclePriceGuardAssertion is Assertion {
     constructor(
         address pool_,
         address oracle_,
+        address marketReference_,
         address baseCurrency_,
         uint256 baseCurrencyUnit_,
         WatchEntry[] memory watchEntries_
     ) {
         require(pool_ != address(0), "SparkLendOracle: zero pool");
         require(oracle_ != address(0), "SparkLendOracle: zero oracle");
+        require(marketReference_ != address(0), "SparkLendOracle: zero market reference");
         require(baseCurrencyUnit_ != 0, "SparkLendOracle: zero base unit");
 
         pool = pool_;
         oracle = oracle_;
+        marketReference = marketReference_;
         baseCurrency = baseCurrency_;
         baseCurrencyUnit = baseCurrencyUnit_;
 
@@ -179,7 +187,9 @@ contract SparkLendOraclePriceGuardAssertion is Assertion {
 
     function _checkEntry(WatchEntry memory entry, PhEvm.ForkId memory fork) internal view {
         uint256 reportedInDenom = _reportedPriceInDenom(entry.asset, entry.denomAsset, fork);
-        uint256 market = ph.marketPrice(entry.asset, entry.denomAsset);
+        uint256 market = _readUintAt(
+            marketReference, abi.encodeCall(IMarketReferenceOracle.marketPrice, (entry.asset, entry.denomAsset)), fork
+        );
         require(market != 0, "SparkLendOracle: zero market price");
 
         bool aboveLowerBound = ph.ratioGe(reportedInDenom, 1, market, 1, entry.toleranceBps);

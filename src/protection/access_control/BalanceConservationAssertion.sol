@@ -20,12 +20,17 @@ import {AccessControlBaseAssertion} from "./AccessControlBaseAssertion.sol";
 ///
 /// @dev Uses the V2 `conserveBalance(fork0, fork1, token, account)` precompile to compare
 ///      `balanceOf(account)` at PreTx vs PostTx for each protected (token, account) pair.
+///      The assertion makes one precompile call per protected pair, so keep the watched set
+///      small enough for the adopter's assertion gas budget until a batched balance
+///      conservation precompile is available.
 ///
 ///      Implementers must override `_conservedBalances()` to declare which (token, account)
 ///      pairs to protect. For selector-aware outflow caps (e.g., looser limits on approved
 ///      withdraw/redeem selectors), use per-function triggers and custom assertion logic
 ///      instead of this mixin.
 abstract contract BalanceConservationAssertion is AccessControlBaseAssertion {
+    error BalanceChanged(address token, address account);
+
     /// @notice A (token, account) pair whose balance must be conserved across the transaction.
     struct ConservedBalance {
         /// @notice The ERC20 token address.
@@ -54,16 +59,15 @@ abstract contract BalanceConservationAssertion is AccessControlBaseAssertion {
     /// @notice Verifies that all protected account balances are unchanged across the transaction.
     /// @dev Checks each (token, account) pair using the `conserveBalance` precompile at
     ///      PreTx vs PostTx. Reverts on the first pair whose balance changed.
-    function assertBalanceConservation() external {
+    function assertBalanceConservation() external view {
         ConservedBalance[] memory balances = _conservedBalances();
         PhEvm.ForkId memory pre = _preTx();
         PhEvm.ForkId memory post = _postTx();
 
         for (uint256 i = 0; i < balances.length; i++) {
-            require(
-                ph.conserveBalance(pre, post, balances[i].token, balances[i].account),
-                "AccessControl: protected balance changed"
-            );
+            if (!ph.conserveBalance(pre, post, balances[i].token, balances[i].account)) {
+                revert BalanceChanged(balances[i].token, balances[i].account);
+            }
         }
     }
 }

@@ -176,6 +176,16 @@ interface IPerpetualProtectionSuite {
         RiskState risk;
     }
 
+    /// @notice Check families populated by this suite for the generic perpetual assertion.
+    struct EnabledCheckKinds {
+        bool executionPrice;
+        bool liquidityCoverage;
+        bool fundingDelta;
+        bool liquidation;
+        bool oracleAnchor;
+        bool accountingConservation;
+    }
+
     /// @notice One concrete taker-price bound that must hold for a successful operation.
     struct ExecutionPriceCheck {
         /// @notice Identifier for the bound being asserted, e.g. "TAKER_WORSE_THAN_MARK".
@@ -288,6 +298,12 @@ interface IPerpetualProtectionSuite {
     /// @notice Returns the adopter selectors that can participate in the shared perpetual invariants.
     /// @return selectors Selectors that should trigger the generic perpetual operation-safety assertion.
     function getMonitoredSelectors() external view returns (bytes4[] memory selectors);
+
+    /// @notice Returns which optional check families this suite can populate.
+    /// @dev The assertion skips disabled families, avoiding cross-contract calls that would only
+    ///      decode empty arrays. Older suites that do not implement this function are treated as
+    ///      having every family enabled by `PerpetualBaseAssertion`.
+    function enabledCheckKinds() external view returns (EnabledCheckKinds memory enabled);
 
     /// @notice Decodes the triggered adopter call into a protocol-normalized operation context.
     /// @param triggered The exact adopter frame that caused the assertion to run.

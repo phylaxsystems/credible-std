@@ -41,6 +41,15 @@ contract DenariaProtectionSuite is DenariaHelpers {
 
     constructor(address perpPair_, address vault_) DenariaHelpers(perpPair_, vault_) {}
 
+    /// @notice Denaria populates every optional perpetual check family except funding deltas.
+    function enabledCheckKinds() external pure override returns (EnabledCheckKinds memory enabled) {
+        enabled.executionPrice = true;
+        enabled.liquidityCoverage = true;
+        enabled.liquidation = true;
+        enabled.oracleAnchor = true;
+        enabled.accountingConservation = true;
+    }
+
     /// @notice Returns the Denaria selectors that feed the shared perpetual assertions.
     /// @dev Register the bundled assertion against both the `PerpPair` and the `Vault` to cover the
     ///      full non-liquidation user surface that can affect perpetual risk.

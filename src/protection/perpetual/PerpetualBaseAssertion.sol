@@ -10,6 +10,19 @@ import {IPerpetualProtectionSuite} from "./IPerpetualProtectionSuite.sol";
 /// @author Phylax Systems
 /// @notice Shared default implementations for perpetual protection suites.
 abstract contract PerpetualProtectionSuiteBase is ForkUtils, IPerpetualProtectionSuite {
+    /// @notice Default suites populate no optional check families.
+    /// @dev Override this when implementing any `get*Checks(...)` family so the assertion can
+    ///      avoid calling base methods that only allocate empty arrays.
+    function enabledCheckKinds()
+        external
+        view
+        virtual
+        override
+        returns (IPerpetualProtectionSuite.EnabledCheckKinds memory enabled)
+    {
+        enabled;
+    }
+
     /// @notice Default execution-price implementation for suites with no shared execution check.
     function getExecutionPriceChecks(
         TriggeredCall calldata triggered,
@@ -229,14 +242,46 @@ abstract contract PerpetualBaseAssertion is Assertion {
         IPerpetualProtectionSuite.OperationContext memory operation = suite.decodeOperation(triggered);
         PhEvm.ForkId memory beforeFork = _preCall(triggered.callStart);
         PhEvm.ForkId memory afterFork = _postCall(triggered.callEnd);
+        IPerpetualProtectionSuite.EnabledCheckKinds memory enabled = _enabledCheckKinds(suite);
 
-        _assertExecutionPriceChecks(suite, triggered, operation, beforeFork, afterFork);
-        _assertLiquidityCoverageChecks(suite, triggered, operation, beforeFork, afterFork);
-        _assertFundingDeltaChecks(suite, triggered, operation, beforeFork, afterFork);
-        _assertLiquidationChecks(suite, triggered, operation, beforeFork, afterFork);
-        _assertOracleAnchorChecks(suite, triggered, operation, beforeFork, afterFork);
-        _assertAccountingConservationChecks(suite, triggered, operation, beforeFork, afterFork);
+        if (enabled.executionPrice) {
+            _assertExecutionPriceChecks(suite, triggered, operation, beforeFork, afterFork);
+        }
+        if (enabled.liquidityCoverage) {
+            _assertLiquidityCoverageChecks(suite, triggered, operation, beforeFork, afterFork);
+        }
+        if (enabled.fundingDelta) {
+            _assertFundingDeltaChecks(suite, triggered, operation, beforeFork, afterFork);
+        }
+        if (enabled.liquidation) {
+            _assertLiquidationChecks(suite, triggered, operation, beforeFork, afterFork);
+        }
+        if (enabled.oracleAnchor) {
+            _assertOracleAnchorChecks(suite, triggered, operation, beforeFork, afterFork);
+        }
+        if (enabled.accountingConservation) {
+            _assertAccountingConservationChecks(suite, triggered, operation, beforeFork, afterFork);
+        }
         _assertPostMutationRisk(suite, triggered, operation, afterFork);
+    }
+
+    function _enabledCheckKinds(IPerpetualProtectionSuite suite)
+        internal
+        view
+        returns (IPerpetualProtectionSuite.EnabledCheckKinds memory enabled)
+    {
+        try suite.enabledCheckKinds() returns (IPerpetualProtectionSuite.EnabledCheckKinds memory suiteEnabled) {
+            return suiteEnabled;
+        } catch {
+            enabled = IPerpetualProtectionSuite.EnabledCheckKinds({
+                executionPrice: true,
+                liquidityCoverage: true,
+                fundingDelta: true,
+                liquidation: true,
+                oracleAnchor: true,
+                accountingConservation: true
+            });
+        }
     }
 
     /// @notice Enforces suite-provided taker execution bounds for the triggered operation.

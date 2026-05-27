@@ -8,6 +8,8 @@ import {Assertion} from "../../Assertion.sol";
 /// @notice Base contract for access-control assertions (V2 syntax).
 /// @dev Provides the protected target address and shared helpers for the access-control suite.
 ///      Inherit from this (and one or more invariant contracts), then implement `triggers()`.
+///      Each inherited mixin must have its `_register*Triggers()` helper called explicitly;
+///      forgetting one disables that mixin's check without a runtime warning.
 ///
 /// Example -- combine slot protection and balance conservation:
 /// ```solidity
