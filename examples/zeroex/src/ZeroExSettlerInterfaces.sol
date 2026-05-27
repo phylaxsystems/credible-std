@@ -49,3 +49,57 @@ interface IZeroExSettlerRegistryLike {
     function ownerOf(uint256 tokenId) external view returns (address);
     function prev(uint128 featureId) external view returns (address);
 }
+
+/// @notice Minimal Uniswap V2-style pool surface used for mainnet swap introspection.
+interface IZeroExUniV2PoolLike {
+    function token0() external view returns (address);
+    function token1() external view returns (address);
+    function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast);
+    function swap(uint256 amount0Out, uint256 amount1Out, address to, bytes calldata data) external;
+}
+
+/// @notice Minimal Uniswap V3-style pool surface used for mainnet swap introspection.
+interface IZeroExUniV3PoolLike {
+    function slot0()
+        external
+        view
+        returns (
+            uint160 sqrtPriceX96,
+            int24 tick,
+            uint16 observationIndex,
+            uint16 observationCardinality,
+            uint16 observationCardinalityNext,
+            uint8 feeProtocol,
+            bool unlocked
+        );
+
+    function swap(
+        address recipient,
+        bool zeroForOne,
+        int256 amountSpecified,
+        uint160 sqrtPriceLimitX96,
+        bytes calldata data
+    ) external returns (int256 amount0, int256 amount1);
+}
+
+/// @notice Minimal Uniswap V4 PoolManager surface used for mainnet swap introspection.
+interface IZeroExUniV4PoolManagerLike {
+    struct PoolKey {
+        address token0;
+        address token1;
+        uint24 fee;
+        int24 tickSpacing;
+        address hooks;
+    }
+
+    struct SwapParams {
+        bool zeroForOne;
+        int256 amountSpecified;
+        uint160 sqrtPriceLimitX96;
+    }
+
+    function extsload(bytes32 slot) external view returns (bytes32 value);
+    function swap(PoolKey calldata key, SwapParams calldata params, bytes calldata hookData)
+        external
+        returns (int256 balanceDelta);
+}

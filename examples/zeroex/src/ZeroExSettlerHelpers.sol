@@ -52,12 +52,14 @@ abstract contract ZeroExSettlerHelpers is Assertion {
     function _slippageFromCallInput(bytes memory input) internal pure returns (ZeroExSettlerSlippage memory slippage) {
         require(input.length >= 100, "0xSettler: short calldata");
 
-        assembly {
-            slippage := mload(0x40)
-            mstore(0x40, add(slippage, 0x60))
-            mstore(slippage, and(mload(add(input, 0x24)), 0xffffffffffffffffffffffffffffffffffffffff))
-            mstore(add(slippage, 0x20), and(mload(add(input, 0x44)), 0xffffffffffffffffffffffffffffffffffffffff))
-            mstore(add(slippage, 0x40), mload(add(input, 0x64)))
+        slippage.recipient = payable(address(uint160(_readWord(input, 4))));
+        slippage.buyToken = address(uint160(_readWord(input, 36)));
+        slippage.minAmountOut = _readWord(input, 68);
+    }
+
+    function _readWord(bytes memory data, uint256 offset) internal pure returns (uint256 word) {
+        for (uint256 i; i < 32; ++i) {
+            word = (word << 8) | uint8(data[offset + i]);
         }
     }
 

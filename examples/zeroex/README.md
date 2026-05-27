@@ -13,3 +13,6 @@ FOUNDRY_PROFILE=zeroex forge build
 - ZeroExSettlerAssertion.sol
 - ZeroExSettlerHelpers.sol
 - ZeroExSettlerInterfaces.sol
+- ZeroExSettlerMainnetSwapIntrospectionAssertion.sol
+- ZeroExSettlerMainnetSwapIntrospectionCodec.sol
+- ZeroExSettlerMainnetSwapIntrospectionHelpers.sol
