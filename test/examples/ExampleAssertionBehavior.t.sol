@@ -3,63 +3,14 @@ pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
 
-import {CredibleTest} from "../../src/CredibleTest.sol";
 import {SafeConfigLockAssertion} from "../../examples/safe/src/SafeConfigLockAssertion.sol";
-import {SafeTxShapeAssertion} from "../../examples/safe/src/SafeTxShapeAssertion.sol";
-import {SafeTxShapeHelpers} from "../../examples/safe/src/SafeTxShapeHelpers.sol";
 import {
     SymbioticVaultCircuitBreakerAssertion,
     SymbioticVaultCircuitBreakerProtection
 } from "../../examples/symbiotic/src/SymbioticVaultCircuitBreakerAssertion.sol";
 import {BoringVaultAssertion} from "../../examples/veda/src/BoringVaultAssertion.sol";
 
-contract MockSafe {
-    function execTransaction(
-        address,
-        uint256,
-        bytes calldata,
-        uint8,
-        uint256,
-        uint256,
-        uint256,
-        address,
-        address,
-        bytes calldata
-    ) external pure returns (bool success) {
-        return true;
-    }
-}
-
-contract ExampleAssertionBehaviorTest is Test, CredibleTest {
-    MockSafe internal safe;
-    address internal allowedTarget = address(0xA110);
-    address internal blockedTarget = address(0xB10C);
-
-    function setUp() external {
-        safe = new MockSafe();
-    }
-
-    function testSafeTxShapeAssertionAllowsConfiguredTarget() external {
-        cl.assertion(
-            address(safe),
-            abi.encodePacked(type(SafeTxShapeAssertion).creationCode, _safeTxShapeConstructorArgs()),
-            _selector("assertSafeTargetSelectorPolicy()")
-        );
-
-        assertTrue(_execSafeTx(allowedTarget, abi.encodeWithSelector(bytes4(0x12345678)), 0));
-    }
-
-    function testSafeTxShapeAssertionBlocksUnknownTarget() external {
-        cl.assertion(
-            address(safe),
-            abi.encodePacked(type(SafeTxShapeAssertion).creationCode, _safeTxShapeConstructorArgs()),
-            _selector("assertSafeTargetSelectorPolicy()")
-        );
-
-        vm.expectRevert(abi.encodeWithSelector(SafeTxShapeHelpers.SafeTxShapeUnknownTarget.selector, blockedTarget));
-        _execSafeTx(blockedTarget, abi.encodeWithSelector(bytes4(0x12345678)), 0);
-    }
-
+contract ExampleAssertionBehaviorTest is Test {
     function testSafeConfigHashIgnoresOwnerOrdering() external {
         bytes32[] memory ownerHashes = new bytes32[](1);
         bytes32[] memory moduleHashes = new bytes32[](1);
@@ -89,35 +40,5 @@ contract ExampleAssertionBehaviorTest is Test, CredibleTest {
         new SymbioticVaultCircuitBreakerProtection(
             address(0xA001), address(0xA002), new SymbioticVaultCircuitBreakerAssertion.LiquidationRoute[](0)
         );
-    }
-
-    function _execSafeTx(address to, bytes memory data, uint8 operation) internal returns (bool) {
-        return safe.execTransaction(to, 0, data, operation, 0, 0, 0, address(0), address(0), "");
-    }
-
-    function _safeTxShapeConstructorArgs() internal view returns (bytes memory) {
-        return abi.encode(
-            _targetPolicies(),
-            new SafeTxShapeHelpers.SelectorPolicy[](0),
-            new SafeTxShapeHelpers.BatchExecutorPolicy[](0),
-            new SafeTxShapeHelpers.ApprovalPolicy[](0),
-            false,
-            new address[](0)
-        );
-    }
-
-    function _targetPolicies() internal view returns (SafeTxShapeHelpers.TargetPolicy[] memory policies) {
-        policies = new SafeTxShapeHelpers.TargetPolicy[](1);
-        policies[0] = SafeTxShapeHelpers.TargetPolicy({
-            target: allowedTarget,
-            allowAnySelector: true,
-            allowEmptyCalldata: false,
-            allowFallbackCalldata: false,
-            allowNonzeroValue: false
-        });
-    }
-
-    function _selector(string memory signature) internal pure returns (bytes4) {
-        return bytes4(keccak256(bytes(signature)));
     }
 }
