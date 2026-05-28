@@ -56,6 +56,8 @@ contract SafeTxShapeAssertion is SafeTxShapeHelpers {
 
     /// @notice Ensures module executions are disabled or sent by an allowlisted module.
     function assertSafeModulePolicy() external view {
+        if (ph.context().selector == EXEC_TRANSACTION_SELECTOR) return;
+
         Action memory action = _triggeredAction();
         if (action.fromModule) _validateModuleCaller(action.module);
     }

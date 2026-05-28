@@ -21,6 +21,7 @@ abstract contract SafeConfigLockHelpers is Assertion {
     address internal constant SENTINEL_MODULES = address(0x1);
 
     uint256 internal constant MODULE_PAGE_SIZE = 256;
+    uint64 internal constant MODULE_PAGE_VIEW_GAS = 2_000_000;
 
     bytes32 internal constant FALLBACK_HANDLER_STORAGE_SLOT =
         0x6c9a6c4a39284e37ed1cf53d337577d14212a4870fb976a4366c693b939918d5;
@@ -52,12 +53,15 @@ abstract contract SafeConfigLockHelpers is Assertion {
     function _modulesAt(address safe, PhEvm.ForkId memory fork) internal view returns (address[] memory modules) {
         address next = SENTINEL_MODULES;
         while (true) {
-            (address[] memory page, address pageNext) = abi.decode(
-                _viewAt(
-                    safe, abi.encodeCall(ISafeConfigLockTarget.getModulesPaginated, (next, MODULE_PAGE_SIZE)), fork
-                ),
-                (address[], address)
+            PhEvm.StaticCallResult memory result = ph.staticcallAt(
+                safe,
+                abi.encodeCall(ISafeConfigLockTarget.getModulesPaginated, (next, MODULE_PAGE_SIZE)),
+                MODULE_PAGE_VIEW_GAS,
+                fork
             );
+            require(result.ok, _viewFailureMessage());
+
+            (address[] memory page, address pageNext) = abi.decode(result.data, (address[], address));
 
             modules = _appendAddresses(modules, page);
             if (pageNext == SENTINEL_MODULES) return modules;
@@ -100,17 +104,34 @@ abstract contract SafeConfigLockHelpers is Assertion {
     }
 
     function _sortAddresses(address[] memory accounts) internal pure {
-        for (uint256 i = 1; i < accounts.length; ++i) {
-            address current = accounts[i];
-            uint256 j = i;
+        if (accounts.length < 2) return;
+        _quickSortAddresses(accounts, 0, accounts.length - 1);
+    }
 
-            while (j > 0 && uint160(accounts[j - 1]) > uint160(current)) {
-                accounts[j] = accounts[j - 1];
+    function _quickSortAddresses(address[] memory accounts, uint256 left, uint256 right) private pure {
+        uint256 i = left;
+        uint256 j = right;
+        uint160 pivot = uint160(accounts[left + (right - left) / 2]);
+
+        while (i <= j) {
+            while (uint160(accounts[i]) < pivot) {
+                ++i;
+            }
+            while (uint160(accounts[j]) > pivot) {
+                if (j == 0) break;
                 --j;
             }
 
-            accounts[j] = current;
+            if (i <= j) {
+                (accounts[i], accounts[j]) = (accounts[j], accounts[i]);
+                ++i;
+                if (j == 0) break;
+                --j;
+            }
         }
+
+        if (left < j) _quickSortAddresses(accounts, left, j);
+        if (i < right) _quickSortAddresses(accounts, i, right);
     }
 
     function _appendAddresses(address[] memory left, address[] memory right)
@@ -131,7 +152,7 @@ abstract contract SafeConfigLockHelpers is Assertion {
         return "SafeConfigLock: safe view failed";
     }
 
-    function _registerReshiramSpec() internal view {
+    function _registerReshiramSpec() internal {
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 }

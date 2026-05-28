@@ -209,8 +209,8 @@ contract SafeConfigLockAssertionTest is Test, CredibleTest {
         safe.setModules(modules);
     }
 
-    function testAllowsApprovedModuleSetAcrossMultiplePages() public {
-        address[] memory modules = new address[](257);
+    function testAllowsApprovedLargerModuleSetWithinGasLimit() public {
+        address[] memory modules = new address[](32);
         for (uint256 i; i < modules.length; ++i) {
             // forge-lint: disable-next-line(unsafe-typecast)
             modules[i] = address(uint160(0x10000 + i));

@@ -130,6 +130,8 @@ Owner and module set hashes are computed by sorting addresses ascending and hash
 
 For modules, `bytes32(0)` in `approvedModuleSetHashes` means modules must be disabled. This is useful when the safest policy is that only owner-approved Safe transactions may execute.
 
+Module-set checks paginate Safe modules in pages of 256. Very large module sets may exceed the assertion gas limit while reading and hashing the full set; keep protected Safes below that practical cap or split module-heavy operational surfaces behind a smaller approved module set.
+
 ## Material Effect
 
 - A transaction cannot reduce the Safe below the configured threshold or owner count.

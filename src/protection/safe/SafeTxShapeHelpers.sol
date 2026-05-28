@@ -194,38 +194,14 @@ abstract contract SafeTxShapeHelpers is Assertion {
         address safe = ph.getAssertionAdopter();
 
         if (triggered.selector == EXEC_TRANSACTION_SELECTOR) {
-            OwnerTx memory ownerTx = _decodeOwnerTx(triggered.input);
-            return Action({
-                safe: safe,
-                module: address(0),
-                target: ownerTx.to,
-                value: ownerTx.value,
-                data: ownerTx.data,
-                dataOffset: 0,
-                dataLength: ownerTx.data.length,
-                operation: ownerTx.operation,
-                fromModule: false,
-                fromBatch: false
-            });
+            return _decodeOwnerAction(safe, triggered.input);
         }
 
         if (
             triggered.selector == EXEC_TRANSACTION_FROM_MODULE_SELECTOR
                 || triggered.selector == EXEC_TRANSACTION_FROM_MODULE_RETURN_DATA_SELECTOR
         ) {
-            ModuleTx memory moduleTx = _decodeModuleTx(triggered.input);
-            return Action({
-                safe: safe,
-                module: triggered.caller,
-                target: moduleTx.to,
-                value: moduleTx.value,
-                data: moduleTx.data,
-                dataOffset: 0,
-                dataLength: moduleTx.data.length,
-                operation: moduleTx.operation,
-                fromModule: true,
-                fromBatch: false
-            });
+            return _decodeModuleAction(safe, triggered.caller, triggered.input);
         }
 
         revert SafeTxShapeUnsupportedEntrypoint(triggered.selector);
@@ -549,6 +525,17 @@ abstract contract SafeTxShapeHelpers is Assertion {
     function _resolveTriggeredSafeCall() internal view returns (TriggeredSafeCall memory triggered) {
         address safe = ph.getAssertionAdopter();
         PhEvm.TriggerContext memory context = ph.context();
+
+        if (context.selector == EXEC_TRANSACTION_SELECTOR) {
+            return TriggeredSafeCall({
+                selector: context.selector,
+                caller: address(0),
+                input: ph.callinputAt(context.callStart),
+                callStart: context.callStart,
+                callEnd: context.callEnd
+            });
+        }
+
         PhEvm.CallInputs[] memory calls = ph.getAllCallInputs(safe, context.selector);
 
         for (uint256 i; i < calls.length; ++i) {
@@ -590,6 +577,54 @@ abstract contract SafeTxShapeHelpers is Assertion {
         moduleTx.value = _readUint256(input, 36);
         moduleTx.data = _readDynamicBytes(input, 4, _readUint256(input, 68));
         moduleTx.operation = _readAbiUint8(input, 100);
+    }
+
+    function _decodeOwnerAction(address safe, bytes memory input) internal pure returns (Action memory action) {
+        if (input.length < 388 || _selector(input) != EXEC_TRANSACTION_SELECTOR) {
+            revert SafeTxShapeBatchPayloadMalformed();
+        }
+
+        (uint256 dataOffset, uint256 dataLength) = _dynamicBytesBounds(input, 4, _readUint256(input, 68));
+        action = Action({
+            safe: safe,
+            module: address(0),
+            target: _readAbiAddress(input, 4),
+            value: _readUint256(input, 36),
+            data: input,
+            dataOffset: dataOffset,
+            dataLength: dataLength,
+            operation: _readAbiUint8(input, 100),
+            fromModule: false,
+            fromBatch: false
+        });
+    }
+
+    function _decodeModuleAction(address safe, address module, bytes memory input)
+        internal
+        pure
+        returns (Action memory action)
+    {
+        if (
+            input.length < 164
+                || (_selector(input) != EXEC_TRANSACTION_FROM_MODULE_SELECTOR
+                    && _selector(input) != EXEC_TRANSACTION_FROM_MODULE_RETURN_DATA_SELECTOR)
+        ) {
+            revert SafeTxShapeBatchPayloadMalformed();
+        }
+
+        (uint256 dataOffset, uint256 dataLength) = _dynamicBytesBounds(input, 4, _readUint256(input, 68));
+        action = Action({
+            safe: safe,
+            module: module,
+            target: _readAbiAddress(input, 4),
+            value: _readUint256(input, 36),
+            data: input,
+            dataOffset: dataOffset,
+            dataLength: dataLength,
+            operation: _readAbiUint8(input, 100),
+            fromModule: true,
+            fromBatch: false
+        });
     }
 
     function _decodeSingleBytesArgument(
@@ -764,7 +799,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
             || kind == APPROVAL_KIND_ERC1155_SET_APPROVAL_FOR_ALL;
     }
 
-    function _registerReshiramSpec() internal view {
+    function _registerReshiramSpec() internal {
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
@@ -809,15 +844,23 @@ abstract contract SafeTxShapeHelpers is Assertion {
         pure
         returns (bytes memory value)
     {
+        (uint256 valueOffset, uint256 valueLength) = _dynamicBytesBounds(data, headStart, relativeOffset);
+        value = _slice(data, valueOffset, valueLength);
+    }
+
+    function _dynamicBytesBounds(bytes memory data, uint256 headStart, uint256 relativeOffset)
+        internal
+        pure
+        returns (uint256 valueOffset, uint256 valueLength)
+    {
         if (headStart > data.length || relativeOffset > data.length - headStart) {
             revert SafeTxShapeBatchPayloadMalformed();
         }
         uint256 lengthOffset = headStart + relativeOffset;
-        uint256 valueLength = _readUint256(data, lengthOffset);
-        uint256 valueOffset = lengthOffset + 32;
+        valueLength = _readUint256(data, lengthOffset);
+        valueOffset = lengthOffset + 32;
         if (valueOffset > data.length) revert SafeTxShapeBatchPayloadMalformed();
         if (valueLength > data.length - valueOffset) revert SafeTxShapeBatchPayloadMalformed();
-        value = _slice(data, valueOffset, valueLength);
     }
 
     function _readPackedAddress(bytes memory data, uint256 offset) internal pure returns (address value) {
