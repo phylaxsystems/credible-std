@@ -7,9 +7,10 @@ import {CredibleTest} from "../../src/CredibleTest.sol";
 import {SafeConfigLockAssertion} from "../../examples/safe/src/SafeConfigLockAssertion.sol";
 import {SafeTxShapeAssertion} from "../../examples/safe/src/SafeTxShapeAssertion.sol";
 import {SafeTxShapeHelpers} from "../../examples/safe/src/SafeTxShapeHelpers.sol";
-import {SymbioticVaultAssertion} from "../../examples/symbiotic/src/SymbioticVaultAssertion.sol";
-import {SymbioticVaultCircuitBreakerAssertion} from "../../examples/symbiotic/src/SymbioticVaultCircuitBreakerAssertion.sol";
-import {SymbioticVaultConfigAssertion} from "../../examples/symbiotic/src/SymbioticVaultConfigAssertion.sol";
+import {
+    SymbioticVaultCircuitBreakerAssertion,
+    SymbioticVaultCircuitBreakerProtection
+} from "../../examples/symbiotic/src/SymbioticVaultCircuitBreakerAssertion.sol";
 import {BoringVaultAssertion} from "../../examples/veda/src/BoringVaultAssertion.sol";
 
 contract MockSafe {
@@ -85,11 +86,8 @@ contract ExampleAssertionBehaviorTest is Test, CredibleTest {
 
     function testSymbioticCircuitBreakerRequiresLiquidationRoutes() external {
         vm.expectRevert(bytes("SymbioticCircuitBreaker: missing liquidation routes"));
-        new SymbioticVaultAssertion(
-            address(0xA001),
-            address(0xA002),
-            _symbioticPolicy(),
-            new SymbioticVaultCircuitBreakerAssertion.LiquidationRoute[](0)
+        new SymbioticVaultCircuitBreakerProtection(
+            address(0xA001), address(0xA002), new SymbioticVaultCircuitBreakerAssertion.LiquidationRoute[](0)
         );
     }
 
@@ -116,20 +114,6 @@ contract ExampleAssertionBehaviorTest is Test, CredibleTest {
             allowEmptyCalldata: false,
             allowFallbackCalldata: false,
             allowNonzeroValue: false
-        });
-    }
-
-    function _symbioticPolicy() internal pure returns (SymbioticVaultConfigAssertion.VaultConfigPolicy memory) {
-        return SymbioticVaultConfigAssertion.VaultConfigPolicy({
-            requireCompleteInitialization: false,
-            requireSlasher: false,
-            requireDelegatorVaultMatch: false,
-            requireSlasherVaultMatch: false,
-            requireBurnerWhenSlasherHooked: false,
-            minEpochDuration: 0,
-            maxEpochDuration: 0,
-            minVetoExecutionWindow: 0,
-            minResolverSetEpochsDelay: 0
         });
     }
 
