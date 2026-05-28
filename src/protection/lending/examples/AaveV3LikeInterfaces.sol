@@ -87,4 +87,6 @@ interface IAaveV3LikeAddressesProvider {
 
 interface IAaveV3LikeOracle {
     function getAssetPrice(address asset) external view returns (uint256);
+    function BASE_CURRENCY() external view returns (address);
+    function BASE_CURRENCY_UNIT() external view returns (uint256);
 }

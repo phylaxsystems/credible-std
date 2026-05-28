@@ -81,82 +81,139 @@ contract AaveV3LikeProtectionSuite is LendingProtectionSuiteBase {
         override
         returns (OperationContext memory operation)
     {
-        operation.selector = triggered.selector;
-        operation.caller = triggered.caller;
-
         if (triggered.selector == IAaveV3LikePool.borrow.selector) {
-            (address asset, uint256 amount,,, address onBehalfOf) =
-                abi.decode(triggered.input[4:], (address, uint256, uint256, uint16, address));
-
-            operation.kind = OperationKind.Borrow;
-            operation.account = onBehalfOf;
-            operation.asset = asset;
-            operation.amount = amount;
-            operation.increasesDebt = amount != 0;
-            return operation;
+            return _decodeBorrowOperation(triggered);
         }
 
         if (triggered.selector == IAaveV3LikePool.withdraw.selector) {
-            (address asset, uint256 amount, address to) = abi.decode(triggered.input[4:], (address, uint256, address));
-
-            operation.kind = OperationKind.WithdrawCollateral;
-            operation.account = triggered.caller;
-            operation.asset = asset;
-            operation.counterparty = to;
-            operation.amount = amount;
-            operation.reducesEffectiveCollateral = amount != 0;
-            return operation;
+            return _decodeWithdrawOperation(triggered);
         }
 
         if (triggered.selector == IAaveV3LikePool.liquidationCall.selector) {
-            (address collateralAsset, address debtAsset, address user, uint256 debtToCover, bool receiveAToken) =
-                abi.decode(triggered.input[4:], (address, address, address, uint256, bool));
-
-            operation.kind = OperationKind.Liquidation;
-            operation.account = user;
-            operation.asset = debtAsset;
-            operation.relatedAsset = collateralAsset;
-            operation.counterparty = triggered.caller;
-            operation.amount = debtToCover;
-            operation.metadata = abi.encode(receiveAToken);
-            return operation;
+            return _decodeLiquidationOperation(triggered);
         }
 
         if (triggered.selector == IAaveV3LikePool.setUserUseReserveAsCollateral.selector) {
-            (address asset, bool useAsCollateral) = abi.decode(triggered.input[4:], (address, bool));
-
-            if (!useAsCollateral) {
-                operation.kind = OperationKind.DisableCollateral;
-                operation.account = triggered.caller;
-                operation.asset = asset;
-                operation.reducesEffectiveCollateral = true;
-            }
-
-            return operation;
+            return _decodeCollateralToggleOperation(triggered);
         }
 
         if (triggered.selector == IAaveV3LikePool.finalizeTransfer.selector) {
-            (address asset, address from, address to, uint256 amount,,) =
-                abi.decode(triggered.input[4:], (address, address, address, uint256, uint256, uint256));
-
-            operation.kind = OperationKind.TransferCollateral;
-            operation.account = from;
-            operation.asset = asset;
-            operation.counterparty = to;
-            operation.amount = amount;
-            operation.reducesEffectiveCollateral = from != to && amount != 0;
-            return operation;
+            return _decodeFinalizeTransferOperation(triggered);
         }
 
         if (triggered.selector == IAaveV3LikePool.setUserEMode.selector) {
-            (uint8 categoryId) = abi.decode(triggered.input[4:], (uint8));
-
-            operation.kind = OperationKind.SetEMode;
-            operation.account = triggered.caller;
-            operation.amount = uint256(categoryId);
-            operation.metadata = abi.encode(categoryId);
-            return operation;
+            return _decodeSetUserEModeOperation(triggered);
         }
+
+        operation.selector = triggered.selector;
+        operation.caller = triggered.caller;
+        return operation;
+    }
+
+    function _baseOperation(TriggeredCall calldata triggered)
+        internal
+        pure
+        returns (OperationContext memory operation)
+    {
+        operation.selector = triggered.selector;
+        operation.caller = triggered.caller;
+    }
+
+    function _decodeBorrowOperation(TriggeredCall calldata triggered)
+        internal
+        pure
+        returns (OperationContext memory operation)
+    {
+        (address asset, uint256 amount,,, address onBehalfOf) =
+            abi.decode(triggered.input[4:], (address, uint256, uint256, uint16, address));
+
+        operation = _baseOperation(triggered);
+        operation.kind = OperationKind.Borrow;
+        operation.account = onBehalfOf;
+        operation.asset = asset;
+        operation.amount = amount;
+        operation.increasesDebt = amount != 0;
+    }
+
+    function _decodeWithdrawOperation(TriggeredCall calldata triggered)
+        internal
+        pure
+        returns (OperationContext memory operation)
+    {
+        (address asset, uint256 amount, address to) = abi.decode(triggered.input[4:], (address, uint256, address));
+
+        operation = _baseOperation(triggered);
+        operation.kind = OperationKind.WithdrawCollateral;
+        operation.account = triggered.caller;
+        operation.asset = asset;
+        operation.counterparty = to;
+        operation.amount = amount;
+        operation.reducesEffectiveCollateral = amount != 0;
+    }
+
+    function _decodeLiquidationOperation(TriggeredCall calldata triggered)
+        internal
+        pure
+        returns (OperationContext memory operation)
+    {
+        (address collateralAsset, address debtAsset, address user, uint256 debtToCover, bool receiveAToken) =
+            abi.decode(triggered.input[4:], (address, address, address, uint256, bool));
+
+        operation = _baseOperation(triggered);
+        operation.kind = OperationKind.Liquidation;
+        operation.account = user;
+        operation.asset = debtAsset;
+        operation.relatedAsset = collateralAsset;
+        operation.counterparty = triggered.caller;
+        operation.amount = debtToCover;
+        operation.metadata = abi.encode(receiveAToken);
+    }
+
+    function _decodeCollateralToggleOperation(TriggeredCall calldata triggered)
+        internal
+        pure
+        returns (OperationContext memory operation)
+    {
+        (address asset, bool useAsCollateral) = abi.decode(triggered.input[4:], (address, bool));
+
+        operation = _baseOperation(triggered);
+        if (!useAsCollateral) {
+            operation.kind = OperationKind.DisableCollateral;
+            operation.account = triggered.caller;
+            operation.asset = asset;
+            operation.reducesEffectiveCollateral = true;
+        }
+    }
+
+    function _decodeFinalizeTransferOperation(TriggeredCall calldata triggered)
+        internal
+        pure
+        returns (OperationContext memory operation)
+    {
+        (address asset, address from, address to, uint256 amount,,) =
+            abi.decode(triggered.input[4:], (address, address, address, uint256, uint256, uint256));
+
+        operation = _baseOperation(triggered);
+        operation.kind = OperationKind.TransferCollateral;
+        operation.account = from;
+        operation.asset = asset;
+        operation.counterparty = to;
+        operation.amount = amount;
+        operation.reducesEffectiveCollateral = from != to && amount != 0;
+    }
+
+    function _decodeSetUserEModeOperation(TriggeredCall calldata triggered)
+        internal
+        pure
+        returns (OperationContext memory operation)
+    {
+        (uint8 categoryId) = abi.decode(triggered.input[4:], (uint8));
+
+        operation = _baseOperation(triggered);
+        operation.kind = OperationKind.SetEMode;
+        operation.account = triggered.caller;
+        operation.amount = uint256(categoryId);
+        operation.metadata = abi.encode(categoryId);
     }
 
     /// @notice Filters decoded Aave v3-like operations down to the ones that must preserve solvency.

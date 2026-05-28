@@ -282,12 +282,12 @@ interface PhEvm {
     /// @notice Checks that a single storage slot on the assertion adopter was not modified.
     /// @param slot The slot to protect.
     /// @return ok True when the slot was not written during the transaction.
-    function forbidChangeForSlot(bytes32 slot) external returns (bool ok);
+    function forbidChangeForSlot(bytes32 slot) external view returns (bool ok);
 
     /// @notice Checks that none of the given storage slots on the assertion adopter were modified.
     /// @param slots The slots to protect.
     /// @return ok True when none of the slots were written during the transaction.
-    function forbidChangeForSlots(bytes32[] calldata slots) external returns (bool ok);
+    function forbidChangeForSlots(bytes32[] calldata slots) external view returns (bool ok);
 
     /// @notice Get the assertion adopter address for the current transaction
     /// @dev The adopter is the contract that registered the assertion
@@ -392,7 +392,7 @@ interface PhEvm {
     /// @param vault The ERC4626 vault address.
     /// @param toleranceBps Maximum allowed deviation in basis points.
     /// @return True if share price stays within tolerance at all forks.
-    function assetsMatchSharePrice(address vault, uint256 toleranceBps) external returns (bool);
+    function assetsMatchSharePrice(address vault, uint256 toleranceBps) external view returns (bool);
 
     /// @notice Checks ERC4626 share price consistency between two specific forks.
     /// @param vault The ERC4626 vault address.
@@ -402,6 +402,7 @@ interface PhEvm {
     /// @return True if share price stays within tolerance.
     function assetsMatchSharePriceAt(address vault, uint256 toleranceBps, ForkId calldata fork0, ForkId calldata fork1)
         external
+        view
         returns (bool);
 
     // ---------------------------------------------------------------
@@ -416,6 +417,7 @@ interface PhEvm {
     /// @return True if balanceOf(account) is identical at both forks.
     function conserveBalance(ForkId calldata fork0, ForkId calldata fork1, address token, address account)
         external
+        view
         returns (bool);
 
     // ---------------------------------------------------------------

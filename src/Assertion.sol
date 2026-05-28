@@ -181,7 +181,8 @@ abstract contract Assertion is ForkUtils, StateChanges {
     /// The assertion spec defines what subset of precompiles are available.
     /// Can only be called once. For an assertion to be valid, it needs a defined spec.
     /// @param spec The desired AssertionSpec.
-    function registerAssertionSpec(AssertionSpec spec) internal view {
-        specRecorder.registerAssertionSpec(spec);
+    function registerAssertionSpec(AssertionSpec spec) internal {
+        (bool ok,) = address(specRecorder).call(abi.encodeCall(SpecRecorder.registerAssertionSpec, (spec)));
+        require(ok, "Assertion: spec registration failed");
     }
 }
