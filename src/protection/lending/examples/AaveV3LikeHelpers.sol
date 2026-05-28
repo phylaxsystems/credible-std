@@ -110,7 +110,11 @@ contract AaveV3LikeProtectionSuite is LendingProtectionSuiteBase {
         return operation;
     }
 
-    function _baseOperation(TriggeredCall calldata triggered) internal pure returns (OperationContext memory operation) {
+    function _baseOperation(TriggeredCall calldata triggered)
+        internal
+        pure
+        returns (OperationContext memory operation)
+    {
         operation.selector = triggered.selector;
         operation.caller = triggered.caller;
     }
