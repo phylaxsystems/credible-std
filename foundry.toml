@@ -1,12 +1,16 @@
 [profile.default]
 src = "src"
+test = "test"
 out = "out"
 libs = ["lib"]
+remappings = ["credible-std/=src/"]
+via_ir = true
 
 [profile.backtesting]
 src = "src"
 out = "out"
 libs = ["lib"]
+remappings = ["credible-std/=src/"]
 # Enable FFI for backtesting (required for external script execution)
 ffi = true
 # Increase gas limit for backtesting operations
@@ -41,6 +45,130 @@ cache_path = "examples/micro-patterns/cache"
 remappings = [
   "credible-std/=src/"
 ]
+
+# Per-protocol example profiles.
+# Each profile compiles examples/<protocol>/src/ standalone, sharing root
+# credible-std (src/) and root lib/ via the credible-std remapping.
+
+[profile.aave]
+src = "examples/aave/src"
+test = "examples/aave/test"
+out = "examples/aave/out"
+cache_path = "examples/aave/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+
+[profile.aerodrome]
+src = "examples/aerodrome/src"
+test = "examples/aerodrome/test"
+out = "examples/aerodrome/out"
+cache_path = "examples/aerodrome/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+
+[profile.cap]
+src = "examples/cap/src"
+test = "examples/cap/test"
+out = "examples/cap/out"
+cache_path = "examples/cap/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+
+[profile.curve]
+src = "examples/curve/src"
+test = "examples/curve/test"
+out = "examples/curve/out"
+cache_path = "examples/curve/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+
+[profile.denaria]
+src = "examples/denaria/src"
+test = "examples/denaria/test"
+out = "examples/denaria/out"
+cache_path = "examples/denaria/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+
+[profile.euler]
+src = "examples/euler/src"
+test = "examples/euler/test"
+out = "examples/euler/out"
+cache_path = "examples/euler/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+
+[profile.nado]
+src = "examples/nado/src"
+test = "examples/nado/test"
+out = "examples/nado/out"
+cache_path = "examples/nado/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+
+[profile.royco]
+src = "examples/royco/src"
+test = "examples/royco/test"
+out = "examples/royco/out"
+cache_path = "examples/royco/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+
+[profile.safe]
+src = "examples/safe/src"
+test = "examples/safe/test"
+out = "examples/safe/out"
+cache_path = "examples/safe/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+
+[profile.spark]
+src = "examples/spark/src"
+test = "examples/spark/test"
+out = "examples/spark/out"
+cache_path = "examples/spark/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+
+[profile.symbiotic]
+src = "examples/symbiotic/src"
+test = "examples/symbiotic/test"
+out = "examples/symbiotic/out"
+cache_path = "examples/symbiotic/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+
+[profile.tydro]
+src = "examples/tydro/src"
+test = "examples/tydro/test"
+out = "examples/tydro/out"
+cache_path = "examples/tydro/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+
+[profile.uniswap]
+src = "examples/uniswap/src"
+test = "examples/uniswap/test"
+out = "examples/uniswap/out"
+cache_path = "examples/uniswap/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+
+[profile.veda]
+src = "examples/veda/src"
+test = "examples/veda/test"
+out = "examples/veda/out"
+cache_path = "examples/veda/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+
+[profile.zeroex]
+src = "examples/zeroex/src"
+test = "examples/zeroex/test"
+out = "examples/zeroex/out"
+cache_path = "examples/zeroex/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
 
 [doc]
 title = "Credible Standard Library"
