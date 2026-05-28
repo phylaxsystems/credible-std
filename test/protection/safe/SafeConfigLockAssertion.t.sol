@@ -47,20 +47,32 @@ contract MockSafeConfigLockTarget {
         view
         returns (address[] memory array, address next)
     {
-        require(start == SENTINEL_MODULES, "MockSafe: unsupported start");
         require(pageSize != 0, "MockSafe: page size zero");
 
-        uint256 count = modules.length;
+        uint256 startIndex;
+        if (start != SENTINEL_MODULES) {
+            startIndex = type(uint256).max;
+            for (uint256 i; i < modules.length; ++i) {
+                if (modules[i] == start) {
+                    startIndex = i + 1;
+                    break;
+                }
+            }
+            require(startIndex != type(uint256).max, "MockSafe: unsupported start");
+        }
+
+        uint256 remaining = modules.length - startIndex;
+        uint256 count = remaining;
         if (count > pageSize) {
             count = pageSize;
-            next = modules[count - 1];
+            next = modules[startIndex + count - 1];
         } else {
             next = SENTINEL_MODULES;
         }
 
         array = new address[](count);
         for (uint256 i; i < count; ++i) {
-            array[i] = modules[i];
+            array[i] = modules[startIndex + i];
         }
     }
 
@@ -195,6 +207,25 @@ contract SafeConfigLockAssertionTest is Test, CredibleTest {
 
         vm.expectRevert(bytes("SafeConfigLock: module set not approved"));
         safe.setModules(modules);
+    }
+
+    function testAllowsApprovedModuleSetAcrossMultiplePages() public {
+        address[] memory modules = new address[](257);
+        for (uint256 i; i < modules.length; ++i) {
+            // forge-lint: disable-next-line(unsafe-typecast)
+            modules[i] = address(uint160(0x10000 + i));
+        }
+        safe = new MockSafeConfigLockTarget(_baselineOwners(), 2, modules, GUARD, MODULE_GUARD, FALLBACK_HANDLER);
+
+        _armPolicy(
+            _singleHash(_hashAddressSet(_baselineOwners())),
+            _singleHash(_hashAddressSet(modules)),
+            GUARD,
+            MODULE_GUARD,
+            FALLBACK_HANDLER
+        );
+
+        safe.setThreshold(3);
     }
 
     function testBlocksGuardMismatch() public {

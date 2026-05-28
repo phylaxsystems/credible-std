@@ -18,7 +18,6 @@ interface ISafeConfigLockTarget {
 /// @author Phylax Systems
 /// @notice Shared constants and snapshot readers for Safe configuration assertions.
 abstract contract SafeConfigLockHelpers is Assertion {
-    address internal constant SPEC_RECORDER = address(uint160(uint256(keccak256("SpecRecorder"))));
     address internal constant SENTINEL_MODULES = address(0x1);
 
     uint256 internal constant MODULE_PAGE_SIZE = 256;
@@ -30,11 +29,16 @@ abstract contract SafeConfigLockHelpers is Assertion {
         0xb104e0b93118902c651344349b610029d694cfdec91c589c91ebafbcd0289947;
 
     /// @notice Computes the deterministic hash used by owner and module allow lists.
-    /// @dev Sorts the provided addresses in memory before hashing, so Safe linked-list order
-    ///      does not affect the resulting set hash.
+    /// @dev Sorts a copy before hashing, so Safe linked-list order does not affect the
+    ///      resulting set hash and the caller's memory array is left unchanged.
     function hashAddressSet(address[] memory accounts) public pure returns (bytes32) {
-        _sortAddresses(accounts);
-        return keccak256(abi.encode(accounts));
+        address[] memory sorted = new address[](accounts.length);
+        for (uint256 i; i < accounts.length; ++i) {
+            sorted[i] = accounts[i];
+        }
+
+        _sortAddresses(sorted);
+        return keccak256(abi.encode(sorted));
     }
 
     function _ownersAt(address safe, PhEvm.ForkId memory fork) internal view returns (address[] memory owners) {
@@ -46,16 +50,19 @@ abstract contract SafeConfigLockHelpers is Assertion {
     }
 
     function _modulesAt(address safe, PhEvm.ForkId memory fork) internal view returns (address[] memory modules) {
-        address next;
-        (modules, next) = abi.decode(
-            _viewAt(
-                safe,
-                abi.encodeCall(ISafeConfigLockTarget.getModulesPaginated, (SENTINEL_MODULES, MODULE_PAGE_SIZE)),
-                fork
-            ),
-            (address[], address)
-        );
-        require(next == SENTINEL_MODULES, "SafeConfigLock: too many modules");
+        address next = SENTINEL_MODULES;
+        while (true) {
+            (address[] memory page, address pageNext) = abi.decode(
+                _viewAt(
+                    safe, abi.encodeCall(ISafeConfigLockTarget.getModulesPaginated, (next, MODULE_PAGE_SIZE)), fork
+                ),
+                (address[], address)
+            );
+
+            modules = _appendAddresses(modules, page);
+            if (pageNext == SENTINEL_MODULES) return modules;
+            next = pageNext;
+        }
     }
 
     function _guardAt(address safe, PhEvm.ForkId memory fork) internal view returns (address) {
@@ -106,14 +113,25 @@ abstract contract SafeConfigLockHelpers is Assertion {
         }
     }
 
+    function _appendAddresses(address[] memory left, address[] memory right)
+        private
+        pure
+        returns (address[] memory combined)
+    {
+        combined = new address[](left.length + right.length);
+        for (uint256 i; i < left.length; ++i) {
+            combined[i] = left[i];
+        }
+        for (uint256 i; i < right.length; ++i) {
+            combined[left.length + i] = right[i];
+        }
+    }
+
     function _viewFailureMessage() internal pure override returns (string memory) {
         return "SafeConfigLock: safe view failed";
     }
 
-    function _registerReshiramSpec() internal {
-        (bool ok,) = SPEC_RECORDER.call(
-            abi.encodeWithSelector(bytes4(keccak256("registerAssertionSpec(uint8)")), AssertionSpec.Reshiram)
-        );
-        require(ok, "SafeConfigLock: spec registration failed");
+    function _registerReshiramSpec() internal view {
+        registerAssertionSpec(AssertionSpec.Reshiram);
     }
 }

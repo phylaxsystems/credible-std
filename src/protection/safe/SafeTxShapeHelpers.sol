@@ -9,8 +9,6 @@ import {PhEvm} from "../../PhEvm.sol";
 /// @author Phylax Systems
 /// @notice Shared decoding and policy helpers for Safe transaction-shape assertions.
 abstract contract SafeTxShapeHelpers is Assertion {
-    address internal constant SPEC_RECORDER = address(uint160(uint256(keccak256("SpecRecorder"))));
-
     uint8 internal constant OPERATION_CALL = 0;
     uint8 internal constant OPERATION_DELEGATECALL = 1;
 
@@ -130,6 +128,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
     error SafeTxShapeApprovalAmountAboveCap(
         address token, address spender, uint8 kind, uint256 amount, uint256 maxAmount
     );
+    error SafeTxShapeAllowanceReadFailed(address token, address spender);
 
     TargetPolicy[] public targetPolicies;
     SelectorPolicy[] public selectorPolicies;
@@ -137,10 +136,14 @@ abstract contract SafeTxShapeHelpers is Assertion {
     ApprovalPolicy[] public approvalPolicies;
     address[] public allowedModules;
 
+    mapping(address target => uint256 indexPlusOne) internal _targetPolicyIndexPlusOne;
+    mapping(address target => mapping(bytes4 selector => uint256 indexPlusOne)) internal _selectorPolicyIndexPlusOne;
+    mapping(address executor => mapping(bytes4 selector => uint256 indexPlusOne)) internal _batchPolicyIndexPlusOne;
     mapping(address token => mapping(address spender => mapping(uint8 kind => ApprovalPolicy))) internal
         _approvalPolicyByKey;
     mapping(address token => mapping(address spender => mapping(uint8 kind => bool))) internal _approvalPolicyExists;
     mapping(address token => mapping(uint8 kind => bool)) internal _tokenApprovalKindRegistered;
+    mapping(address module => bool allowed) internal _allowedModule;
 
     bool public immutable moduleExecutionEnabled;
 
@@ -502,13 +505,13 @@ abstract contract SafeTxShapeHelpers is Assertion {
         }
 
         PhEvm.TriggerContext memory triggerCtx = ph.context();
-        PhEvm.ForkId memory postFork = PhEvm.ForkId({forkType: 3, callIndex: triggerCtx.callEnd});
+        PhEvm.ForkId memory postFork = _postCall(triggerCtx.callEnd);
 
         PhEvm.StaticCallResult memory result = ph.staticcallAt(
             token, abi.encodeWithSignature("allowance(address,address)", safe, spender), ALLOWANCE_READ_GAS, postFork
         );
         if (!result.ok || result.data.length < 32) {
-            revert SafeTxShapeApprovalMalformed(token, INCREASE_ALLOWANCE_SELECTOR);
+            revert SafeTxShapeAllowanceReadFailed(token, spender);
         }
 
         uint256 finalAllowance = abi.decode(result.data, (uint256));
@@ -540,12 +543,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
 
     function _validateModuleCaller(address module) internal view {
         if (!moduleExecutionEnabled) revert SafeTxShapeModuleExecutionDisabled(module);
-
-        for (uint256 i; i < allowedModules.length; ++i) {
-            if (allowedModules[i] == module) return;
-        }
-
-        revert SafeTxShapeModuleNotAllowed(module);
+        if (!_allowedModule[module]) revert SafeTxShapeModuleNotAllowed(module);
     }
 
     function _resolveTriggeredSafeCall() internal view returns (TriggeredSafeCall memory triggered) {
@@ -569,7 +567,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
     }
 
     function _decodeOwnerTx(bytes memory input) internal pure returns (OwnerTx memory ownerTx) {
-        if (input.length < 324 || _selector(input) != EXEC_TRANSACTION_SELECTOR) {
+        if (input.length < 388 || _selector(input) != EXEC_TRANSACTION_SELECTOR) {
             revert SafeTxShapeBatchPayloadMalformed();
         }
 
@@ -581,7 +579,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
 
     function _decodeModuleTx(bytes memory input) internal pure returns (ModuleTx memory moduleTx) {
         if (
-            input.length < 132
+            input.length < 164
                 || (_selector(input) != EXEC_TRANSACTION_FROM_MODULE_SELECTOR
                     && _selector(input) != EXEC_TRANSACTION_FROM_MODULE_RETURN_DATA_SELECTOR)
         ) {
@@ -646,26 +644,21 @@ abstract contract SafeTxShapeHelpers is Assertion {
     }
 
     function _targetPolicyIndex(address target) internal view returns (bool found, uint256 index) {
-        for (uint256 i; i < targetPolicies.length; ++i) {
-            if (targetPolicies[i].target == target) return (true, i);
-        }
-        return (false, 0);
+        uint256 indexPlusOne = _targetPolicyIndexPlusOne[target];
+        if (indexPlusOne == 0) return (false, 0);
+        return (true, indexPlusOne - 1);
     }
 
     function _selectorPolicyIndex(address target, bytes4 selector) internal view returns (bool found, uint256 index) {
-        for (uint256 i; i < selectorPolicies.length; ++i) {
-            if (selectorPolicies[i].target == target && selectorPolicies[i].selector == selector) return (true, i);
-        }
-        return (false, 0);
+        uint256 indexPlusOne = _selectorPolicyIndexPlusOne[target][selector];
+        if (indexPlusOne == 0) return (false, 0);
+        return (true, indexPlusOne - 1);
     }
 
     function _batchPolicyIndex(address executor, bytes4 selector) internal view returns (bool found, uint256 index) {
-        for (uint256 i; i < batchExecutorPolicies.length; ++i) {
-            if (batchExecutorPolicies[i].executor == executor && batchExecutorPolicies[i].selector == selector) {
-                return (true, i);
-            }
-        }
-        return (false, 0);
+        uint256 indexPlusOne = _batchPolicyIndexPlusOne[executor][selector];
+        if (indexPlusOne == 0) return (false, 0);
+        return (true, indexPlusOne - 1);
     }
 
     function _tokenHasApprovalKind(address token, uint8 kind) internal view returns (bool) {
@@ -675,12 +668,12 @@ abstract contract SafeTxShapeHelpers is Assertion {
     function _storeTargetPolicies(TargetPolicy[] memory policies) private {
         for (uint256 i; i < policies.length; ++i) {
             if (policies[i].target == address(0)) revert SafeTxShapeInvalidPolicy();
-
-            for (uint256 j; j < i; ++j) {
-                if (policies[j].target == policies[i].target) revert SafeTxShapeDuplicateTarget(policies[i].target);
+            if (_targetPolicyIndexPlusOne[policies[i].target] != 0) {
+                revert SafeTxShapeDuplicateTarget(policies[i].target);
             }
 
             targetPolicies.push(policies[i]);
+            _targetPolicyIndexPlusOne[policies[i].target] = targetPolicies.length;
         }
     }
 
@@ -690,14 +683,12 @@ abstract contract SafeTxShapeHelpers is Assertion {
                 revert SafeTxShapeInvalidPolicy();
             }
             if (!_targetPolicyExistsInMemory(policies[i].target)) revert SafeTxShapeInvalidPolicy();
-
-            for (uint256 j; j < i; ++j) {
-                if (policies[j].target == policies[i].target && policies[j].selector == policies[i].selector) {
-                    revert SafeTxShapeDuplicateSelector(policies[i].target, policies[i].selector);
-                }
+            if (_selectorPolicyIndexPlusOne[policies[i].target][policies[i].selector] != 0) {
+                revert SafeTxShapeDuplicateSelector(policies[i].target, policies[i].selector);
             }
 
             selectorPolicies.push(policies[i]);
+            _selectorPolicyIndexPlusOne[policies[i].target][policies[i].selector] = selectorPolicies.length;
         }
     }
 
@@ -709,14 +700,12 @@ abstract contract SafeTxShapeHelpers is Assertion {
             ) {
                 revert SafeTxShapeInvalidPolicy();
             }
-
-            for (uint256 j; j < i; ++j) {
-                if (policies[j].executor == policies[i].executor && policies[j].selector == policies[i].selector) {
-                    revert SafeTxShapeDuplicateBatchExecutor(policies[i].executor, policies[i].selector);
-                }
+            if (_batchPolicyIndexPlusOne[policies[i].executor][policies[i].selector] != 0) {
+                revert SafeTxShapeDuplicateBatchExecutor(policies[i].executor, policies[i].selector);
             }
 
             batchExecutorPolicies.push(policies[i]);
+            _batchPolicyIndexPlusOne[policies[i].executor][policies[i].selector] = batchExecutorPolicies.length;
         }
     }
 
@@ -758,20 +747,15 @@ abstract contract SafeTxShapeHelpers is Assertion {
     function _storeAllowedModules(address[] memory modules) private {
         for (uint256 i; i < modules.length; ++i) {
             if (modules[i] == address(0)) revert SafeTxShapeInvalidPolicy();
-
-            for (uint256 j; j < i; ++j) {
-                if (modules[j] == modules[i]) revert SafeTxShapeDuplicateModule(modules[i]);
-            }
+            if (_allowedModule[modules[i]]) revert SafeTxShapeDuplicateModule(modules[i]);
 
             allowedModules.push(modules[i]);
+            _allowedModule[modules[i]] = true;
         }
     }
 
     function _targetPolicyExistsInMemory(address target) private view returns (bool) {
-        for (uint256 i; i < targetPolicies.length; ++i) {
-            if (targetPolicies[i].target == target) return true;
-        }
-        return false;
+        return _targetPolicyIndexPlusOne[target] != 0;
     }
 
     function _isSupportedApprovalKind(uint8 kind) private pure returns (bool) {
@@ -780,11 +764,8 @@ abstract contract SafeTxShapeHelpers is Assertion {
             || kind == APPROVAL_KIND_ERC1155_SET_APPROVAL_FOR_ALL;
     }
 
-    function _registerReshiramSpec() internal {
-        (bool ok,) = SPEC_RECORDER.call(
-            abi.encodeWithSelector(bytes4(keccak256("registerAssertionSpec(uint8)")), AssertionSpec.Reshiram)
-        );
-        if (!ok) revert SafeTxShapeInvalidPolicy();
+    function _registerReshiramSpec() internal view {
+        registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
     function _stripSelector(bytes memory input) internal pure returns (bytes memory args) {
