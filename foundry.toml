@@ -6,6 +6,15 @@ libs = ["lib"]
 remappings = ["credible-std/=src/"]
 via_ir = true
 
+[profile.ci]
+src = "src"
+test = "test"
+out = "out"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+via_ir = true
+optimizer = true
+
 [profile.backtesting]
 src = "src"
 out = "out"
