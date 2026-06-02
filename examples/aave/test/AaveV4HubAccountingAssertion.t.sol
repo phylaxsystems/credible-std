@@ -26,6 +26,52 @@ contract MockAaveV4Hub {
         return 0;
     }
 
+    function remove(uint256, uint256, address) external pure returns (uint256) {
+        return 0;
+    }
+
+    function draw(uint256, uint256, address) external pure returns (uint256) {
+        return 0;
+    }
+
+    function restore(uint256, uint256, IAaveV4Hub.PremiumDelta calldata) external pure returns (uint256) {
+        return 0;
+    }
+
+    function reportDeficit(uint256, uint256, IAaveV4Hub.PremiumDelta calldata)
+        external
+        pure
+        returns (uint256, uint256)
+    {
+        return (0, 0);
+    }
+
+    function refreshPremium(uint256, IAaveV4Hub.PremiumDelta calldata) external pure {}
+
+    function payFeeShares(uint256, uint256) external pure {}
+
+    function transferShares(uint256, uint256, address) external pure {}
+
+    function mintFeeShares(uint256) external pure returns (uint256) {
+        return 0;
+    }
+
+    function eliminateDeficit(uint256, uint256, address) external pure returns (uint256, uint256) {
+        return (0, 0);
+    }
+
+    function sweep(uint256, uint256) external pure {}
+
+    function reclaim(uint256, uint256) external pure {}
+
+    function updateAssetConfig(uint256, IAaveV4Hub.AssetConfig calldata, bytes calldata) external pure {}
+
+    function addSpoke(uint256, address, IAaveV4Hub.SpokeConfig calldata) external pure {}
+
+    function updateSpokeConfig(uint256, address, IAaveV4Hub.SpokeConfig calldata) external pure {}
+
+    function setInterestRateData(uint256, bytes calldata) external pure {}
+
     function getAsset(uint256) external view returns (IAaveV4Hub.Asset memory) {
         return asset;
     }
