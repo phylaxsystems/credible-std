@@ -85,4 +85,16 @@ interface TriggerRecorder {
     function watchCumulativeInflow(address token, uint256 thresholdBps, uint256 windowDuration, bytes4 fnSelector)
         external
         view;
+
+    /// @notice Registers an anomaly-detection trigger. Fires whenever the
+    ///         executor's configured AnomalySubsystem produces a score for
+    ///         `target` in a transaction that touches it.
+    /// @dev The model owns the firing decision: the trigger fires whenever
+    ///      anomaly detection returns a score at all. The assertion reads the
+    ///      score back via `ph.anomalyContext(target)` and decides whether
+    ///      to revert, run extra checks, or ignore.
+    /// @param target The address whose anomaly score this assertion observes.
+    /// @param fnSelector The assertion function to invoke when `target` is
+    ///        scored.
+    function watchAnomaly(address target, bytes4 fnSelector) external view;
 }
