@@ -186,12 +186,14 @@ abstract contract LendingBaseAssertion is Assertion {
         for (uint256 i; i < selectors.length; ++i) {
             PhEvm.CallInputs[] memory calls = ph.getAllCallInputs(adopter, selectors[i]);
             for (uint256 j; j < calls.length; ++j) {
+                // `getAllCallInputs` returns calldata args WITHOUT the 4-byte selector (it is the
+                // query key), but `decodeOperation` expects selector-prefixed calldata. Prepend it.
                 ILendingProtectionSuite.OperationContext memory operation = suite.decodeOperation(
                     ILendingProtectionSuite.TriggeredCall({
                         selector: selectors[i],
                         caller: calls[j].caller,
                         target: calls[j].target_address,
-                        input: calls[j].input,
+                        input: bytes.concat(selectors[i], calls[j].input),
                         callStart: 0,
                         callEnd: 0
                     })
@@ -288,11 +290,13 @@ abstract contract LendingBaseAssertion is Assertion {
 
         for (uint256 i; i < calls.length; ++i) {
             if (calls[i].id == context.callStart) {
+                // `getAllCallInputs` returns calldata args WITHOUT the 4-byte selector (it is the
+                // query key), but `decodeOperation` expects selector-prefixed calldata. Prepend it.
                 return ILendingProtectionSuite.TriggeredCall({
                     selector: context.selector,
                     caller: calls[i].caller,
                     target: calls[i].target_address,
-                    input: calls[i].input,
+                    input: bytes.concat(context.selector, calls[i].input),
                     callStart: context.callStart,
                     callEnd: context.callEnd
                 });
