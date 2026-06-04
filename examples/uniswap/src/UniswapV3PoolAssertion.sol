@@ -62,20 +62,20 @@ contract UniswapV3PoolAssertion is UniswapV3PoolHelpers {
     function assertSwapPriceMovement() external view {
         PhEvm.TriggerContext memory ctx = ph.context();
         _requireConfiguredPoolIsAdopter();
-        PoolSnapshot memory pre = _snapshotAt(_preCall(ctx.callStart));
-        PoolSnapshot memory post = _snapshotAt(_postCall(ctx.callEnd));
+        Slot0Snapshot memory pre = _slot0At(_preCall(ctx.callStart));
+        Slot0Snapshot memory post = _slot0At(_postCall(ctx.callEnd));
         (, bool zeroForOne,, uint160 sqrtPriceLimitX96,) = _swapArgs(ph.callinputAt(ctx.callStart));
 
-        require(post.slot0.unlocked, "UniswapV3Pool: pool left locked");
-        require(post.slot0.sqrtPriceX96 >= MIN_SQRT_RATIO, "UniswapV3Pool: price below min");
-        require(post.slot0.sqrtPriceX96 < MAX_SQRT_RATIO, "UniswapV3Pool: price above max");
+        require(post.unlocked, "UniswapV3Pool: pool left locked");
+        require(post.sqrtPriceX96 >= MIN_SQRT_RATIO, "UniswapV3Pool: price below min");
+        require(post.sqrtPriceX96 < MAX_SQRT_RATIO, "UniswapV3Pool: price above max");
 
         if (zeroForOne) {
-            require(post.slot0.sqrtPriceX96 <= pre.slot0.sqrtPriceX96, "UniswapV3Pool: zeroForOne price increased");
-            require(post.slot0.sqrtPriceX96 >= sqrtPriceLimitX96, "UniswapV3Pool: zeroForOne crossed limit");
+            require(post.sqrtPriceX96 <= pre.sqrtPriceX96, "UniswapV3Pool: zeroForOne price increased");
+            require(post.sqrtPriceX96 >= sqrtPriceLimitX96, "UniswapV3Pool: zeroForOne crossed limit");
         } else {
-            require(post.slot0.sqrtPriceX96 >= pre.slot0.sqrtPriceX96, "UniswapV3Pool: oneForZero price decreased");
-            require(post.slot0.sqrtPriceX96 <= sqrtPriceLimitX96, "UniswapV3Pool: oneForZero crossed limit");
+            require(post.sqrtPriceX96 >= pre.sqrtPriceX96, "UniswapV3Pool: oneForZero price decreased");
+            require(post.sqrtPriceX96 <= sqrtPriceLimitX96, "UniswapV3Pool: oneForZero crossed limit");
         }
     }
 
