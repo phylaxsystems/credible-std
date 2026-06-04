@@ -71,21 +71,34 @@ contract CapRedemptionGateAssertion is Assertion {
         uint256 currentBps = _absoluteOutflowBps(ctx);
         if (currentBps < TIER2_BPS) return;
 
-        if (_hasAssetCall(ICapGateVaultLike.borrow.selector, ctx.token)) {
-            revert("CapGate: borrow disabled");
-        }
+        // Detect the gated calls present in this transaction. Detection is scoped to the active
+        // tier so the matching-call precompile is only consulted when a block could actually apply.
+        bool borrowPresent = _hasAssetCall(ICapGateVaultLike.borrow.selector, ctx.token);
+        bool redemptionPresent =
+            currentBps >= TIER3_BPS && (_hasAssetCall(ICapGateVaultLike.burn.selector, ctx.token) || _hasRedeemCall());
+        bool investPresent = currentBps >= TIER3_HALT_INVEST_BPS
+            && _hasAssetCall(ICapGateFractionalReserveLike.investAll.selector, ctx.token);
 
-        if (currentBps >= TIER3_BPS) {
-            if (_hasAssetCall(ICapGateVaultLike.burn.selector, ctx.token) || _hasRedeemCall()) {
-                revert("CapGate: redemption capacity reached");
-            }
+        string memory violation = _gateViolation(currentBps, borrowPresent, redemptionPresent, investPresent);
+        if (bytes(violation).length != 0) {
+            revert(string(violation));
         }
+    }
 
-        if (currentBps >= TIER3_HALT_INVEST_BPS) {
-            if (_hasAssetCall(ICapGateFractionalReserveLike.investAll.selector, ctx.token)) {
-                revert("CapGate: invest disabled");
-            }
-        }
+    /// @notice Pure tiered-gate decision separated from the matching-call detection so it can be
+    ///         unit-tested directly. Maps the active outflow tier and the set of gated calls present
+    ///         to the revert reason; an empty string means the transaction is allowed.
+    /// @dev Tier precedence is borrow (>=15%) before redemption (>=30%) before invest (>=50%).
+    function _gateViolation(uint256 currentBps, bool borrowPresent, bool redemptionPresent, bool investPresent)
+        internal
+        pure
+        returns (string memory)
+    {
+        if (currentBps < TIER2_BPS) return "";
+        if (borrowPresent) return "CapGate: borrow disabled";
+        if (currentBps >= TIER3_BPS && redemptionPresent) return "CapGate: redemption capacity reached";
+        if (currentBps >= TIER3_HALT_INVEST_BPS && investPresent) return "CapGate: invest disabled";
+        return "";
     }
 
     function _watchAsset(address asset) internal view {

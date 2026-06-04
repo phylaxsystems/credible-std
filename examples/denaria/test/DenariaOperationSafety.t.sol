@@ -7,6 +7,7 @@ import {Assertion} from "../../../src/Assertion.sol";
 import {CredibleTest} from "../../../src/CredibleTest.sol";
 import {PhEvm} from "../../../src/PhEvm.sol";
 import {AssertionSpec} from "../../../src/SpecRecorder.sol";
+import {IPerpetualProtectionSuite} from "../../../src/protection/perpetual/IPerpetualProtectionSuite.sol";
 import {DenariaProtectionSuite} from "../src/DenariaOperationSafety.sol";
 import {IDenariaPerpPairLike, IDenariaVaultLike} from "../src/DenariaInterfaces.sol";
 
@@ -34,9 +35,8 @@ contract DenariaTradeExecutionAssertion is Assertion {
         require(tradeSize == 0 || tradeReturn != 0, "Denaria: empty trade return");
         if (tradeSize == 0) return;
 
-        uint256 executionPrice = direction
-            ? tradeSize * ORACLE_DECIMALS / tradeReturn
-            : tradeReturn * ORACLE_DECIMALS / tradeSize;
+        uint256 executionPrice =
+            direction ? tradeSize * ORACLE_DECIMALS / tradeReturn : tradeReturn * ORACLE_DECIMALS / tradeSize;
         if (direction) {
             require(executionPrice >= markPrice, "Denaria: long better than mark");
         } else {
@@ -135,20 +135,159 @@ contract DenariaOperationSafetyTest is Test, CredibleTest {
 
     MockDenariaPerpPair internal pair;
     MockDenariaVault internal vault;
+    DenariaProtectionSuite internal suite;
+    address internal trader = makeAddr("trader");
 
     function setUp() public {
         pair = new MockDenariaPerpPair();
         vault = new MockDenariaVault();
         pair.setPrice(100 * ORACLE_DECIMALS);
+        suite = new DenariaProtectionSuite(address(pair), address(vault));
     }
 
-    function testSuiteExposesDenariaSelectors() public {
-        DenariaProtectionSuite suite = new DenariaProtectionSuite(address(pair), address(vault));
+    function testSuiteExposesDenariaSelectors() public view {
         bytes4[] memory selectors = suite.getMonitoredSelectors();
 
         assertEq(selectors.length, 8);
         assertEq(selectors[0], IDenariaPerpPairLike.trade.selector);
         assertEq(selectors[6], IDenariaVaultLike.removeCollateral.selector);
+    }
+
+    // --- Shipped DenariaProtectionSuite coverage -------------------------------------
+    // These exercise the production suite that DenariaOperationSafetyAssertion.assertOperationSafety
+    // actually runs (decode + operation classification), rather than the test-local execution
+    // assertion above.
+
+    function testEnabledCheckKindsMatchDenariaProfile() public view {
+        IPerpetualProtectionSuite.EnabledCheckKinds memory enabled = suite.enabledCheckKinds();
+
+        assertTrue(enabled.executionPrice);
+        assertTrue(enabled.liquidityCoverage);
+        assertTrue(enabled.liquidation);
+        assertTrue(enabled.oracleAnchor);
+        assertTrue(enabled.accountingConservation);
+        // Denaria intentionally leaves the funding-delta family disabled.
+        assertFalse(enabled.fundingDelta);
+    }
+
+    function testTradeDecodesAsIncreasePosition() public view {
+        IPerpetualProtectionSuite.OperationContext memory op = suite.decodeOperation(
+            _triggered(
+                IDenariaPerpPairLike.trade.selector,
+                address(pair),
+                abi.encodeCall(IDenariaPerpPairLike.trade, (true, 100e18, 99e18, 0, address(0), 5, ""))
+            )
+        );
+
+        assertEq(uint256(op.kind), uint256(IPerpetualProtectionSuite.OperationKind.IncreasePosition));
+        assertEq(op.account, trader);
+        assertEq(op.market, address(pair));
+        assertTrue(op.isLong);
+        assertEq(op.sizeDelta, 100e18);
+        assertEq(op.limitPrice, 99e18);
+        assertTrue(op.mutatesExposure);
+        assertTrue(op.reducesAccountSafety);
+        assertTrue(suite.shouldCheckPostMutationRisk(op));
+    }
+
+    function testCloseAndWithdrawDecodesAsDecreasePosition() public view {
+        IPerpetualProtectionSuite.OperationContext memory op = suite.decodeOperation(
+            _triggered(
+                IDenariaPerpPairLike.closeAndWithdraw.selector,
+                address(pair),
+                abi.encodeCall(IDenariaPerpPairLike.closeAndWithdraw, (50, 10, address(0), ""))
+            )
+        );
+
+        assertEq(uint256(op.kind), uint256(IPerpetualProtectionSuite.OperationKind.DecreasePosition));
+        assertEq(op.account, trader);
+        assertEq(op.market, address(pair));
+        assertEq(op.limitPrice, 50);
+        assertTrue(op.mutatesExposure);
+        assertTrue(suite.shouldCheckPostMutationRisk(op));
+    }
+
+    function testAddRemoveLiquidityDecodeWithSignedCollateralDelta() public view {
+        IPerpetualProtectionSuite.OperationContext memory addOp = suite.decodeOperation(
+            _triggered(
+                IDenariaPerpPairLike.addLiquidity.selector,
+                address(pair),
+                abi.encodeCall(IDenariaPerpPairLike.addLiquidity, (7e18, 3e18, 1, ""))
+            )
+        );
+        IPerpetualProtectionSuite.OperationContext memory removeOp = suite.decodeOperation(
+            _triggered(
+                IDenariaPerpPairLike.removeLiquidity.selector,
+                address(pair),
+                abi.encodeCall(IDenariaPerpPairLike.removeLiquidity, (7e18, 3e18, 1, ""))
+            )
+        );
+
+        assertEq(uint256(addOp.kind), uint256(IPerpetualProtectionSuite.OperationKind.AddLiquidity));
+        assertEq(addOp.sizeDelta, 3e18);
+        assertEq(addOp.collateralDelta, int256(7e18));
+
+        assertEq(uint256(removeOp.kind), uint256(IPerpetualProtectionSuite.OperationKind.RemoveLiquidity));
+        assertEq(removeOp.sizeDelta, 3e18);
+        // Removing liquidity returns collateral, so the signed delta must be negative.
+        assertEq(removeOp.collateralDelta, -int256(7e18));
+    }
+
+    function testLiquidationDecodesAndSkipsPostMutationGate() public {
+        address victim = makeAddr("victim");
+        IPerpetualProtectionSuite.OperationContext memory op = suite.decodeOperation(
+            _triggered(
+                IDenariaPerpPairLike.liquidate.selector,
+                address(pair),
+                abi.encodeCall(IDenariaPerpPairLike.liquidate, (victim, 42e18, ""))
+            )
+        );
+
+        assertEq(uint256(op.kind), uint256(IPerpetualProtectionSuite.OperationKind.Liquidation));
+        assertEq(op.account, victim);
+        assertEq(op.counterparty, trader);
+        assertEq(op.sizeDelta, 42e18);
+        assertTrue(op.isLiquidation);
+        // Liquidations route through the dedicated liquidation check, not the self-bad-debt gate.
+        assertFalse(suite.shouldCheckPostMutationRisk(op));
+    }
+
+    function testVaultCollateralRemovalDecodesAsWithdraw() public view {
+        IPerpetualProtectionSuite.OperationContext memory removeOp = suite.decodeOperation(
+            _triggered(
+                IDenariaVaultLike.removeCollateral.selector,
+                address(vault),
+                abi.encodeCall(IDenariaVaultLike.removeCollateral, (12e18, ""))
+            )
+        );
+        IPerpetualProtectionSuite.OperationContext memory removeAllOp = suite.decodeOperation(
+            _triggered(
+                IDenariaVaultLike.removeAllCollateral.selector,
+                address(vault),
+                abi.encodeCall(IDenariaVaultLike.removeAllCollateral, (""))
+            )
+        );
+
+        assertEq(uint256(removeOp.kind), uint256(IPerpetualProtectionSuite.OperationKind.WithdrawCollateral));
+        assertEq(removeOp.account, trader);
+        assertEq(removeOp.market, address(0));
+        assertEq(removeOp.collateralAsset, address(vault));
+        assertEq(removeOp.collateralDelta, -int256(12e18));
+        assertTrue(suite.shouldCheckPostMutationRisk(removeOp));
+
+        assertEq(uint256(removeAllOp.kind), uint256(IPerpetualProtectionSuite.OperationKind.WithdrawCollateral));
+        assertEq(removeAllOp.collateralAsset, address(vault));
+        assertTrue(suite.shouldCheckPostMutationRisk(removeAllOp));
+    }
+
+    function _triggered(bytes4 selector, address target, bytes memory input)
+        internal
+        view
+        returns (IPerpetualProtectionSuite.TriggeredCall memory)
+    {
+        return IPerpetualProtectionSuite.TriggeredCall({
+            selector: selector, caller: trader, target: target, input: input, callStart: 1, callEnd: 2
+        });
     }
 
     function testHonestTradePassesExecutionCheck() public {
