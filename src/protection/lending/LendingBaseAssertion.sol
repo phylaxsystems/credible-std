@@ -53,6 +53,16 @@ abstract contract LendingProtectionSuiteBase is ForkUtils, ILendingProtectionSui
         snapshot.solvency = this.evaluateSolvency(snapshot.state, snapshot.balances, fork);
     }
 
+    /// @notice Default consumption-selector set: every monitored selector keeps a per-call check.
+    /// @dev Override this in suites that only attach bounded-consumption checks to a subset of their
+    ///      monitored selectors so the generic assertion can drop redundant per-call triggers. The
+    ///      default preserves the historical behavior of running the per-call check on all monitored
+    ///      selectors.
+    /// @return selectors The selectors that must keep a per-call consumption trigger.
+    function getConsumptionSelectors() external view virtual override returns (bytes4[] memory selectors) {
+        return this.getMonitoredSelectors();
+    }
+
     /// @notice Returns the suite-specific revert string for failed fork-time static calls.
     function _viewFailureMessage() internal pure virtual override returns (string memory) {
         return "lending suite staticcall failed";
@@ -86,6 +96,7 @@ abstract contract LendingBaseAssertion is Assertion {
         int256 metric,
         int256 threshold
     );
+    error LendingAccountSolvencyViolated(address account, bytes32 metricName, int256 metric, int256 threshold);
 
     /// @notice Returns the protocol-specific lending suite that powers this assertion.
     /// @dev Concrete assertions typically inherit both this base contract and a suite contract, then
@@ -98,36 +109,52 @@ abstract contract LendingBaseAssertion is Assertion {
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
-    /// @notice Registers one generic lending operation-safety check for every monitored selector.
-    /// @dev This is the only trigger wiring most lending assertions need to implement. The suite
-    ///      decides which selectors matter through `getMonitoredSelectors()`, and this base maps all
-    ///      of them to `assertOperationSafety()`.
+    /// @notice Registers the per-call consumption checks and the transaction-end solvency check.
+    /// @dev Trigger strategy after optimization:
+    ///      - Bounded-consumption checks genuinely need per-call context (traced call output, per-call
+    ///        transfer deltas), so they stay on `registerFnCallTrigger`, scoped to the selectors that
+    ///        actually carry a consumption check via `getConsumptionSelectors()`.
+    ///      - Post-operation solvency is a transaction-wide property, so it runs once via
+    ///        `registerTxEndTrigger` rather than on every risk-increasing call. The tx-end check
+    ///        enumerates every monitored call in the transaction, dedupes the affected accounts, and
+    ///        requires that any account solvent at the start of the transaction is still solvent at
+    ///        the end.
     function triggers() external view virtual override {
-        bytes4[] memory selectors = _suite().getMonitoredSelectors();
-        for (uint256 i; i < selectors.length; ++i) {
-            registerFnCallTrigger(this.assertOperationSafety.selector, selectors[i]);
+        ILendingProtectionSuite suite = _suite();
+
+        bytes4[] memory consumptionSelectors = suite.getConsumptionSelectors();
+        for (uint256 i; i < consumptionSelectors.length; ++i) {
+            registerFnCallTrigger(this.assertOperationSafety.selector, consumptionSelectors[i]);
         }
+
+        registerTxEndTrigger(this.assertAccountSolvency.selector);
     }
 
-    /// @notice Enforces the shared lending operation-safety invariants for a successful call.
-    /// @dev Assertion authors should usually point Credible at this selector. The method resolves the
-    ///      triggering adopter frame, decodes the protocol operation once, enforces any bounded-
-    ///      consumption checks returned by the suite, and then enforces post-operation solvency when
-    ///      the suite marks the operation as risk-increasing.
+    /// @notice Enforces the per-call bounded-consumption invariants for a successful call.
+    /// @dev Resolves the triggering adopter frame, decodes the protocol operation once, and enforces
+    ///      any bounded-consumption checks returned by the suite. Post-operation solvency is no longer
+    ///      checked here; it is enforced once per transaction by `assertAccountSolvency()`.
     function assertOperationSafety() external view {
-        _assertOperationSafety();
+        _assertOperationConsumption();
     }
 
-    /// @notice Backwards-compatible alias for the legacy solvency-only entrypoint name.
-    /// @dev Older bundles may still reference this selector directly. It now runs the full generic
-    ///      lending operation-safety pipeline rather than only the solvency portion.
+    /// @notice Enforces post-operation solvency across the whole transaction.
+    /// @dev Fired by `registerTxEndTrigger`. Every account touched by a risk-increasing monitored call
+    ///      that was solvent at PreTx must still be solvent at PostTx.
+    function assertAccountSolvency() external view {
+        _assertAccountSolvency();
+    }
+
+    /// @notice Backwards-compatible alias for the legacy solvency entrypoint name.
+    /// @dev Older bundles may still reference this selector directly. It now runs the transaction-end
+    ///      solvency check.
     function assertPostOperationSolvency() external view {
-        _assertOperationSafety();
+        _assertAccountSolvency();
     }
 
-    /// @notice Internal implementation shared by the public lending assertion entrypoints.
-    /// @dev Runs all shared lending checks exposed by the suite against the triggered adopter call.
-    function _assertOperationSafety() internal view {
+    /// @notice Per-call consumption pipeline shared by the public lending entrypoints.
+    /// @dev Runs the suite's bounded-consumption checks against the triggered adopter call.
+    function _assertOperationConsumption() internal view {
         ILendingProtectionSuite suite = _suite();
         ILendingProtectionSuite.TriggeredCall memory triggered = _resolveTriggeredCall();
         ILendingProtectionSuite.OperationContext memory operation = suite.decodeOperation(triggered);
@@ -135,7 +162,83 @@ abstract contract LendingBaseAssertion is Assertion {
         PhEvm.ForkId memory afterFork = _postCall(triggered.callEnd);
 
         _assertConsumptionChecks(suite, triggered, operation, beforeFork, afterFork);
-        _assertPostOperationSolvency(suite, triggered, operation, beforeFork, afterFork);
+    }
+
+    /// @notice Transaction-end solvency pipeline.
+    /// @dev Enumerates every monitored call in the transaction via `getAllCallInputs`, decodes the
+    ///      affected account for each risk-increasing call, dedupes accounts, and requires that any
+    ///      account solvent at PreTx is still solvent at PostTx. Enumerating by adopter+selector means
+    ///      router/proxy entrypoints that reach the pool are covered. Consumption checks deliberately
+    ///      stay per-call; this method only enforces solvency.
+    function _assertAccountSolvency() internal view {
+        ILendingProtectionSuite suite = _suite();
+        address adopter = ph.getAssertionAdopter();
+        bytes4[] memory selectors = suite.getMonitoredSelectors();
+
+        uint256 maxAccounts;
+        for (uint256 i; i < selectors.length; ++i) {
+            maxAccounts += ph.getAllCallInputs(adopter, selectors[i]).length;
+        }
+
+        address[] memory accounts = new address[](maxAccounts);
+        uint256 count;
+
+        for (uint256 i; i < selectors.length; ++i) {
+            PhEvm.CallInputs[] memory calls = ph.getAllCallInputs(adopter, selectors[i]);
+            for (uint256 j; j < calls.length; ++j) {
+                ILendingProtectionSuite.OperationContext memory operation = suite.decodeOperation(
+                    ILendingProtectionSuite.TriggeredCall({
+                        selector: selectors[i],
+                        caller: calls[j].caller,
+                        target: calls[j].target_address,
+                        input: calls[j].input,
+                        callStart: 0,
+                        callEnd: 0
+                    })
+                );
+
+                if (operation.account == address(0) || !suite.shouldCheckPostOperationSolvency(operation)) {
+                    continue;
+                }
+
+                bool seen;
+                for (uint256 k; k < count; ++k) {
+                    if (accounts[k] == operation.account) {
+                        seen = true;
+                        break;
+                    }
+                }
+                if (!seen) {
+                    accounts[count++] = operation.account;
+                }
+            }
+        }
+
+        if (count == 0) {
+            return;
+        }
+
+        PhEvm.ForkId memory preTx = _preTx();
+        PhEvm.ForkId memory postTx = _postTx();
+
+        for (uint256 k; k < count; ++k) {
+            address account = accounts[k];
+
+            ILendingProtectionSuite.AccountSnapshot memory beforeSnapshot = suite.getAccountSnapshot(account, preTx);
+            if (!beforeSnapshot.solvency.isSolvent) {
+                continue;
+            }
+
+            ILendingProtectionSuite.AccountSnapshot memory afterSnapshot = suite.getAccountSnapshot(account, postTx);
+            if (!afterSnapshot.solvency.isSolvent) {
+                revert LendingAccountSolvencyViolated(
+                    account,
+                    afterSnapshot.solvency.metricName,
+                    afterSnapshot.solvency.metric,
+                    afterSnapshot.solvency.threshold
+                );
+            }
+        }
     }
 
     /// @notice Enforces the suite-provided bounded-consumption checks for the triggered operation.
@@ -169,49 +272,6 @@ abstract contract LendingBaseAssertion is Assertion {
                     checks[i].availableBefore
                 );
             }
-        }
-    }
-
-    /// @notice Enforces that risk-increasing operations do not newly make an account insolvent.
-    /// @dev Operations that do not increase debt or reduce effective collateral are skipped. Accounts
-    ///      already insolvent before the call are also skipped so existing bad debt or liquidatable
-    ///      positions do not cause false positives on unrelated account-management actions.
-    /// @param suite The protocol-specific lending suite.
-    /// @param triggered The exact adopter frame that caused the assertion to run.
-    /// @param operation The decoded lending operation.
-    /// @param afterFork The post-call snapshot fork used for the solvency read.
-    function _assertPostOperationSolvency(
-        ILendingProtectionSuite suite,
-        ILendingProtectionSuite.TriggeredCall memory triggered,
-        ILendingProtectionSuite.OperationContext memory operation,
-        PhEvm.ForkId memory beforeFork,
-        PhEvm.ForkId memory afterFork
-    ) internal view {
-        if (!suite.shouldCheckPostOperationSolvency(operation)) {
-            return;
-        }
-
-        if (operation.account == address(0)) {
-            revert LendingOperationAccountMissing(triggered.selector);
-        }
-
-        ILendingProtectionSuite.AccountSnapshot memory beforeSnapshot =
-            suite.getAccountSnapshot(operation.account, beforeFork);
-        if (!beforeSnapshot.solvency.isSolvent) {
-            return;
-        }
-
-        ILendingProtectionSuite.AccountSnapshot memory snapshot = suite.getAccountSnapshot(operation.account, afterFork);
-
-        if (!snapshot.solvency.isSolvent) {
-            revert LendingPostOperationSolvencyViolated(
-                operation.account,
-                operation.selector,
-                operation.kind,
-                snapshot.solvency.metricName,
-                snapshot.solvency.metric,
-                snapshot.solvency.threshold
-            );
         }
     }
 

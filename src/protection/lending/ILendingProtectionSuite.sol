@@ -179,6 +179,17 @@ interface ILendingProtectionSuite {
     /// @return selectors Selectors that should trigger the generic lending operation-safety assertion.
     function getMonitoredSelectors() external view returns (bytes4[] memory selectors);
 
+    /// @notice Returns the subset of monitored selectors that carry bounded-consumption checks.
+    /// @dev The generic lending assertion registers the per-call consumption check only against these
+    ///      selectors, because bounded-consumption checks genuinely need per-call context (traced call
+    ///      output, per-call transfer deltas). Post-operation solvency is enforced separately at
+    ///      transaction end across every monitored selector, so selectors with no consumption check do
+    ///      not need a per-call trigger. Implementations whose every monitored selector has a
+    ///      consumption check can simply return `getMonitoredSelectors()`. The shared default in
+    ///      `LendingProtectionSuiteBase` does exactly that, preserving prior behavior.
+    /// @return selectors Selectors that must keep a per-call consumption trigger.
+    function getConsumptionSelectors() external view returns (bytes4[] memory selectors);
+
     /// @notice Decodes the triggered adopter call into a protocol-normalized operation context.
     /// @dev Caller-aware decoding is necessary because some protocols encode the affected account in
     ///      `msg.sender` instead of calldata. Implementations should populate `operation.account`
