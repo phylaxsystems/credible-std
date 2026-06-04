@@ -30,42 +30,26 @@ contract AaveV4HubAccountingAssertion is AaveV4Helpers {
         SHARE_PRICE_TOLERANCE_BPS = sharePriceToleranceBps_;
     }
 
-    /// @notice Registers Hub mutators that can change aggregate accounting, indices, or spoke sums.
-    /// @dev The assertion is configured for one `assetId`; calls for other assets no-op after
-    ///      decoding the first calldata argument.
+    /// @notice Registers the Hub asset-accounting check at transaction end.
+    /// @dev The assertion is configured for one `assetId`, and every invariant it checks is a
+    ///      transaction-wide post-state property (cross-Spoke sums agree with Hub totals) or a
+    ///      monotonic-across-the-transaction property (drawn index and added-share-price never
+    ///      decrease). Running once at transaction end replaces fanning the check across all 16
+    ///      Hub mutator selectors and the per-call `assetId` calldata filter.
     function triggers() external view override {
-        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.add.selector);
-        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.remove.selector);
-        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.draw.selector);
-        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.restore.selector);
-        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.reportDeficit.selector);
-        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.refreshPremium.selector);
-        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.payFeeShares.selector);
-        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.transferShares.selector);
-        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.mintFeeShares.selector);
-        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.eliminateDeficit.selector);
-        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.sweep.selector);
-        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.reclaim.selector);
-        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.updateAssetConfig.selector);
-        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.addSpoke.selector);
-        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.updateSpokeConfig.selector);
-        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.setInterestRateData.selector);
+        registerTxEndTrigger(this.assertHubAssetAccounting.selector);
     }
 
-    /// @notice Checks one Hub asset remains backed and internally coherent after a Hub mutation.
-    /// @dev Reads the Hub's aggregate asset state and enumerates listed Spokes at the post-call
-    ///      fork. A failure means cross-Spoke accounting no longer agrees with Hub totals,
-    ///      Spoke-level added assets exceed Hub added assets, or a monotonic index moved backwards.
+    /// @notice Checks the configured Hub asset stays backed and internally coherent across the tx.
+    /// @dev Reads the Hub's aggregate asset state and enumerates listed Spokes at the PostTx fork.
+    ///      A failure means cross-Spoke accounting no longer agrees with Hub totals, Spoke-level
+    ///      added assets exceed Hub added assets, or a monotonic index/ratio moved backwards
+    ///      between PreTx and PostTx.
     function assertHubAssetAccounting() external view {
-        PhEvm.TriggerContext memory ctx = ph.context();
         _requireAdopter(HUB, "AaveV4Hub: configured hub is not adopter");
 
-        if (_firstUint256Arg(ph.callinputAt(ctx.callStart)) != ASSET_ID) {
-            return;
-        }
-
-        PhEvm.ForkId memory pre = _preCall(ctx.callStart);
-        PhEvm.ForkId memory post = _postCall(ctx.callEnd);
+        PhEvm.ForkId memory pre = _preTx();
+        PhEvm.ForkId memory post = _postTx();
         IAaveV4Hub.Asset memory preAsset = _hubAssetAt(HUB, ASSET_ID, pre);
         IAaveV4Hub.Asset memory postAsset = _hubAssetAt(HUB, ASSET_ID, post);
 

@@ -16,15 +16,12 @@ contract AerodromePoolAssertion is AerodromePoolHelpers {
     constructor(address pool_) AerodromePoolHelpers(pool_) {}
 
     /// @notice Registers Aerodrome pool mutation surfaces that affect reserves, fees, or custody.
-    /// @dev Reserve backing is broad, while K and fee-debit checks are bound to their specific
-    ///      call selectors for lower noise and clearer failures.
+    /// @dev Reserve backing is a transaction-wide post-state property, so it runs once at
+    ///      transaction end instead of after every swap/mint/burn/skim/sync/claimFees call. K and
+    ///      fee-debit checks stay bound to their specific call selectors because they need per-call
+    ///      boundaries (swap-isolated invariant change, fee-claim return data).
     function triggers() external view override {
-        registerFnCallTrigger(this.assertReservesBackedByBalances.selector, IAerodromePoolLike.swap.selector);
-        registerFnCallTrigger(this.assertReservesBackedByBalances.selector, IAerodromePoolLike.mint.selector);
-        registerFnCallTrigger(this.assertReservesBackedByBalances.selector, IAerodromePoolLike.burn.selector);
-        registerFnCallTrigger(this.assertReservesBackedByBalances.selector, IAerodromePoolLike.skim.selector);
-        registerFnCallTrigger(this.assertReservesBackedByBalances.selector, IAerodromePoolLike.sync.selector);
-        registerFnCallTrigger(this.assertReservesBackedByBalances.selector, IAerodromePoolLike.claimFees.selector);
+        registerTxEndTrigger(this.assertReservesBackedByBalances.selector);
 
         registerFnCallTrigger(this.assertSwapKNonDecreasing.selector, IAerodromePoolLike.swap.selector);
         registerFnCallTrigger(
@@ -32,14 +29,14 @@ contract AerodromePoolAssertion is AerodromePoolHelpers {
         );
     }
 
-    /// @notice Checks pool reserves remain externally backed after a pool mutation.
+    /// @notice Checks pool reserves remain externally backed after all pool mutations settle.
     /// @dev A failure means reserve accounting claims more token custody than the pool actually
-    ///      holds after swap, mint, burn, skim, sync, or fee-claim side effects complete.
+    ///      holds at transaction end. Custody covering reserves is a transaction-wide property, so
+    ///      it is evaluated once against the final (PostTx) state.
     function assertReservesBackedByBalances() external view {
-        PhEvm.TriggerContext memory ctx = ph.context();
         _requireConfiguredPoolIsAdopter();
 
-        PoolSnapshot memory post = _poolSnapshotAt(_postCall(ctx.callEnd));
+        PoolSnapshot memory post = _poolSnapshotAt(_postTx());
         require(post.poolBalance0 >= post.reserve0, "AerodromePool: token0 reserves underbacked");
         require(post.poolBalance1 >= post.reserve1, "AerodromePool: token1 reserves underbacked");
     }

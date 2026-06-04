@@ -85,6 +85,19 @@ contract MockAaveV4Hub {
     }
 }
 
+contract HubBatcher {
+    MockAaveV4Hub internal immutable HUB;
+
+    constructor(MockAaveV4Hub hub_) {
+        HUB = hub_;
+    }
+
+    function twoAdds() external {
+        HUB.add(1, 0);
+        HUB.add(1, 0);
+    }
+}
+
 contract AaveV4HubAccountingAssertionTest is Test, CredibleTest {
     MockAaveV4Hub internal hub;
 
@@ -109,5 +122,13 @@ contract AaveV4HubAccountingAssertionTest is Test, CredibleTest {
         _arm();
         vm.expectRevert(bytes("AaveV4Hub: added shares mismatch"));
         hub.add(1, 0);
+    }
+
+    function testHubAccountingFiresOnceForBatchedMutations() public {
+        HubBatcher batcher = new HubBatcher(hub);
+
+        _arm();
+        // Two Hub mutations in one transaction; accounting is evaluated once at tx end.
+        batcher.twoAdds();
     }
 }

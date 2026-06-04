@@ -30,7 +30,7 @@ contract LlamaLendControllerAssertion is LlamaLendControllerProtocolHelpers {
             borrowedToken, OUTFLOW_THRESHOLD_BPS, OUTFLOW_WINDOW_DURATION, this.assertCumulativeOutflow.selector
         );
         registerTxEndTrigger(this.assertControllerCustodyCoversAvailableBalance.selector);
-        _registerLlamaLendDebtIncreasingTriggers(this.assertDebtIncreaseWithinBorrowCap.selector);
+        registerTxEndTrigger(this.assertDebtIncreaseWithinBorrowCap.selector);
     }
 
     /// @notice Hard circuit breaker that blocks transactions while cumulative inflow stays above threshold.
@@ -53,16 +53,18 @@ contract LlamaLendControllerAssertion is LlamaLendControllerProtocolHelpers {
         );
     }
 
-    /// @notice Checks debt-increasing actions leave `total_debt()` at or below `borrow_cap()`.
+    /// @notice Checks debt-increasing transactions leave `total_debt()` at or below `borrow_cap()`.
+    /// @dev `total_debt()` and `borrow_cap()` are controller-wide, so this is a transaction-wide
+    ///      invariant: if the transaction net-increased total debt, the final total debt must stay
+    ///      within the borrow cap. Evaluated once at transaction end (PreTx vs PostTx).
     function assertDebtIncreaseWithinBorrowCap() external {
-        PhEvm.TriggerContext memory ctx = ph.context();
-        uint256 preTotalDebt = _llamaControllerTotalDebtAt(_preCall(ctx.callStart));
-        uint256 postTotalDebt = _llamaControllerTotalDebtAt(_postCall(ctx.callEnd));
+        uint256 preTotalDebt = _llamaControllerTotalDebtAt(_preTx());
+        uint256 postTotalDebt = _llamaControllerTotalDebtAt(_postTx());
 
         if (postTotalDebt <= preTotalDebt) {
             return;
         }
 
-        require(postTotalDebt <= _llamaControllerBorrowCapAt(_postCall(ctx.callEnd)), "LlamaLend: borrow cap exceeded");
+        require(postTotalDebt <= _llamaControllerBorrowCapAt(_postTx()), "LlamaLend: borrow cap exceeded");
     }
 }
