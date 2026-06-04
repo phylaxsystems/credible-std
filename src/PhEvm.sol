@@ -496,7 +496,7 @@ interface PhEvm {
 
     /// @notice Returns the anomaly detector's view of `target` for the
     ///         current transaction.
-    /// @dev Returns a zero-filled context when `target` was not 
+    /// @dev Returns a zero-filled context when `target` was not
     ///      able to be scored, such that it fails open.
     /// @param target The address whose anomaly context to read.
     /// @return ctx The anomaly context for `target` in the current tx.

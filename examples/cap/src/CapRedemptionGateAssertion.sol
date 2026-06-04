@@ -33,7 +33,6 @@ contract CapRedemptionGateAssertion is Assertion {
     // Use a low trigger threshold because the built-in TVL snapshot is the idle vault balance.
     // The assertion recalculates against strategy-inclusive TVL before deciding what to block.
     uint256 internal constant WATCH_TRIGGER_BPS = 1;
-    uint256 internal constant MAX_MATCHING_CALLS = 1024;
 
     address internal immutable ASSET0;
     address internal immutable ASSET1;
@@ -71,34 +70,21 @@ contract CapRedemptionGateAssertion is Assertion {
         uint256 currentBps = _absoluteOutflowBps(ctx);
         if (currentBps < TIER2_BPS) return;
 
-        // Detect the gated calls present in this transaction. Detection is scoped to the active
-        // tier so the matching-call precompile is only consulted when a block could actually apply.
-        bool borrowPresent = _hasAssetCall(ICapGateVaultLike.borrow.selector, ctx.token);
-        bool redemptionPresent =
-            currentBps >= TIER3_BPS && (_hasAssetCall(ICapGateVaultLike.burn.selector, ctx.token) || _hasRedeemCall());
-        bool investPresent = currentBps >= TIER3_HALT_INVEST_BPS
-            && _hasAssetCall(ICapGateFractionalReserveLike.investAll.selector, ctx.token);
-
-        string memory violation = _gateViolation(currentBps, borrowPresent, redemptionPresent, investPresent);
-        if (bytes(violation).length != 0) {
-            revert(string(violation));
+        if (_hasAssetCall(ICapGateVaultLike.borrow.selector, ctx.token)) {
+            revert("CapGate: borrow disabled");
         }
-    }
 
-    /// @notice Pure tiered-gate decision separated from the matching-call detection so it can be
-    ///         unit-tested directly. Maps the active outflow tier and the set of gated calls present
-    ///         to the revert reason; an empty string means the transaction is allowed.
-    /// @dev Tier precedence is borrow (>=15%) before redemption (>=30%) before invest (>=50%).
-    function _gateViolation(uint256 currentBps, bool borrowPresent, bool redemptionPresent, bool investPresent)
-        internal
-        pure
-        returns (string memory)
-    {
-        if (currentBps < TIER2_BPS) return "";
-        if (borrowPresent) return "CapGate: borrow disabled";
-        if (currentBps >= TIER3_BPS && redemptionPresent) return "CapGate: redemption capacity reached";
-        if (currentBps >= TIER3_HALT_INVEST_BPS && investPresent) return "CapGate: invest disabled";
-        return "";
+        if (currentBps >= TIER3_BPS) {
+            if (_hasAssetCall(ICapGateVaultLike.burn.selector, ctx.token) || _hasRedeemCall()) {
+                revert("CapGate: redemption capacity reached");
+            }
+        }
+
+        if (currentBps >= TIER3_HALT_INVEST_BPS) {
+            if (_hasAssetCall(ICapGateFractionalReserveLike.investAll.selector, ctx.token)) {
+                revert("CapGate: invest disabled");
+            }
+        }
     }
 
     function _watchAsset(address asset) internal view {
@@ -120,22 +106,17 @@ contract CapRedemptionGateAssertion is Assertion {
     }
 
     function _hasAssetCall(bytes4 selector, address asset) internal view returns (bool) {
-        PhEvm.TriggerCall[] memory calls =
-            ph.matchingCalls(ph.getAssertionAdopter(), selector, _successOnlyFilter(), MAX_MATCHING_CALLS);
+        PhEvm.CallInputs[] memory calls = ph.getAllCallInputs(ph.getAssertionAdopter(), selector);
 
         for (uint256 i; i < calls.length; ++i) {
-            bytes memory input = ph.callinputAt(calls[i].callId);
-            if (_addressArg(input, 0) == asset) return true;
+            if (_addressArg(ph.callinputAt(calls[i].id), 0) == asset) return true;
         }
 
         return false;
     }
 
     function _hasRedeemCall() internal view returns (bool) {
-        PhEvm.TriggerCall[] memory calls = ph.matchingCalls(
-            ph.getAssertionAdopter(), ICapGateVaultLike.redeem.selector, _successOnlyFilter(), MAX_MATCHING_CALLS
-        );
-        return calls.length > 0;
+        return ph.getAllCallInputs(ph.getAssertionAdopter(), ICapGateVaultLike.redeem.selector).length > 0;
     }
 
     function _isWatchedAsset(address asset) internal view returns (bool) {
@@ -144,11 +125,12 @@ contract CapRedemptionGateAssertion is Assertion {
     }
 
     function _addressArg(bytes memory input, uint256 argIndex) internal pure returns (address account) {
+        // Skip the 4-byte selector, then read the right-aligned ABI address word for `argIndex`.
         uint256 offset = 4 + argIndex * 32;
         require(input.length >= offset + 32, "CapGate: malformed calldata");
 
         assembly {
-            account := shr(96, mload(add(add(input, 0x20), offset)))
+            account := and(mload(add(add(input, 0x20), offset)), 0xffffffffffffffffffffffffffffffffffffffff)
         }
     }
 }
