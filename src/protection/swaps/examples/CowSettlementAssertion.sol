@@ -24,16 +24,16 @@ import {IGPv2SettlementLike} from "./CowSettlementInterfaces.sol";
 ///         its own caller is siphoning batch surplus / buffer value that belongs to users or the DAO.
 ///
 ///      2. Inventory protection (`assertBufferConserved`, per watched-token balance change):
-///         the settlement contract's accumulated buffer for each watched token must not be net
-///         reduced across the transaction, unless the entire reduction is explained by transfers to
-///         the authorized DAO sweep recipient. This catches buffer drains regardless of mechanism —
-///         including the standing-approval class of drain behind the February 2023 incident, where a
-///         solver helper held a max approval on the settlement's DAI buffer.
+///         the settlement contract's watched-token outflow must be explained by authorized DAO
+///         sweeps or by actual GPv2 `Trade` volume emitted by the settlement. This catches buffer
+///         drains that are not settlement volume, including the standing-approval class behind the
+///         February 2023 incident, while allowing normal settlements to use accumulated inventory.
 ///
 ///      Limitations (documented intentionally, not bugs): without a reference price the bundle
 ///      cannot judge whether surplus was "fairly" maximized, only that it did not flow to the
-///      solver; and the surplus check assumes the solver address is not itself an order receiver in
-///      the same batch.
+///      solver; the surplus check assumes the solver address is not itself an order receiver in the
+///      same batch; and `Trade` events do not expose receivers, so the buffer check reconciles
+///      settlement volume rather than receiver-level authorization.
 contract CowSettlementAssertion is CowSettlementHelpers {
     constructor(
         address settlement_,
@@ -45,19 +45,19 @@ contract CowSettlementAssertion is CowSettlementHelpers {
     }
 
     /// @notice Registers the surplus check against the solver-only entry points, and the buffer
-    ///         conservation check at transaction end.
+    ///         conservation check at transaction end and on watched-token balance changes.
     /// @dev The surplus check is call-scoped (it needs the per-call solver and the call's Transfer
-    ///      logs). The buffer check is a transaction-envelope property (PreTx vs PostTx custody), so
-    ///      it is registered at tx end. PRODUCTION HARDENING: also register
-    ///      `registerErc20ChangeTrigger(this.assertBufferConserved.selector, bufferTokens[i])` per
-    ///      token so the buffer check fires even for a drain transaction that never calls the
-    ///      settlement contract directly — the standing-approval class behind the Feb-2023 incident,
-    ///      where an external helper held a max approval on the settlement's DAI buffer.
+    ///      logs). The buffer check is a transaction-envelope property, so it runs at tx end and on
+    ///      ERC20 balance changes for every watched token. The ERC20-change trigger lets the check
+    ///      fire for a drain transaction that never calls the settlement contract directly.
     function triggers() external view override {
         registerFnCallTrigger(this.assertSolverDoesNotExtractValue.selector, IGPv2SettlementLike.settle.selector);
         registerFnCallTrigger(this.assertSolverDoesNotExtractValue.selector, IGPv2SettlementLike.swap.selector);
 
         registerTxEndTrigger(this.assertBufferConserved.selector);
+        for (uint256 i; i < bufferTokens.length; ++i) {
+            registerErc20ChangeTrigger(this.assertBufferConserved.selector, bufferTokens[i]);
+        }
     }
 
     /// @notice A settlement must not pay batch surplus to the solver that authored it.
@@ -73,21 +73,19 @@ contract CowSettlementAssertion is CowSettlementHelpers {
         PhEvm.TriggerContext memory ctx = ph.context();
         _requireSettlementIsAdopter();
 
-        address solver = _solver();
+        address solver = _solver(ctx.selector, ctx.callStart);
         uint256 extracted = _valueFromSettlementTo(ctx.callStart, solver);
 
         require(extracted == 0, "CowSettlement: solver extracted value from settlement");
     }
 
-    /// @notice The settlement contract's buffer for each watched token must not be net-drained
-    ///         except by an authorized DAO sweep.
-    /// @dev Compares the settlement's balance at PreTx and PostTx for every watched token. A buffer
-    ///      that grows or holds is always fine (fees and positive slippage accrue there). A net
-    ///      reduction is only allowed when the full amount (minus a small dust tolerance) is
-    ///      transferred to the configured sweep recipient. Any other net outflow — a solver routing
-    ///      the buffer to itself, or an external contract exploiting a standing approval on the
-    ///      settlement's balance — trips the assertion. The ERC20-change trigger means this fires
-    ///      even for a drain transaction that never calls the settlement contract directly.
+    /// @notice The settlement contract's watched-token outflow must be explained by GPv2 settlement
+    ///         volume or an authorized DAO sweep.
+    /// @dev Reconciles both gross ERC20 outflow and net PreTx/PostTx balance decrease for every
+    ///      watched token. Normal settlements can legitimately use accumulated inventory, so GPv2
+    ///      `Trade` event volume is allowed. Authorized sweeps to the configured recipient are also
+    ///      allowed. Any remaining outflow — including an external contract exploiting a standing
+    ///      approval on the settlement's balance — trips the assertion.
     function assertBufferConserved() external view {
         _requireSettlementIsAdopter();
 
@@ -96,15 +94,18 @@ contract CowSettlementAssertion is CowSettlementHelpers {
 
             uint256 pre = _readBalanceAt(token, SETTLEMENT, _preTx());
             uint256 post = _readBalanceAt(token, SETTLEMENT, _postTx());
-            if (post >= pre) {
-                continue;
-            }
-
-            uint256 netOut = pre - post;
+            uint256 grossOut = _transferredValueFrom(token, SETTLEMENT);
             uint256 swept = _transferredValueAt(token, SETTLEMENT, SWEEP_RECIPIENT, _postTx());
+            uint256 settlementVolume = _reportedTradeVolume(token);
             uint256 tolerance = (pre * BUFFER_TOLERANCE_BPS) / BPS;
+            uint256 allowedOut = _saturatingAdd(_saturatingAdd(swept, settlementVolume), tolerance);
 
-            require(netOut <= swept + tolerance, "CowSettlement: buffer drained to unauthorized recipient");
+            require(grossOut <= allowedOut, "CowSettlement: buffer moved to unauthorized recipient");
+
+            if (post < pre) {
+                uint256 netOut = pre - post;
+                require(netOut <= allowedOut, "CowSettlement: buffer drained to unauthorized recipient");
+            }
         }
     }
 }

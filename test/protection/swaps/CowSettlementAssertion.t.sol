@@ -16,6 +16,16 @@ import {IGPv2SettlementLike} from "../../../src/protection/swaps/examples/CowSet
 ///         - paying batch surplus to the solver (caller), and
 ///         - moving the accumulated buffer out to an unauthorized recipient.
 contract MockGPv2Settlement {
+    event Trade(
+        address indexed owner,
+        address sellToken,
+        address buyToken,
+        uint256 sellAmount,
+        uint256 buyAmount,
+        uint256 feeAmount,
+        bytes orderUid
+    );
+
     enum Mode {
         Honest,
         SolverSiphon
@@ -80,10 +90,21 @@ contract MockGPv2Settlement {
         SELL_TOKEN.transferFrom(USER, address(this), sellAmount);
         // Pay the user (receiver) their bought tokens.
         BUY_TOKEN.transfer(RECEIVER, buyAmount);
+        emit Trade(USER, address(SELL_TOKEN), address(BUY_TOKEN), sellAmount, buyAmount, 0, "");
         // Malicious: route batch surplus to the solver (the caller) instead of the user / buffer.
         if (mode == Mode.SolverSiphon) {
             BUY_TOKEN.transfer(msg.sender, surplus);
         }
+    }
+}
+
+contract MockSolverForwarder {
+    function settle(MockGPv2Settlement settlement) external {
+        address[] memory tokens = new address[](0);
+        uint256[] memory prices = new uint256[](0);
+        IGPv2SettlementLike.TradeData[] memory trades = new IGPv2SettlementLike.TradeData[](0);
+        IGPv2SettlementLike.InteractionData[][3] memory interactions;
+        settlement.settle(tokens, prices, trades, interactions);
     }
 }
 
@@ -170,6 +191,16 @@ contract CowSettlementAssertionTest is Test, CredibleTest {
         _settle();
     }
 
+    function testContractSolverSiphoningSurplusTrips() public {
+        MockSolverForwarder forwarder = new MockSolverForwarder();
+        settlement.configureTrade(SELL, BUY, SURPLUS, MockGPv2Settlement.Mode.SolverSiphon);
+
+        _armSurplus();
+        vm.expectRevert(bytes("CowSettlement: solver extracted value from settlement"));
+        vm.prank(solver, solver);
+        forwarder.settle(settlement);
+    }
+
     // ----------------------------------------------------------------
     //  Inventory protection — assertBufferConserved
     // ----------------------------------------------------------------
@@ -182,9 +213,17 @@ contract CowSettlementAssertionTest is Test, CredibleTest {
 
     function testBufferDrainToUnauthorizedRecipientTrips() public {
         _armBuffer();
-        vm.expectRevert(bytes("CowSettlement: buffer drained to unauthorized recipient"));
+        vm.expectRevert(bytes("CowSettlement: buffer moved to unauthorized recipient"));
         vm.prank(attacker, attacker);
         settlement.drainTo(address(dai), attacker, 200_000e18);
+    }
+
+    function testWatchedTokenCanBeUsedAsSettlementLiquidity() public {
+        settlement.configureTrade(SELL, BUY, 0, MockGPv2Settlement.Mode.Honest);
+
+        _armBufferFor(address(buyToken));
+        vm.prank(solver, solver);
+        _settle();
     }
 
     // ----------------------------------------------------------------
@@ -207,9 +246,17 @@ contract CowSettlementAssertionTest is Test, CredibleTest {
         _arm(CowSettlementAssertion.assertBufferConserved.selector);
     }
 
+    function _armBufferFor(address bufferToken) internal {
+        _arm(CowSettlementAssertion.assertBufferConserved.selector, bufferToken);
+    }
+
     function _arm(bytes4 fnSelector) internal {
+        _arm(fnSelector, address(dai));
+    }
+
+    function _arm(bytes4 fnSelector, address bufferToken) internal {
         address[] memory bufferTokens = new address[](1);
-        bufferTokens[0] = address(dai);
+        bufferTokens[0] = bufferToken;
 
         bytes memory createData = abi.encodePacked(
             type(CowSettlementAssertion).creationCode,
