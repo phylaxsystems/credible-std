@@ -7,7 +7,10 @@ import {CredibleTest} from "../../../src/CredibleTest.sol";
 import {ForkUtils} from "../../../src/utils/ForkUtils.sol";
 import {PhEvm} from "../../../src/PhEvm.sol";
 import {ILendingProtectionSuite} from "../../../src/protection/lending/ILendingProtectionSuite.sol";
-import {LendingBaseAssertion, LendingProtectionSuiteBase} from "../../../src/protection/lending/LendingBaseAssertion.sol";
+import {
+    LendingBaseAssertion,
+    LendingProtectionSuiteBase
+} from "../../../src/protection/lending/LendingBaseAssertion.sol";
 
 interface ITestLendingPool {
     function op(address account) external;
@@ -37,8 +40,9 @@ contract MockLendingPool is ITestLendingPool {
 }
 
 /// @notice Minimal combined suite + lending base, returning itself as the suite. Small enough to
-///         deploy (unlike the full AaveV3-like suite), so it exercises the generic tx-end solvency
-///         enumerate + decode path — including the getAllCallInputs selector-prepend fix.
+///         deploy (unlike the full AaveV3-like suite), so it exercises the generic per-call
+///         operation-safety decode + solvency path — including the getAllCallInputs selector-prepend
+///         fix in `_resolveTriggeredCall`.
 contract TestLendingSolvencyAssertion is LendingProtectionSuiteBase, LendingBaseAssertion {
     address internal immutable POOL;
 
@@ -114,20 +118,25 @@ contract TestLendingSolvencyAssertion is LendingProtectionSuiteBase, LendingBase
     }
 }
 
-contract OpBatcher {
-    ITestLendingPool internal immutable POOL;
+/// @notice Router that makes an account insolvent on the first op and repairs it on the second,
+///         within the same transaction. Net tx-start -> tx-end state is solvent, but the
+///         intermediate state after the first op is not.
+contract RepairBatcher {
+    MockLendingPool internal immutable POOL;
 
-    constructor(ITestLendingPool pool_) {
+    constructor(MockLendingPool pool_) {
         POOL = pool_;
     }
 
-    function twoOps(address account) external {
-        POOL.op(account);
-        POOL.op(account);
+    function breakThenRepair(address account) external {
+        POOL.setPending(account, -1);
+        POOL.op(account); // health -> -1 (insolvent intermediate state)
+        POOL.setPending(account, 1);
+        POOL.op(account); // health -> 1 (repaired before tx end)
     }
 }
 
-contract LendingSolvencyTxEndTest is Test, CredibleTest {
+contract LendingSolvencyPerCallTest is Test, CredibleTest {
     MockLendingPool internal pool;
     address internal borrower = makeAddr("borrower");
 
@@ -138,7 +147,7 @@ contract LendingSolvencyTxEndTest is Test, CredibleTest {
     function _arm() internal {
         bytes memory createData =
             abi.encodePacked(type(TestLendingSolvencyAssertion).creationCode, abi.encode(address(pool)));
-        cl.assertion(address(pool), createData, LendingBaseAssertion.assertAccountSolvency.selector);
+        cl.assertion(address(pool), createData, LendingBaseAssertion.assertOperationSafety.selector);
     }
 
     function testSolvencyHonestOpPasses() public {
@@ -150,7 +159,7 @@ contract LendingSolvencyTxEndTest is Test, CredibleTest {
 
     function testSolvencyBreakingOpTrips() public {
         // Decoding the correct account is essential: the op names `borrower`, who is solvent at
-        // PreTx (health 0) and insolvent at PostTx (health -1).
+        // PreCall (health 0) and insolvent at PostCall (health -1).
         pool.setPending(borrower, -1);
 
         _arm();
@@ -159,18 +168,21 @@ contract LendingSolvencyTxEndTest is Test, CredibleTest {
     }
 
     function testSolvencyPreInsolventAccountSkipped() public {
-        pool.setHealth(borrower, -5); // already insolvent at PreTx
+        pool.setHealth(borrower, -5); // already insolvent at PreCall
         pool.setPending(borrower, -5);
 
         _arm();
         pool.op(borrower);
     }
 
-    function testSolvencyFiresOnceForBatchedOps() public {
-        pool.setPending(borrower, 1);
-        OpBatcher batcher = new OpBatcher(pool);
+    function testSolvencyTransientInsolvencyRepairedStillTrips() public {
+        // The whole point of the per-call check: an account made insolvent by an individual op is
+        // caught at that exact call, even though a later op in the same transaction repairs it before
+        // tx end. A tx-end-only check would miss this because the net tx-start -> tx-end state is solvent.
+        RepairBatcher batcher = new RepairBatcher(pool);
 
         _arm();
-        batcher.twoOps(borrower);
+        vm.expectRevert();
+        batcher.breakThenRepair(borrower);
     }
 }

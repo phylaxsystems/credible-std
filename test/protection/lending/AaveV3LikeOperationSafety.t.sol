@@ -188,28 +188,6 @@ contract AaveV3LikeOperationSafetyTest is Test {
         assertTrue(address(sparkSuite) != address(0));
     }
 
-    function testHorizonConsumptionSelectorsAreNarrowedToWithdrawAndLiquidation() external view {
-        // The production Horizon suite only attaches a per-call consumption trigger to the two
-        // selectors that carry a bounded-consumption check.
-        bytes4[] memory consumption = aaveSuite.getConsumptionSelectors();
-
-        assertEq(consumption.length, 2);
-        assertEq(consumption[0], IAaveV3LikePool.withdraw.selector);
-        assertEq(consumption[1], IAaveV3LikePool.liquidationCall.selector);
-    }
-
-    function testSparkConsumptionSelectorsFallBackToAllMonitored() external view {
-        // Forks that do not override keep the safe default: one consumption trigger per monitored
-        // selector, so no consumption check is ever dropped.
-        bytes4[] memory consumption = sparkSuite.getConsumptionSelectors();
-        bytes4[] memory monitored = sparkSuite.getMonitoredSelectors();
-
-        assertEq(consumption.length, monitored.length);
-        for (uint256 i; i < monitored.length; ++i) {
-            assertEq(consumption[i], monitored[i]);
-        }
-    }
-
     function _triggered(bytes4 selector, address caller, bytes memory input)
         internal
         view
