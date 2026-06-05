@@ -45,10 +45,18 @@ abstract contract SlotProtectionAssertion is AccessControlBaseAssertion {
     function _protectedSlots() internal pure virtual returns (bytes32[] memory slots);
 
     /// @notice Register the default trigger set for slot protection.
-    /// @dev Uses registerTxEndTrigger so the check fires once after the transaction completes.
-    ///      Call this inside your `triggers()`.
+    /// @dev Registers one storage-change trigger per protected slot, so the check runs only when a
+    ///      watched slot is actually written during the transaction instead of on every adopter
+    ///      transaction. This narrows execution to the exact risk surface without weakening the
+    ///      invariant: `assertSlotProtection` still inspects the whole journal via
+    ///      `forbidChangeForSlots`, which flags any SSTORE to a protected slot. A storage-change
+    ///      trigger fires off that same journal, so same-value writes (which `forbidChangeForSlots`
+    ///      treats as suspicious) still arm the assertion. Call this inside your `triggers()`.
     function _registerSlotProtectionTriggers() internal view {
-        registerTxEndTrigger(this.assertSlotProtection.selector);
+        bytes32[] memory slots = _protectedSlots();
+        for (uint256 i; i < slots.length; ++i) {
+            registerStorageChangeTrigger(this.assertSlotProtection.selector, slots[i]);
+        }
     }
 
     /// @notice Verifies that none of the protected storage slots were written to during the tx.

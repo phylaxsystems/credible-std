@@ -66,6 +66,8 @@ abstract contract LendingProtectionSuiteBase is ForkUtils, ILendingProtectionSui
 ///      contract handles one decode pass per triggered call, then enforces both:
 ///      - any bounded-consumption checks returned by the suite
 ///      - healthy accounts are not made insolvent by risk-increasing operations
+///      Both checks run per call so an account that is made insolvent by an individual operation is
+///      caught even if a later operation in the same transaction repairs it.
 abstract contract LendingBaseAssertion is Assertion {
     error LendingTriggeredCallNotFound(bytes4 selector, uint256 callStart);
     error LendingOperationAccountMissing(bytes4 selector);
@@ -101,7 +103,10 @@ abstract contract LendingBaseAssertion is Assertion {
     /// @notice Registers one generic lending operation-safety check for every monitored selector.
     /// @dev This is the only trigger wiring most lending assertions need to implement. The suite
     ///      decides which selectors matter through `getMonitoredSelectors()`, and this base maps all
-    ///      of them to `assertOperationSafety()`.
+    ///      of them to `assertOperationSafety()`. Both the bounded-consumption checks and post-
+    ///      operation solvency run per call: solvency genuinely needs the per-call boundary so a
+    ///      risk-increasing operation that makes a healthy account insolvent is caught at that exact
+    ///      call, even if a later operation in the same transaction repairs the account before tx end.
     function triggers() external view virtual override {
         bytes4[] memory selectors = _suite().getMonitoredSelectors();
         for (uint256 i; i < selectors.length; ++i) {
@@ -179,6 +184,7 @@ abstract contract LendingBaseAssertion is Assertion {
     /// @param suite The protocol-specific lending suite.
     /// @param triggered The exact adopter frame that caused the assertion to run.
     /// @param operation The decoded lending operation.
+    /// @param beforeFork The pre-call snapshot fork used for the baseline solvency read.
     /// @param afterFork The post-call snapshot fork used for the solvency read.
     function _assertPostOperationSolvency(
         ILendingProtectionSuite suite,
@@ -228,11 +234,13 @@ abstract contract LendingBaseAssertion is Assertion {
 
         for (uint256 i; i < calls.length; ++i) {
             if (calls[i].id == context.callStart) {
+                // `getAllCallInputs` returns calldata args WITHOUT the 4-byte selector (it is the
+                // query key), but `decodeOperation` expects selector-prefixed calldata. Prepend it.
                 return ILendingProtectionSuite.TriggeredCall({
                     selector: context.selector,
                     caller: calls[i].caller,
                     target: calls[i].target_address,
-                    input: calls[i].input,
+                    input: bytes.concat(context.selector, calls[i].input),
                     callStart: context.callStart,
                     callEnd: context.callEnd
                 });
