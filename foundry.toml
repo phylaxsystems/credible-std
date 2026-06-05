@@ -99,6 +99,14 @@ cache_path = "examples/denaria/cache"
 libs = ["lib"]
 remappings = ["credible-std/=src/"]
 
+[profile.kyber]
+src = "examples/kyber/src"
+test = "examples/kyber/test"
+out = "examples/kyber/out"
+cache_path = "examples/kyber/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+
 [profile.euler]
 src = "examples/euler/src"
 test = "examples/euler/test"
