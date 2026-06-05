@@ -44,69 +44,28 @@ contract AaveV4SpokeRiskAssertion is AaveV4Helpers {
         ORACLE_DEVIATION_BPS = oracleDeviationBps_;
     }
 
-    /// @notice Registers the Spoke risk checks at transaction end.
-    /// @dev Both checks are evaluated once per transaction over the accounts touched by risk-changing
-    ///      calls, instead of once per matched call. Account-data coherence is a post-state property;
-    ///      the oracle-movement bound is taken across the whole transaction (PreTx→PostTx).
+    /// @notice Registers Spoke operations that modify oracle-backed account risk.
+    /// @dev Calls that intentionally refresh stored risk premium are distinguished from paths
+    ///      that only change collateral composition without refreshing premium debt.
     function triggers() external view override {
-        registerTxEndTrigger(this.assertAccountDataMatchesIndependentState.selector);
-        registerTxEndTrigger(this.assertLiquidationImprovesBorrowerRisk.selector);
-    }
+        registerFnCallTrigger(this.assertAccountDataMatchesIndependentState.selector, IAaveV4Spoke.withdraw.selector);
+        registerFnCallTrigger(this.assertAccountDataMatchesIndependentState.selector, IAaveV4Spoke.borrow.selector);
+        registerFnCallTrigger(
+            this.assertAccountDataMatchesIndependentState.selector, IAaveV4Spoke.setUsingAsCollateral.selector
+        );
+        registerFnCallTrigger(
+            this.assertAccountDataMatchesIndependentState.selector, IAaveV4Spoke.updateUserRiskPremium.selector
+        );
+        registerFnCallTrigger(
+            this.assertAccountDataMatchesIndependentState.selector, IAaveV4Spoke.updateUserDynamicConfig.selector
+        );
+        registerFnCallTrigger(
+            this.assertAccountDataMatchesIndependentState.selector, IAaveV4Spoke.liquidationCall.selector
+        );
 
-    /// @notice The Spoke selectors that can change an account's oracle-backed risk state.
-    function _accountDataSelectors() internal pure returns (bytes4[] memory selectors) {
-        selectors = new bytes4[](6);
-        selectors[0] = IAaveV4Spoke.withdraw.selector;
-        selectors[1] = IAaveV4Spoke.borrow.selector;
-        selectors[2] = IAaveV4Spoke.setUsingAsCollateral.selector;
-        selectors[3] = IAaveV4Spoke.updateUserRiskPremium.selector;
-        selectors[4] = IAaveV4Spoke.updateUserDynamicConfig.selector;
-        selectors[5] = IAaveV4Spoke.liquidationCall.selector;
-    }
-
-    /// @notice Enumerates distinct accounts touched by the given Spoke selectors this transaction.
-    /// @dev Works at transaction end (no `ph.context()`): scans every matching call to the Spoke,
-    ///      decodes its account + premium flag, and dedupes (OR-ing the premium flag). `getAllCallInputs`
-    ///      returns args WITHOUT the 4-byte selector, so it is prepended for the arg decoders.
-    function _spokeAffectedAccounts(bytes4[] memory selectors)
-        internal
-        view
-        returns (address[] memory users, bool[] memory checkPremium, uint256 count)
-    {
-        uint256 maxAccounts;
-        for (uint256 i; i < selectors.length; ++i) {
-            maxAccounts += ph.getAllCallInputs(SPOKE, selectors[i]).length;
-        }
-
-        users = new address[](maxAccounts);
-        checkPremium = new bool[](maxAccounts);
-
-        for (uint256 i; i < selectors.length; ++i) {
-            PhEvm.CallInputs[] memory calls = ph.getAllCallInputs(SPOKE, selectors[i]);
-            for (uint256 j; j < calls.length; ++j) {
-                (address user, bool shouldCheckStoredRiskPremium) =
-                    _accountDataUser(selectors[i], bytes.concat(selectors[i], calls[j].input));
-                if (user == address(0)) {
-                    continue;
-                }
-
-                bool seen;
-                for (uint256 k; k < count; ++k) {
-                    if (users[k] == user) {
-                        if (shouldCheckStoredRiskPremium) {
-                            checkPremium[k] = true;
-                        }
-                        seen = true;
-                        break;
-                    }
-                }
-                if (!seen) {
-                    users[count] = user;
-                    checkPremium[count] = shouldCheckStoredRiskPremium;
-                    count++;
-                }
-            }
-        }
+        registerFnCallTrigger(
+            this.assertLiquidationImprovesBorrowerRisk.selector, IAaveV4Spoke.liquidationCall.selector
+        );
     }
 
     /// @notice Recomputes account data from primitive state and compares it to the Spoke view.
@@ -115,26 +74,23 @@ contract AaveV4SpokeRiskAssertion is AaveV4Helpers {
     ///      failure means the public account data or stored risk premium no longer follows the
     ///      cross-contract state that liquidations and borrow safety depend on.
     function assertAccountDataMatchesIndependentState() external view {
+        PhEvm.TriggerContext memory ctx = ph.context();
         _requireAdopter(SPOKE, "AaveV4Spoke: configured spoke is not adopter");
 
-        PhEvm.ForkId memory pre = _preTx();
-        PhEvm.ForkId memory post = _postTx();
+        (address user, bool shouldCheckStoredRiskPremium) =
+            _accountDataUser(ctx.selector, ph.callinputAt(ctx.callStart));
+        PhEvm.ForkId memory pre = _preCall(ctx.callStart);
+        PhEvm.ForkId memory post = _postCall(ctx.callEnd);
 
         _assertOraclePricesBounded(pre, post);
 
-        (address[] memory users, bool[] memory checkPremium, uint256 count) =
-            _spokeAffectedAccounts(_accountDataSelectors());
+        IAaveV4Spoke.UserAccountData memory expected = _recomputeAccountDataAt(user, post);
+        IAaveV4Spoke.UserAccountData memory actual = _spokeAccountDataAt(SPOKE, user, post);
+        _assertAccountDataEqual(expected, actual);
 
-        for (uint256 i; i < count; ++i) {
-            address user = users[i];
-            IAaveV4Spoke.UserAccountData memory expected = _recomputeAccountDataAt(user, post);
-            IAaveV4Spoke.UserAccountData memory actual = _spokeAccountDataAt(SPOKE, user, post);
-            _assertAccountDataEqual(expected, actual);
-
-            if (checkPremium[i]) {
-                uint256 storedRiskPremium = _spokeLastRiskPremiumAt(SPOKE, user, post);
-                require(storedRiskPremium == expected.riskPremium, "AaveV4Spoke: stored risk premium mismatch");
-            }
+        if (shouldCheckStoredRiskPremium) {
+            uint256 storedRiskPremium = _spokeLastRiskPremiumAt(SPOKE, user, post);
+            require(storedRiskPremium == expected.riskPremium, "AaveV4Spoke: stored risk premium mismatch");
         }
     }
 
@@ -143,30 +99,21 @@ contract AaveV4SpokeRiskAssertion is AaveV4Helpers {
     ///      may be fully cleared or reported as deficit; otherwise post-liquidation debt must not
     ///      increase and health factor must not be worse than before liquidation.
     function assertLiquidationImprovesBorrowerRisk() external view {
+        PhEvm.TriggerContext memory ctx = ph.context();
         _requireAdopter(SPOKE, "AaveV4Spoke: configured spoke is not adopter");
 
-        bytes4[] memory selectors = new bytes4[](1);
-        selectors[0] = IAaveV4Spoke.liquidationCall.selector;
-        (address[] memory users,, uint256 count) = _spokeAffectedAccounts(selectors);
+        (,, address user,,) =
+            abi.decode(_args(ph.callinputAt(ctx.callStart)), (uint256, uint256, address, uint256, bool));
 
-        PhEvm.ForkId memory pre = _preTx();
-        PhEvm.ForkId memory post = _postTx();
+        IAaveV4Spoke.UserAccountData memory beforeData = _recomputeAccountDataAt(user, _preCall(ctx.callStart));
+        IAaveV4Spoke.UserAccountData memory afterData = _recomputeAccountDataAt(user, _postCall(ctx.callEnd));
 
-        for (uint256 i; i < count; ++i) {
-            IAaveV4Spoke.UserAccountData memory beforeData = _recomputeAccountDataAt(users[i], pre);
-            IAaveV4Spoke.UserAccountData memory afterData = _recomputeAccountDataAt(users[i], post);
-
-            if (beforeData.healthFactor >= HEALTH_FACTOR_LIQUIDATION_THRESHOLD || afterData.totalDebtValueRay == 0) {
-                continue;
-            }
-
-            require(
-                afterData.totalDebtValueRay <= beforeData.totalDebtValueRay, "AaveV4Spoke: liquidation increased debt"
-            );
-            require(
-                afterData.healthFactor >= beforeData.healthFactor, "AaveV4Spoke: liquidation health factor worsened"
-            );
+        if (beforeData.healthFactor >= HEALTH_FACTOR_LIQUIDATION_THRESHOLD || afterData.totalDebtValueRay == 0) {
+            return;
         }
+
+        require(afterData.totalDebtValueRay <= beforeData.totalDebtValueRay, "AaveV4Spoke: liquidation increased debt");
+        require(afterData.healthFactor >= beforeData.healthFactor, "AaveV4Spoke: liquidation health factor worsened");
     }
 
     function _recomputeAccountDataAt(address user, PhEvm.ForkId memory fork)

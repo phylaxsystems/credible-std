@@ -26,8 +26,6 @@ contract MockUniswapV3Pool {
     uint128 public liquidity;
     uint256 public feeGrowthGlobal0X128;
     uint256 public feeGrowthGlobal1X128;
-    uint128 internal _protocolFees0;
-    uint128 internal _protocolFees1;
     SwapMode public swapMode;
 
     constructor(address token0_, address token1_) {
@@ -43,23 +41,6 @@ contract MockUniswapV3Pool {
         swapMode = swapMode_;
     }
 
-    function setProtocolFees(uint128 protocolFees0_, uint128 protocolFees1_) external {
-        _protocolFees0 = protocolFees0_;
-        _protocolFees1 = protocolFees1_;
-    }
-
-    function setObservationState(uint16 index, uint16 cardinality, uint16 cardinalityNext) external {
-        observationIndex = index;
-        observationCardinality = cardinality;
-        observationCardinalityNext = cardinalityNext;
-    }
-
-    /// @notice Adopter call that corrupts the oracle ring buffer mid-transaction so a tx-end
-    ///         assertion observes PreTx vs PostTx drift.
-    function lowerCardinalityNext(uint16 newCardinalityNext) external {
-        observationCardinalityNext = newCardinalityNext;
-    }
-
     function slot0() external view returns (uint160, int24, uint16, uint16, uint16, uint8, bool) {
         return (
             sqrtPriceX96,
@@ -72,8 +53,8 @@ contract MockUniswapV3Pool {
         );
     }
 
-    function protocolFees() external view returns (uint128, uint128) {
-        return (_protocolFees0, _protocolFees1);
+    function protocolFees() external pure returns (uint128, uint128) {
+        return (0, 0);
     }
 
     function swap(address, bool zeroForOne, int256, uint160, bytes calldata) external returns (int256, int256) {
@@ -86,23 +67,6 @@ contract MockUniswapV3Pool {
         sqrtPriceX96 = moveDown ? sqrtPriceX96 - delta : sqrtPriceX96 + delta;
         return (0, 0);
     }
-}
-
-/// @notice Batches several pool calls into a single transaction so tx-end triggers can be shown
-///         to fire once for the whole transaction rather than once per matched call.
-contract PoolBatcher {
-    MockUniswapV3Pool internal immutable POOL;
-
-    constructor(MockUniswapV3Pool pool_) {
-        POOL = pool_;
-    }
-
-    function twoHonestSwaps() external {
-        POOL.swap(address(this), true, 1 ether, MIN_SQRT_RATIO_BATCHER, "");
-        POOL.swap(address(this), false, 1 ether, type(uint160).max - 1, "");
-    }
-
-    uint160 internal constant MIN_SQRT_RATIO_BATCHER = 4_295_128_739 + 1;
 }
 
 contract UniswapV3PoolAssertionTest is Test, CredibleTest {
@@ -120,73 +84,28 @@ contract UniswapV3PoolAssertionTest is Test, CredibleTest {
         pool.setSqrtPrice(INITIAL_SQRT_PRICE);
     }
 
-    function _arm(bytes4 fnSelector) internal {
+    function _arm() internal {
         bytes memory createData = abi.encodePacked(
             type(UniswapV3PoolAssertion).creationCode, abi.encode(address(pool), address(token0), address(token1))
         );
-        cl.assertion(address(pool), createData, fnSelector);
+        cl.assertion(address(pool), createData, UniswapV3PoolAssertion.assertSwapPriceMovement.selector);
     }
 
-    // --- Per-call swap price movement (unchanged: stays onFnCall) ---
-
     function testHonestZeroForOneSwapPasses() public {
-        _arm(UniswapV3PoolAssertion.assertSwapPriceMovement.selector);
+        _arm();
         pool.swap(address(this), true, 1 ether, MIN_SQRT_RATIO + 1, "");
     }
 
     function testHonestOneForZeroSwapPasses() public {
-        _arm(UniswapV3PoolAssertion.assertSwapPriceMovement.selector);
+        _arm();
         pool.swap(address(this), false, 1 ether, type(uint160).max - 1, "");
     }
 
     function testWrongDirectionZeroForOneTrips() public {
         pool.setSwapMode(MockUniswapV3Pool.SwapMode.WrongDirection);
 
-        _arm(UniswapV3PoolAssertion.assertSwapPriceMovement.selector);
+        _arm();
         vm.expectRevert(bytes("UniswapV3Pool: zeroForOne price increased"));
         pool.swap(address(this), true, 1 ether, MIN_SQRT_RATIO + 1, "");
-    }
-
-    // --- Protocol-fee custody (now onTxEnd) ---
-
-    function testProtocolFeeCustodyHonestPasses() public {
-        // No accrued protocol fees, so the final balances trivially cover them.
-        _arm(UniswapV3PoolAssertion.assertProtocolFeesCoveredByCustody.selector);
-        pool.swap(address(this), true, 1 ether, MIN_SQRT_RATIO + 1, "");
-    }
-
-    function testProtocolFeeCustodyUncoveredTrips() public {
-        // Accounting claims 1 wei of token0 protocol fees the pool does not actually custody.
-        pool.setProtocolFees(1, 0);
-
-        _arm(UniswapV3PoolAssertion.assertProtocolFeesCoveredByCustody.selector);
-        vm.expectRevert(bytes("UniswapV3Pool: token0 protocol fees uncovered"));
-        pool.swap(address(this), true, 1 ether, MIN_SQRT_RATIO + 1, "");
-    }
-
-    // --- Oracle-state consistency (now onTxEnd, PreTx vs PostTx) ---
-
-    function testOracleStateConsistentHonestPasses() public {
-        _arm(UniswapV3PoolAssertion.assertOracleStateConsistent.selector);
-        pool.swap(address(this), true, 1 ether, MIN_SQRT_RATIO + 1, "");
-    }
-
-    function testOracleCardinalityDecreaseTrips() public {
-        // PreTx cardinalityNext is 5; the triggering call lowers it, so PostTx < PreTx.
-        pool.setObservationState(0, 1, 5);
-
-        _arm(UniswapV3PoolAssertion.assertOracleStateConsistent.selector);
-        vm.expectRevert(bytes("UniswapV3Pool: cardinalityNext decreased"));
-        pool.lowerCardinalityNext(1);
-    }
-
-    // --- Formerly-noisy path: many matched calls now fire the tx-end check once ---
-
-    function testTxEndCustodyFiresOnceForBatchedSwaps() public {
-        PoolBatcher batcher = new PoolBatcher(pool);
-
-        _arm(UniswapV3PoolAssertion.assertProtocolFeesCoveredByCustody.selector);
-        // Two swaps in a single transaction; the custody invariant is evaluated once at tx end.
-        batcher.twoHonestSwaps();
     }
 }

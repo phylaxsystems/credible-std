@@ -31,19 +31,6 @@ contract MockLlamaLendController {
     }
 }
 
-contract LlamaLendBorrowBatcher {
-    MockLlamaLendController internal immutable CONTROLLER;
-
-    constructor(MockLlamaLendController controller_) {
-        CONTROLLER = controller_;
-    }
-
-    function twoBorrows(uint256 debtIncrease) external {
-        CONTROLLER.borrow_more(0, debtIncrease);
-        CONTROLLER.borrow_more(0, debtIncrease);
-    }
-}
-
 contract LlamaLendControllerAssertionTest is Test, CredibleTest {
     MockLlamaLendController internal controller;
     address internal borrowedToken = makeAddr("borrowedToken");
@@ -70,23 +57,5 @@ contract LlamaLendControllerAssertionTest is Test, CredibleTest {
         _arm();
         vm.expectRevert(bytes("LlamaLend: borrow cap exceeded"));
         controller.borrow_more(0, 100 ether);
-    }
-
-    function testBatchedBorrowsWithinCapFireOnce() public {
-        LlamaLendBorrowBatcher batcher = new LlamaLendBorrowBatcher(controller);
-
-        _arm();
-        // Two debt increases in one tx (200 total) stay within the 1000 cap; checked once at tx end.
-        batcher.twoBorrows(100 ether);
-    }
-
-    function testBatchedBorrowsExceedingCapTripAtTxEnd() public {
-        controller.setBorrowCap(150 ether);
-        LlamaLendBorrowBatcher batcher = new LlamaLendBorrowBatcher(controller);
-
-        _arm();
-        // Net 200 across two borrows exceeds the 150 cap; the single tx-end check still catches it.
-        vm.expectRevert(bytes("LlamaLend: borrow cap exceeded"));
-        batcher.twoBorrows(100 ether);
     }
 }

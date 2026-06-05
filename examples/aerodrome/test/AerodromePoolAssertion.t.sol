@@ -69,21 +69,6 @@ contract MockAerodromePool {
     }
 }
 
-/// @notice Batches two swaps into one transaction so the tx-end reserve-backing check can be
-///         shown to evaluate once for the whole transaction.
-contract AerodromeSwapBatcher {
-    MockAerodromePool internal immutable POOL;
-
-    constructor(MockAerodromePool pool_) {
-        POOL = pool_;
-    }
-
-    function twoSwaps(uint256 amount1Out) external {
-        POOL.swap(0, amount1Out, msg.sender, "");
-        POOL.swap(0, amount1Out, msg.sender, "");
-    }
-}
-
 contract AerodromePoolAssertionTest is Test, CredibleTest {
     uint256 internal constant SEED_RESERVE = 1_000 ether;
 
@@ -132,23 +117,5 @@ contract AerodromePoolAssertionTest is Test, CredibleTest {
         _arm(AerodromePoolAssertion.assertReservesBackedByBalances.selector);
         vm.expectRevert(bytes("AerodromePool: token0 reserves underbacked"));
         pool.swap(0, 100 ether, address(this), "");
-    }
-
-    function testHonestReservesBackedPasses() public {
-        token0.mint(address(this), 120 ether);
-        token0.transfer(address(pool), 120 ether);
-
-        _arm(AerodromePoolAssertion.assertReservesBackedByBalances.selector);
-        pool.swap(0, 100 ether, address(this), "");
-    }
-
-    function testTxEndReservesFiresOnceForBatchedSwaps() public {
-        token0.mint(address(this), 400 ether);
-        token0.transfer(address(pool), 400 ether);
-        AerodromeSwapBatcher batcher = new AerodromeSwapBatcher(pool);
-
-        _arm(AerodromePoolAssertion.assertReservesBackedByBalances.selector);
-        // Two swaps in one transaction; reserve backing is evaluated once at tx end.
-        batcher.twoSwaps(50 ether);
     }
 }

@@ -18,8 +18,8 @@ contract CurveUsdControllerAssertion is CurveUsdControllerProtocolHelpers {
     function triggers() external view override {
         registerTxEndTrigger(this.assertLoanListIntegrity.selector);
         registerTxEndTrigger(this.assertDebtAccounting.selector);
-        registerTxEndTrigger(this.assertPostRiskIncreasingOperationHealth.selector);
-        registerTxEndTrigger(this.assertPostLiquidationHealthRule.selector);
+        _registerCurveUsdRiskIncreasingTriggers(this.assertPostRiskIncreasingOperationHealth.selector);
+        _registerCurveUsdLiquidationTriggers(this.assertPostLiquidationHealthRule.selector);
     }
 
     /// @notice Checks `loans(i)`, `loan_ix(user)`, `loan_exists(user)`, and AMM liquidity stay consistent.
@@ -54,39 +54,33 @@ contract CurveUsdControllerAssertion is CurveUsdControllerProtocolHelpers {
         require(sumDebt <= totalDebt + loanCount + debtTolerance, "CurveUSD: sum debt too high");
     }
 
-    /// @notice Checks risk-increasing actions leave every touched loan with nonnegative health.
-    /// @dev Transaction-end check: enumerates the accounts touched by risk-increasing calls this
-    ///      transaction, and requires each surviving loan to be healthy at PostTx. Runs once per
-    ///      transaction instead of once per matched call.
+    /// @notice Checks risk-increasing actions leave an existing loan with nonnegative health.
     function assertPostRiskIncreasingOperationHealth() external {
-        (address[] memory users, uint256 count) = _curveUsdAffectedAccounts(_curveUsdRiskIncreasingSelectors());
-        PhEvm.ForkId memory fork = _postTx();
+        CurveUsdTriggeredCall memory triggered = _resolveCurveUsdTriggeredCall();
+        address user = _curveUsdAccountFromCall(triggered);
+        PhEvm.ForkId memory fork = _postCall(triggered.callEnd);
 
-        for (uint256 i; i < count; ++i) {
-            if (!_controllerLoanExistsAt(users[i], fork)) {
-                continue;
-            }
-            require(_controllerHealthAt(users[i], false, fork) >= 0, "CurveUSD: unhealthy post-operation");
+        if (!_controllerLoanExistsAt(user, fork)) {
+            return;
         }
+
+        require(_controllerHealthAt(user, false, fork) >= 0, "CurveUSD: unhealthy post-operation");
     }
 
     /// @notice Checks a liquidation that starts from healthy state does not leave a surviving loan unhealthy.
-    /// @dev Transaction-end check: enumerates liquidated accounts; for each that was healthy at PreTx
-    ///      and still has a loan at PostTx, requires nonnegative PostTx health. Runs once per tx.
     function assertPostLiquidationHealthRule() external {
-        (address[] memory users, uint256 count) = _curveUsdAffectedAccounts(_curveUsdLiquidationSelectors());
-        PhEvm.ForkId memory preFork = _preTx();
-        PhEvm.ForkId memory postFork = _postTx();
+        CurveUsdTriggeredCall memory triggered = _resolveCurveUsdTriggeredCall();
+        address user = _curveUsdAccountFromCall(triggered);
 
-        for (uint256 i; i < count; ++i) {
-            address user = users[i];
-            if (_controllerHealthAt(user, true, preFork) < 0) {
-                continue;
-            }
-            if (!_controllerLoanExistsAt(user, postFork)) {
-                continue;
-            }
-            require(_controllerHealthAt(user, false, postFork) >= 0, "CurveUSD: healthy liquidation left unhealthy");
+        if (_controllerHealthAt(user, true, _preCall(triggered.callStart)) < 0) {
+            return;
         }
+
+        PhEvm.ForkId memory fork = _postCall(triggered.callEnd);
+        if (!_controllerLoanExistsAt(user, fork)) {
+            return;
+        }
+
+        require(_controllerHealthAt(user, false, fork) >= 0, "CurveUSD: healthy liquidation left unhealthy");
     }
 }

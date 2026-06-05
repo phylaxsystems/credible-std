@@ -67,77 +67,24 @@ abstract contract CurveUsdControllerProtocolHelpers is Assertion {
         debtTolerance = debtTolerance_;
     }
 
-    /// @notice The controller selectors that can increase an account's risk.
-    function _curveUsdRiskIncreasingSelectors() internal pure returns (bytes4[] memory selectors) {
-        selectors = new bytes4[](10);
-        selectors[0] = CurveUsdControllerSelectors.CREATE_LOAN;
-        selectors[1] = CurveUsdControllerSelectors.CREATE_LOAN_FOR;
-        selectors[2] = CurveUsdControllerSelectors.CREATE_LOAN_CALLBACK;
-        selectors[3] = CurveUsdControllerSelectors.CREATE_LOAN_CALLBACK_DATA;
-        selectors[4] = CurveUsdControllerSelectors.BORROW_MORE;
-        selectors[5] = CurveUsdControllerSelectors.BORROW_MORE_FOR;
-        selectors[6] = CurveUsdControllerSelectors.BORROW_MORE_CALLBACK;
-        selectors[7] = CurveUsdControllerSelectors.BORROW_MORE_CALLBACK_DATA;
-        selectors[8] = CurveUsdControllerSelectors.REMOVE_COLLATERAL;
-        selectors[9] = CurveUsdControllerSelectors.REMOVE_COLLATERAL_FOR;
+    function _registerCurveUsdRiskIncreasingTriggers(bytes4 assertionSelector) internal view {
+        registerFnCallTrigger(assertionSelector, CurveUsdControllerSelectors.CREATE_LOAN);
+        registerFnCallTrigger(assertionSelector, CurveUsdControllerSelectors.CREATE_LOAN_FOR);
+        registerFnCallTrigger(assertionSelector, CurveUsdControllerSelectors.CREATE_LOAN_CALLBACK);
+        registerFnCallTrigger(assertionSelector, CurveUsdControllerSelectors.CREATE_LOAN_CALLBACK_DATA);
+        registerFnCallTrigger(assertionSelector, CurveUsdControllerSelectors.BORROW_MORE);
+        registerFnCallTrigger(assertionSelector, CurveUsdControllerSelectors.BORROW_MORE_FOR);
+        registerFnCallTrigger(assertionSelector, CurveUsdControllerSelectors.BORROW_MORE_CALLBACK);
+        registerFnCallTrigger(assertionSelector, CurveUsdControllerSelectors.BORROW_MORE_CALLBACK_DATA);
+        registerFnCallTrigger(assertionSelector, CurveUsdControllerSelectors.REMOVE_COLLATERAL);
+        registerFnCallTrigger(assertionSelector, CurveUsdControllerSelectors.REMOVE_COLLATERAL_FOR);
     }
 
-    /// @notice The controller liquidation selectors.
-    function _curveUsdLiquidationSelectors() internal pure returns (bytes4[] memory selectors) {
-        selectors = new bytes4[](4);
-        selectors[0] = CurveUsdControllerSelectors.LIQUIDATE;
-        selectors[1] = CurveUsdControllerSelectors.LIQUIDATE_FRAC;
-        selectors[2] = CurveUsdControllerSelectors.LIQUIDATE_CALLBACK;
-        selectors[3] = CurveUsdControllerSelectors.LIQUIDATE_CALLBACK_DATA;
-    }
-
-    /// @notice Enumerates the distinct accounts touched by the given controller selectors this tx.
-    /// @dev Works at transaction end (no `ph.context()`): scans every matching call to the adopter,
-    ///      decodes its account, and dedupes. Lets the post-operation health checks run once per
-    ///      transaction instead of once per matched call.
-    function _curveUsdAffectedAccounts(bytes4[] memory selectors)
-        internal
-        view
-        returns (address[] memory accounts, uint256 count)
-    {
-        address adopter = ph.getAssertionAdopter();
-
-        uint256 maxAccounts;
-        for (uint256 i; i < selectors.length; ++i) {
-            maxAccounts += ph.getAllCallInputs(adopter, selectors[i]).length;
-        }
-
-        accounts = new address[](maxAccounts);
-        for (uint256 i; i < selectors.length; ++i) {
-            PhEvm.CallInputs[] memory calls = ph.getAllCallInputs(adopter, selectors[i]);
-            for (uint256 j; j < calls.length; ++j) {
-                // `getAllCallInputs` returns calldata args WITHOUT the 4-byte selector (it is the
-                // query key), but the arg decoders expect selector-prefixed calldata. Prepend it.
-                address user = _curveUsdAccountFromCall(
-                    CurveUsdTriggeredCall({
-                        selector: selectors[i],
-                        caller: calls[j].caller,
-                        input: bytes.concat(selectors[i], calls[j].input),
-                        callStart: 0,
-                        callEnd: 0
-                    })
-                );
-                if (user == address(0)) {
-                    continue;
-                }
-
-                bool seen;
-                for (uint256 k; k < count; ++k) {
-                    if (accounts[k] == user) {
-                        seen = true;
-                        break;
-                    }
-                }
-                if (!seen) {
-                    accounts[count++] = user;
-                }
-            }
-        }
+    function _registerCurveUsdLiquidationTriggers(bytes4 assertionSelector) internal view {
+        registerFnCallTrigger(assertionSelector, CurveUsdControllerSelectors.LIQUIDATE);
+        registerFnCallTrigger(assertionSelector, CurveUsdControllerSelectors.LIQUIDATE_FRAC);
+        registerFnCallTrigger(assertionSelector, CurveUsdControllerSelectors.LIQUIDATE_CALLBACK);
+        registerFnCallTrigger(assertionSelector, CurveUsdControllerSelectors.LIQUIDATE_CALLBACK_DATA);
     }
 
     function _resolveCurveUsdTriggeredCall() internal view returns (CurveUsdTriggeredCall memory triggered) {

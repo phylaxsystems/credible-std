@@ -18,19 +18,12 @@ contract UniswapV3PoolAssertion is UniswapV3PoolHelpers {
     constructor(address pool_, address token0_, address token1_) UniswapV3PoolHelpers(pool_, token0_, token1_) {}
 
     /// @notice Registers Uniswap v3 pool selectors against their protection assertions.
-    /// @dev The pool is the assertion adopter. Per-call triggers compare the exact pre-call and
-    ///      post-call snapshots for the matched operation; tx-end triggers check transaction-wide
-    ///      post-state invariants once instead of after every matched call.
+    /// @dev The pool is the assertion adopter. Call-scoped triggers compare the exact
+    ///      pre-call and post-call snapshots for the matched pool operation.
     function triggers() external view override {
         _registerLiquidityAccountingTriggers();
-
-        // Oracle-state consistency and protocol-fee custody are transaction-wide post-state
-        // invariants: the final oracle ring buffer and the final token-vs-fee balances are what
-        // matter. Registering them at transaction end fires each check once per transaction rather
-        // than once per oracle-touching (initialize/mint/burn/swap/increaseCardinality) or
-        // fee-touching (collect/swap/flash/collectProtocol) call.
-        registerTxEndTrigger(this.assertOracleStateConsistent.selector);
-        registerTxEndTrigger(this.assertProtocolFeesCoveredByCustody.selector);
+        _registerOracleAccountingTriggers();
+        _registerProtocolFeeCustodyTriggers();
 
         registerFnCallTrigger(this.assertSwapPriceMovement.selector, IUniswapV3PoolLike.swap.selector);
         registerFnCallTrigger(
@@ -41,6 +34,25 @@ contract UniswapV3PoolAssertion is UniswapV3PoolHelpers {
     function _registerLiquidityAccountingTriggers() internal view {
         registerFnCallTrigger(this.assertActiveLiquidityAccounting.selector, IUniswapV3PoolLike.mint.selector);
         registerFnCallTrigger(this.assertActiveLiquidityAccounting.selector, IUniswapV3PoolLike.burn.selector);
+    }
+
+    function _registerOracleAccountingTriggers() internal view {
+        registerFnCallTrigger(this.assertOracleStateConsistent.selector, IUniswapV3PoolLike.initialize.selector);
+        registerFnCallTrigger(this.assertOracleStateConsistent.selector, IUniswapV3PoolLike.mint.selector);
+        registerFnCallTrigger(this.assertOracleStateConsistent.selector, IUniswapV3PoolLike.burn.selector);
+        registerFnCallTrigger(this.assertOracleStateConsistent.selector, IUniswapV3PoolLike.swap.selector);
+        registerFnCallTrigger(
+            this.assertOracleStateConsistent.selector, IUniswapV3PoolLike.increaseObservationCardinalityNext.selector
+        );
+    }
+
+    function _registerProtocolFeeCustodyTriggers() internal view {
+        registerFnCallTrigger(this.assertProtocolFeesCoveredByCustody.selector, IUniswapV3PoolLike.collect.selector);
+        registerFnCallTrigger(this.assertProtocolFeesCoveredByCustody.selector, IUniswapV3PoolLike.swap.selector);
+        registerFnCallTrigger(this.assertProtocolFeesCoveredByCustody.selector, IUniswapV3PoolLike.flash.selector);
+        registerFnCallTrigger(
+            this.assertProtocolFeesCoveredByCustody.selector, IUniswapV3PoolLike.collectProtocol.selector
+        );
     }
 
     /// @notice A successful swap must respect direction and caller-supplied price limits.
@@ -105,13 +117,12 @@ contract UniswapV3PoolAssertion is UniswapV3PoolHelpers {
     /// @notice Oracle observation indexes and cardinality must move forward consistently.
     /// @dev Initialization, liquidity mutations, swaps, and cardinality growth can touch oracle
     ///      state. The active cardinality and next cardinality must never decrease, and initialized
-    ///      pools must keep the latest observation index inside the active ring buffer. Cardinality
-    ///      only ever grows in Uniswap v3, so the PreTx->PostTx comparison preserves the
-    ///      "never decreases" invariant while firing once per transaction.
+    ///      pools must keep the latest observation index inside the active ring buffer.
     function assertOracleStateConsistent() external view {
+        PhEvm.TriggerContext memory ctx = ph.context();
         _requireConfiguredPoolIsAdopter();
-        Slot0Snapshot memory pre = _slot0At(_preTx());
-        Slot0Snapshot memory post = _slot0At(_postTx());
+        Slot0Snapshot memory pre = _slot0At(_preCall(ctx.callStart));
+        Slot0Snapshot memory post = _slot0At(_postCall(ctx.callEnd));
 
         require(post.observationCardinality >= pre.observationCardinality, "UniswapV3Pool: cardinality decreased");
         require(
@@ -135,11 +146,11 @@ contract UniswapV3PoolAssertion is UniswapV3PoolHelpers {
     /// @notice Accrued protocol fees must remain backed by the pool's token balances.
     /// @dev Swaps and flashes can accrue protocol fees, while collect and collectProtocol transfer
     ///      tokens out. A failure means protocol-fee accounting claims more token0 or token1 than
-    ///      the pool still holds. This is a transaction-wide custody property, so it is evaluated
-    ///      once against the final (PostTx) state after all fee-touching calls have settled.
+    ///      the pool still holds after the triggering operation.
     function assertProtocolFeesCoveredByCustody() external view {
+        PhEvm.TriggerContext memory ctx = ph.context();
         _requireConfiguredPoolIsAdopter();
-        PoolSnapshot memory post = _snapshotAt(_postTx());
+        PoolSnapshot memory post = _snapshotAt(_postCall(ctx.callEnd));
 
         require(post.balance0 >= post.protocolFees0, "UniswapV3Pool: token0 protocol fees uncovered");
         require(post.balance1 >= post.protocolFees1, "UniswapV3Pool: token1 protocol fees uncovered");
