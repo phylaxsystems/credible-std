@@ -20,6 +20,17 @@ FOUNDRY_PROFILE=cap pcl test
   peg, not the self-referential CapToken oracle).
 - `CapMintBackingInterfaces.sol`
 
+### Liquidations — debt is repaid, proceeds stay in the protocol
+
+- `CapLiquidationAssertion.sol` — deployed against the `Lender`. A liquidation that moves value
+  must strictly reduce the borrower's debt for the liquidated asset (no seizing collateral without
+  repaying debt), and the vault's claimable backing (`availableBalance = totalSupplies -
+  totalBorrows`) may not fall below its pre-call value minus the restaker interest the liquidation
+  legitimately realizes (proceeds stay in the protocol as backing rather than draining the vault).
+  Each check is scoped per `liquidate` call via PreCall/PostCall snapshots.
+- `CapLiquidationHelpers.sol` — triggered-call resolution and fork-aware reads (all in asset units).
+- `CapLiquidationInterfaces.sol`
+
 ### Cross-chain backing — keep the OFT lockbox honest
 
 - `CapOFTLockboxBackingAssertion.sol` — on the home chain, locked cUSD may leave the `OFTLockbox`
