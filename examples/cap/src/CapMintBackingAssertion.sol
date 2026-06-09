@@ -1,0 +1,97 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.13;
+
+import {PhEvm} from "credible-std/PhEvm.sol";
+import {AssertionSpec} from "credible-std/SpecRecorder.sol";
+import {CapMintBackingHelpers} from "./CapMintBackingHelpers.sol";
+import {ICapVaultLike} from "./CapMintBackingInterfaces.sol";
+
+/// @title CapMintBackingAssertion
+/// @author Phylax Systems
+/// @notice Keeps cUSD fully backed: supply may not grow without matching reserves, and
+///         reserves may not be drained without matching cUSD burns ("no infinite mint").
+/// @dev Two invariants over Cap's combined CapToken/Vault/FractionalReserve adopter:
+///
+///      1. Backing covers supply (`assertBackingCoversSupply`): on every supply-changing
+///         operation (mint/burn/redeem), the USD value of all backing reserves
+///         (`Σ totalSupplies(asset) * oraclePrice(asset)`) must still cover cUSD supply
+///         valued at its $1 face peg. Checked as a non-worsening delta from PreTx to PostTx
+///         so a pre-existing depeg does not penalize unrelated transactions, while any
+///         transaction that mints cUSD without adding backing (or removes backing without
+///         burning cUSD) trips it.
+///
+///      2. Reserve inflow accounted (`assertReserveInflowAccounted`): an inflow circuit
+///         breaker that, once a backing asset's rolling inflow breaches the threshold,
+///         requires the incoming balance to be reflected in protocol accounting. A direct
+///         donation / reserve-stuffing inflow that is not booked as `totalSupplies` (e.g. to
+///         skew the fractional-reserve share price) raises idle custody above accounting and
+///         trips it. This complements the existing redemption gate, which only bounds outflow.
+contract CapMintBackingAssertion is CapMintBackingHelpers {
+    /// @dev Rounding/oracle headroom on the solvency floor, in bps of cUSD face value.
+    uint256 internal constant SOLVENCY_TOLERANCE_BPS = 10;
+
+    /// @dev Inflow circuit-breaker window and trip threshold (bps of window-start TVL).
+    uint256 internal constant INFLOW_WINDOW = 1 hours;
+    uint256 internal constant INFLOW_TRIGGER_BPS = 2_000;
+
+    /// @dev Allowed jump in unaccounted idle slack on a breaching tx, bps of window-start TVL.
+    uint256 internal constant INFLOW_SLACK_TOLERANCE_BPS = 50;
+
+    constructor(address oracle_, address asset0_, address asset1_, address asset2_, address asset3_, address asset4_)
+        CapMintBackingHelpers(oracle_, asset0_, asset1_, asset2_, asset3_, asset4_)
+    {
+        registerAssertionSpec(AssertionSpec.Experimental);
+    }
+
+    function triggers() external view override {
+        registerFnCallTrigger(this.assertBackingCoversSupply.selector, ICapVaultLike.mint.selector);
+        registerFnCallTrigger(this.assertBackingCoversSupply.selector, ICapVaultLike.burn.selector);
+        registerFnCallTrigger(this.assertBackingCoversSupply.selector, ICapVaultLike.redeem.selector);
+
+        _watchInflow(ASSET0);
+        _watchInflow(ASSET1);
+        _watchInflow(ASSET2);
+        _watchInflow(ASSET3);
+        _watchInflow(ASSET4);
+    }
+
+    /// @notice cUSD must remain fully backed across a supply-changing operation.
+    /// @dev Fails when a transaction reduces the reserve-over-cUSD surplus below the
+    ///      tolerated floor. If pre-state was healthy, post-state must stay healthy; if
+    ///      pre-state was already short (e.g. depeg / bad debt), the tx must not worsen it.
+    function assertBackingCoversSupply() external view {
+        int256 surplusPre = _surplusUsd8(_preTx());
+        int256 surplusPost = _surplusUsd8(_postTx());
+
+        // forge-lint: disable-next-line(unsafe-typecast) — USD-8 tolerance is far below int256 max
+        int256 tolerance = int256(_capFaceValueUsd8(_preTx()) * SOLVENCY_TOLERANCE_BPS / 10_000);
+
+        if (surplusPre >= 0) {
+            require(surplusPost >= -tolerance, "CapBacking: cUSD not fully backed");
+        } else {
+            require(surplusPost >= surplusPre - tolerance, "CapBacking: backing worsened");
+        }
+    }
+
+    /// @notice A surge of incoming backing must be booked as protocol accounting.
+    /// @dev Triggered by the cumulative-inflow breaker on a backing asset. Fails when the
+    ///      breaching transaction raises idle custody without a matching increase in
+    ///      accounted backing (totalSupplies net of borrows/loaned), i.e. an unaccounted
+    ///      donation or reserve-stuffing inflow.
+    function assertReserveInflowAccounted() external view {
+        PhEvm.InflowContext memory ctx = ph.inflowContext();
+        require(ctx.token != address(0), "CapBacking: no inflow context");
+
+        int256 slackPre = _idleSlack(ctx.token, _preTx());
+        int256 slackPost = _idleSlack(ctx.token, _postTx());
+
+        // forge-lint: disable-next-line(unsafe-typecast) — TVL-derived tolerance is far below int256 max
+        int256 tolerance = int256(ctx.tvlSnapshot * INFLOW_SLACK_TOLERANCE_BPS / 10_000);
+        require(slackPost <= slackPre + tolerance, "CapBacking: unaccounted reserve inflow");
+    }
+
+    function _watchInflow(address asset) internal view {
+        if (asset == address(0)) return;
+        watchCumulativeInflow(asset, INFLOW_TRIGGER_BPS, INFLOW_WINDOW, this.assertReserveInflowAccounted.selector);
+    }
+}
