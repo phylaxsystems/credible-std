@@ -16,12 +16,13 @@ import {IFTokenLike} from "./FluidInterfaces.sol";
 ///      flat on principal flows and rises with yield. Any decrease therefore signals a loss,
 ///      mispriced mint/redeem, or accounting bug — exactly what an ERC-4626 holder needs protected.
 ///
-///      Checked at transaction end as `postAssets/postSupply >= preAssets/preSupply` using the
-///      `ratioGe` precompile (no division), with zero tolerance. Empty-vault snapshots are skipped
-///      because share price is undefined with no shares.
+///      Checked at transaction end by sampling `convertToAssets(1e12)`, which is Fluid's underlying
+///      token exchange price scale. This avoids `totalAssets()` floor-rounding differences caused by
+///      supply changes while still checking the holder-facing share price. Empty-vault snapshots are
+///      skipped because share price is undefined with no shares.
 contract FluidFTokenSharePriceAssertion is Assertion {
     /// @notice Strictly non-decreasing: share price may rise (yield) but never fall.
-    uint256 internal constant SHARE_PRICE_TOLERANCE_BPS = 0;
+    uint256 internal constant PRICE_SAMPLE_SHARES = 1e12;
 
     constructor() {
         registerAssertionSpec(AssertionSpec.Reshiram);
@@ -32,10 +33,11 @@ contract FluidFTokenSharePriceAssertion is Assertion {
         registerTxEndTrigger(this.assertSharePriceNonDecreasing.selector);
     }
 
-    /// @notice fToken share price (totalAssets / totalSupply) does not decrease over the transaction.
-    /// @dev Reads the fToken's `totalAssets()` and `totalSupply()` at PreTx and PostTx. A failure
-    ///      means the transaction reduced the value backing each share — a yield-only vault must
-    ///      never do this. Snapshots with zero supply are skipped (share price undefined).
+    /// @notice fToken share price sampled with a fixed share amount does not decrease.
+    /// @dev Reads the fToken's `totalSupply()` and `convertToAssets(1e12)` at PreTx and PostTx. A
+    ///      failure means the transaction reduced the value backing a fixed share quantity — a
+    ///      yield-only vault must never do this. Snapshots with zero supply are skipped (share price
+    ///      undefined).
     function assertSharePriceNonDecreasing() external view {
         address fToken = ph.getAssertionAdopter();
 
@@ -43,12 +45,11 @@ contract FluidFTokenSharePriceAssertion is Assertion {
         uint256 postSupply = _readUintAt(fToken, abi.encodeCall(IFTokenLike.totalSupply, ()), _postTx());
         if (preSupply == 0 || postSupply == 0) return;
 
-        uint256 preAssets = _readUintAt(fToken, abi.encodeCall(IFTokenLike.totalAssets, ()), _preTx());
-        uint256 postAssets = _readUintAt(fToken, abi.encodeCall(IFTokenLike.totalAssets, ()), _postTx());
+        uint256 preAssets =
+            _readUintAt(fToken, abi.encodeCall(IFTokenLike.convertToAssets, (PRICE_SAMPLE_SHARES)), _preTx());
+        uint256 postAssets =
+            _readUintAt(fToken, abi.encodeCall(IFTokenLike.convertToAssets, (PRICE_SAMPLE_SHARES)), _postTx());
 
-        require(
-            ph.ratioGe(postAssets, postSupply, preAssets, preSupply, SHARE_PRICE_TOLERANCE_BPS),
-            "Fluid: fToken share price decreased"
-        );
+        require(postAssets >= preAssets, "Fluid: fToken share price decreased");
     }
 }

@@ -15,6 +15,15 @@ contract MockToken {
     }
 }
 
+/// @notice Mock of the Zircuit balance surface Fluid counts as mainnet external custody.
+contract MockZircuit {
+    mapping(address => mapping(address => uint256)) public balance;
+
+    function setBalance(address token, address staker, uint256 amount) external {
+        balance[token][staker] = amount;
+    }
+}
+
 /// @notice Mock Fluid Liquidity Layer that stores packed accounting at the real mapping slots.
 /// @dev Encodes interest-free supply/borrow as BigMath with exponent 0 (value << 8), leaving the
 ///      with-interest "raw" fields zero so the decode reduces to the plain amounts.
@@ -50,6 +59,9 @@ contract MockFluidLiquidity {
 }
 
 contract FluidLiquiditySolvencyAssertionTest is Test, CredibleTest {
+    address internal constant WEETH = 0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee;
+    address internal constant ZIRCUIT = 0xF047ab4c75cebf0eB9ed34Ae2c186f3611aEAfa6;
+
     MockFluidLiquidity internal liquidity;
     MockToken internal token;
     address[] internal tokens;
@@ -77,6 +89,12 @@ contract FluidLiquiditySolvencyAssertionTest is Test, CredibleTest {
         cl.assertion(address(liquidity), createData, fnSelector);
     }
 
+    function _armWith(address[] memory tokens_, bytes4 fnSelector) internal {
+        bytes memory createData =
+            abi.encodePacked(type(FluidLiquiditySolvencyAssertion).creationCode, abi.encode(tokens_));
+        cl.assertion(address(liquidity), createData, fnSelector);
+    }
+
     // --- Custody covers net supply ---------------------------------------
 
     function testCustodyHonestPasses() public {
@@ -90,6 +108,27 @@ contract FluidLiquiditySolvencyAssertionTest is Test, CredibleTest {
         // Supply inflated far beyond what custody + debt can back.
         vm.expectRevert(bytes("Fluid: liquidity custody below net supply"));
         liquidity.operate(address(token), 2_000e6, BORROW);
+    }
+
+    function testCustodyIncludesMainnetExternalBalances() public {
+        vm.chainId(1);
+
+        MockToken tokenImpl = new MockToken();
+        vm.etch(WEETH, address(tokenImpl).code);
+        MockZircuit zircuitImpl = new MockZircuit();
+        vm.etch(ZIRCUIT, address(zircuitImpl).code);
+
+        uint256 externalHeld = 100e6;
+        MockToken(WEETH).setBalance(address(liquidity), HELD - externalHeld);
+        MockZircuit(ZIRCUIT).setBalance(WEETH, address(liquidity), externalHeld);
+        liquidity.setTotals(WEETH, SUPPLY, BORROW);
+        liquidity.setExchangePrices(WEETH, EP, EP);
+
+        address[] memory monitoredTokens = new address[](1);
+        monitoredTokens[0] = WEETH;
+
+        _armWith(monitoredTokens, FluidLiquiditySolvencyAssertion.assertCustodyCoversNetSupply.selector);
+        liquidity.operate(WEETH, SUPPLY, BORROW);
     }
 
     // --- Exchange price monotonicity -------------------------------------
