@@ -107,6 +107,14 @@ cache_path = "examples/euler/cache"
 libs = ["lib"]
 remappings = ["credible-std/=src/"]
 
+[profile.fluid]
+src = "examples/fluid/src"
+test = "examples/fluid/test"
+out = "examples/fluid/out"
+cache_path = "examples/fluid/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+
 [profile.lighter]
 src = "examples/lighter/src"
 test = "examples/lighter/test"
