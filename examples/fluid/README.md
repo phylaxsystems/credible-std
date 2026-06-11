@@ -31,9 +31,10 @@ FOUNDRY_PROFILE=fluid pcl test
 Installed on the Liquidity Layer singleton. Two transaction-end invariants, read straight from the
 singleton's packed per-token storage (no resolver trust, no interest-accrual reimplementation):
 
-- **Custody covers net supply** — `balanceOf(Liquidity, token) + totalBorrow >= totalSupply` for
-  every monitored token, i.e. accrued protocol revenue stays non-negative. This is the protocol-wide
-  insolvency condition; the per-operation `require`s never state it against the real ERC20 balance.
+- **Custody covers net supply** — `recognizedCustody(Liquidity, token) + totalBorrow >= totalSupply`
+  for every monitored token, i.e. accrued protocol revenue stays non-negative. Mainnet weETH/weETHs
+  custody includes Fluid's Zircuit balance, matching Fluid's resolver accounting. This is the
+  protocol-wide insolvency condition; the per-operation `require`s never state it against custody.
 - **Exchange prices are monotonic** — supply and borrow exchange prices only ever accrue interest, so
   any decrease across the transaction signals corrupted accounting or a malicious config-slot write.
 
@@ -48,6 +49,9 @@ valid `operate` calls:
   withdraw and borrowers can still repay, so honest exit and de-risking stay open.
 - **Critical tier (20% / 24h)** — hard-pause the singleton.
 
+The breaker intentionally rejects native-token markets and known Fluid external-custody tokens,
+because the built-in ERC20 outflow watcher cannot correctly classify those custody moves.
+
 ### `FluidVaultRiskConfigAssertion` — Vault (riskier collateral, safely)
 
 Installed on a Fluid Vault. Re-checks the vault's stored risk-parameter ordering at transaction end —
@@ -61,8 +65,9 @@ high, and the invariant that keeps every position liquidatable is enforced on-ch
 ### `FluidFTokenSharePriceAssertion` — fToken (business logic)
 
 Installed on an fToken (fUSDC, fWETH, ...). An fToken supplies all of its underlying into the Liquidity
-Layer and its share price is yield-only by construction, so `totalAssets / totalSupply` must never
-decrease across a transaction. A drop signals a loss, mispriced mint/redeem, or accounting bug.
+Layer and its share price is yield-only by construction, so a fixed-share `convertToAssets(1e12)`
+sample must never decrease across a transaction. A drop signals a loss, mispriced mint/redeem, or
+accounting bug.
 
 ## Files
 
@@ -81,5 +86,5 @@ decrease across a transaction. A drop signals a loss, mispriced mint/redeem, or 
 - `watchCumulativeOutflow`'s live firing is driven by the executor's rolling-window accounting and is
   not simulated by local `pcl test`, so the flow breaker's warning-tier policy is unit-tested through a
   pure helper (`_operateBorrowsToken`) rather than an armed `cl.assertion` call.
-- Native-token markets (`0xEeee…EEeE`) are skipped by the ERC20 custody check; the exchange-price check
+- Native-token markets (`0xEeee...EEeE`) are skipped by the ERC20 custody check; the exchange-price check
   still applies to them.

@@ -22,6 +22,7 @@ contract FluidLiquidityFlowBreakerAssertion is FluidLiquidityBase {
     uint256 public constant WARN_OUTFLOW_BPS = 1_000; // 10%
     uint256 public constant CRITICAL_OUTFLOW_BPS = 2_000; // 20%
     uint256 public constant OUTFLOW_WINDOW = 24 hours;
+    uint256 internal constant MAX_SUCCESSFUL_OPERATE_CALLS = 256;
 
     /// @notice `operate`'s `token_` is calldata arg 0 and `borrowAmount_` is calldata arg 2.
     uint256 internal constant OPERATE_TOKEN_ARG = 0;
@@ -32,6 +33,12 @@ contract FluidLiquidityFlowBreakerAssertion is FluidLiquidityBase {
 
     /// @param tokens_ Monitored token addresses (the Liquidity Layer markets to rate-limit).
     constructor(address[] memory tokens_) {
+        uint256 length = tokens_.length;
+        for (uint256 i; i < length; ++i) {
+            require(tokens_[i] != NATIVE_TOKEN, "Fluid: native token breaker unsupported");
+            require(!_hasFluidExternalCustody(tokens_[i]), "Fluid: external custody breaker unsupported");
+        }
+
         tokens = tokens_;
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
@@ -51,18 +58,20 @@ contract FluidLiquidityFlowBreakerAssertion is FluidLiquidityBase {
     }
 
     /// @notice After 10% net outflow of a token in 24h, no new borrow of that token may execute.
-    /// @dev Triggered by the warning-tier breaker. Scans every `operate` call on the singleton and
-    ///      fails if one borrows (`borrowAmount_ > 0`) the token that breached the window. Repays
-    ///      (`borrowAmount_ < 0`), supplies and withdrawals are allowed so the market can de-risk and
-    ///      suppliers can still exit. A failure means a borrow was attempted while the market was
-    ///      already bleeding past the warning threshold.
+    /// @dev Triggered by the warning-tier breaker. Scans successful CALLs to `operate` on the
+    ///      singleton and fails if one borrows (`borrowAmount_ > 0`) the token that breached the
+    ///      window. Repays (`borrowAmount_ < 0`), supplies and withdrawals are allowed so the market
+    ///      can de-risk and suppliers can still exit. A failure means a borrow executed while the
+    ///      market was already bleeding past the warning threshold.
     function assertNoBorrowAfterLargeOutflow() external view {
         PhEvm.OutflowContext memory ctx = ph.outflowContext();
         require(_isWatched(ctx.token), "Fluid: unwatched outflow token");
 
-        PhEvm.CallInputs[] memory calls = ph.getAllCallInputs(_liquidity(), IFluidLiquidityLike.operate.selector);
+        PhEvm.TriggerCall[] memory calls = ph.matchingCalls(
+            _liquidity(), IFluidLiquidityLike.operate.selector, _successfulOperateCalls(), MAX_SUCCESSFUL_OPERATE_CALLS
+        );
         for (uint256 i; i < calls.length; ++i) {
-            if (_operateBorrowsToken(ph.callinputAt(calls[i].id), ctx.token)) {
+            if (_operateBorrowsToken(calls[i].input, ctx.token)) {
                 revert("Fluid: borrow disabled after large outflow");
             }
         }
@@ -92,5 +101,10 @@ contract FluidLiquidityFlowBreakerAssertion is FluidLiquidityBase {
             if (tokens[i] == token) return true;
         }
         return false;
+    }
+
+    function _successfulOperateCalls() internal pure returns (PhEvm.CallFilter memory filter) {
+        filter.callType = 1; // CALL only: ignore failed probes, staticcalls and delegatecalls.
+        filter.successOnly = true;
     }
 }

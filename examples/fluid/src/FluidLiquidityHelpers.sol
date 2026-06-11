@@ -4,6 +4,10 @@ pragma solidity ^0.8.13;
 import {Assertion} from "credible-std/Assertion.sol";
 import {PhEvm} from "credible-std/PhEvm.sol";
 
+interface IZircuitPoolLike {
+    function balance(address token_, address staker_) external view returns (uint256);
+}
+
 /// @title FluidLiquidityBase
 /// @author Phylax Systems
 /// @notice Shared reads for assertions installed on the Fluid Liquidity Layer singleton.
@@ -21,6 +25,11 @@ import {PhEvm} from "credible-std/PhEvm.sol";
 abstract contract FluidLiquidityBase is Assertion {
     /// @notice Native token sentinel; balances of this "token" cannot be read via ERC20 balanceOf.
     address internal constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+
+    /// @notice Mainnet Liquid staking tokens Fluid explicitly counts as external Liquidity custody.
+    address internal constant WEETH = 0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee;
+    address internal constant WEETHS = 0x917ceE801a67f933F2e6b33fC0cD1ED2d5909D88;
+    address internal constant ZIRCUIT = 0xF047ab4c75cebf0eB9ed34Ae2c186f3611aEAfa6;
 
     /// @notice Fluid stores supply/borrow exchange prices scaled by 1e12.
     uint256 internal constant EXCHANGE_PRICES_PRECISION = 1e12;
@@ -91,6 +100,30 @@ abstract contract FluidLiquidityBase is Assertion {
 
     function _readSlot(bytes32 slot, PhEvm.ForkId memory fork) internal view returns (uint256) {
         return uint256(ph.loadStateAt(_liquidity(), slot, fork));
+    }
+
+    /// @notice Reads Fluid-recognized custody for `token`, including mainnet external balances.
+    function _liquidityCustodyBalance(address token, address liquidity, PhEvm.ForkId memory fork)
+        internal
+        view
+        returns (uint256 balance)
+    {
+        balance = _readBalanceAt(token, liquidity, fork);
+        balance += _liquidityExternalBalance(token, liquidity, fork);
+    }
+
+    /// @notice Mainnet weETH/weETHs can sit in Zircuit while still backing Liquidity accounting.
+    function _liquidityExternalBalance(address token, address liquidity, PhEvm.ForkId memory fork)
+        internal
+        view
+        returns (uint256)
+    {
+        if (block.chainid != 1 || !_hasFluidExternalCustody(token)) return 0;
+        return _readUintAt(ZIRCUIT, abi.encodeCall(IZircuitPoolLike.balance, (token, liquidity)), fork);
+    }
+
+    function _hasFluidExternalCustody(address token) internal pure returns (bool) {
+        return token == WEETH || token == WEETHS;
     }
 
     /// @notice Decodes a 64-bit Fluid BigMath field: value = coefficient << exponent.
