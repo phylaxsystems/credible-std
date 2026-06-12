@@ -55,10 +55,15 @@ contract CapMintBackingAssertion is CapMintBackingHelpers {
         _watchInflow(ASSET4);
     }
 
-    /// @notice cUSD must remain fully backed across a supply-changing operation.
-    /// @dev Fails when a transaction reduces the reserve-over-cUSD surplus below the
-    ///      tolerated floor. If pre-state was healthy, post-state must stay healthy; if
-    ///      pre-state was already short (e.g. depeg / bad debt), the tx must not worsen it.
+    /// @notice cUSD backing may not be eroded across a supply-changing operation.
+    /// @dev Enforces conservation, not just a solvency floor: a single transaction may not lower
+    ///      the reserve-over-cUSD surplus beyond tolerance, whether the protocol starts over- or
+    ///      under-collateralized. Honest mint/burn/redeem add or remove equal value on both sides,
+    ///      so surplus stays flat and they pass; an unbacked mint (or backing drained without a
+    ///      matching burn) lowers surplus and trips. Checking non-worsening in *both* sign branches
+    ///      closes the "no infinite mint" hole where a single tx could consume the entire
+    ///      over-collateralization buffer while still ending non-negative. A pre-existing depeg is
+    ///      tolerated (the bound is relative to `surplusPre`) so unrelated txs are not penalized.
     function assertBackingCoversSupply() external view {
         int256 surplusPre = _surplusUsd8(_preTx());
         int256 surplusPost = _surplusUsd8(_postTx());
@@ -66,11 +71,7 @@ contract CapMintBackingAssertion is CapMintBackingHelpers {
         // forge-lint: disable-next-line(unsafe-typecast) — USD-8 tolerance is far below int256 max
         int256 tolerance = int256(_capFaceValueUsd8(_preTx()) * SOLVENCY_TOLERANCE_BPS / 10_000);
 
-        if (surplusPre >= 0) {
-            require(surplusPost >= -tolerance, "CapBacking: cUSD not fully backed");
-        } else {
-            require(surplusPost >= surplusPre - tolerance, "CapBacking: backing worsened");
-        }
+        require(surplusPost >= surplusPre - tolerance, "CapBacking: backing conservation violated");
     }
 
     /// @notice A surge of incoming backing must be booked as protocol accounting.

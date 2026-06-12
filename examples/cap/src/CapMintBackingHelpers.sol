@@ -17,6 +17,22 @@ import {
 ///      with oracle prices expressed in 8-decimal USD. cUSD is valued at its $1 face peg
 ///      (`FACE_PRICE_USD8`) rather than at the CapToken oracle, because that oracle reports
 ///      cUSD as backing-over-supply and would make a backing check circular.
+///
+///      POLICY — fail-closed on read failure (decide with Cap): the reads below revert on infra
+///      errors (`require(res.ok …)`, `require(price > 0)`). Because a reverting assertion blocks
+///      the transaction, this couples mint/burn/redeem liveness to oracle liveness — a transiently
+///      down/stale/zero oracle blocks all mint/burn/redeem, possibly when the protocol is already
+///      stressed (and blocked redeems/burns can trap users). For a solvency invariant that is a
+///      defensible default (halt rather than allow an unbacked mint), but it is Cap's tradeoff to
+///      own. The alternative is fail-open on infra-level read failures (oracle revert/stale ⇒ skip
+///      the check) while keeping the *solvency comparison itself* strict. Pending Cap sign-off.
+///
+///      DRIFT — static asset set (must resolve before production): `ASSET0..ASSET4` are immutable,
+///      fixed at deploy (see constructor). Any reserve-set change (asset added/removed/migrated)
+///      silently under-counts backing — false-positives on honest mints — and drops inflow-watcher
+///      coverage for the new asset, with no way for the assertion to detect the change. Before
+///      mainnet either (a) enforce a redeploy-on-reserve-change operational contract, or (b) drive
+///      the asset set from on-chain state. Do not ship the static list unaddressed.
 abstract contract CapMintBackingHelpers is Assertion {
     /// @dev USD price scale used by the Cap oracle (8 decimals).
     uint256 internal constant FACE_PRICE_USD8 = 1e8;

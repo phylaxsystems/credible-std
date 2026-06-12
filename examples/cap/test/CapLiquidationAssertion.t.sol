@@ -61,16 +61,19 @@ contract MockLender {
     }
 
     function liquidate(address agent, address asset, uint256 amount, uint256) external returns (uint256 repaid) {
-        // Realize restaker interest by borrowing from the vault (lowers claimable backing).
+        // Realize restaker interest: it is added to the agent's debt and funded out of the vault
+        // (lowering claimable backing) before any principal is repaid.
         uint256 realized = realizedOf[agent][asset];
         uint256 avail = vault.availableBalance(asset) - realized;
         realizedOf[agent][asset] = 0;
 
-        uint256 owed = debtOf[agent][asset];
+        uint256 owed = debtOf[agent][asset] + realized;
         repaid = amount > owed ? owed : amount;
 
         if (mode == Mode.NoRepay) {
-            // Collateral seized, but debt left untouched and nothing returned to the vault.
+            // Collateral seized, but no principal repaid: debt still carries the realized interest,
+            // and nothing is returned to the vault.
+            debtOf[agent][asset] = owed;
             vault.setAvailable(asset, avail);
             return 0;
         }
@@ -126,6 +129,16 @@ contract CapLiquidationAssertionTest is Test, CredibleTest {
         vm.expectRevert(bytes("CapLiquidation: debt not reduced"));
         vm.prank(liquidator);
         lender.liquidate(agent, usdc, 60e6, 0);
+    }
+
+    function testPartialLiquidationWithHighInterestPasses() public {
+        // Realized interest (10) exceeds the principal repaid (5): total debt() rises across the
+        // call even though the liquidation is honest. Netting realized interest out of the
+        // comparison avoids the false positive a raw `debtPost < debtPre` check would raise.
+        lender.seed(agent, usdc, 100e6, 10e6, 1_000e6);
+        _armReducesDebt();
+        vm.prank(liquidator);
+        lender.liquidate(agent, usdc, 5e6, 0);
     }
 
     function testZeroAmountLiquidationIgnored() public {

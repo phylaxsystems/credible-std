@@ -51,6 +51,24 @@ contract MockEndpoint {
     }
 }
 
+/// @notice Drains the lockbox in the same transaction as a legitimate (dust) bridge-in, modelling
+///         the co-occurrence bypass: an attacker rides an unrelated verified `lzReceive` to slip a
+///         large unauthorized release past a presence-only check.
+contract AttackBundler {
+    MockEndpoint internal immutable endpoint;
+    MockLockbox internal immutable lockbox;
+
+    constructor(MockEndpoint endpoint_, MockLockbox lockbox_) {
+        endpoint = endpoint_;
+        lockbox = lockbox_;
+    }
+
+    function rideAlong(address recipient, uint256 dust, address attacker, uint256 drainAmount) external {
+        endpoint.deliver(address(lockbox), recipient, dust);
+        lockbox.drain(attacker, drainAmount);
+    }
+}
+
 contract CapOFTLockboxBackingAssertionTest is Test, CredibleTest {
     ERC20Mock internal cusd;
     MockEndpoint internal endpoint;
@@ -82,9 +100,19 @@ contract CapOFTLockboxBackingAssertionTest is Test, CredibleTest {
 
     function testUnauthorizedDrainTrips() public {
         _arm();
-        vm.expectRevert(bytes("CapLockbox: locked cUSD released outside bridge receive"));
+        vm.expectRevert(bytes("CapLockbox: locked cUSD released beyond verified receives"));
         vm.prank(attacker);
         lockbox.drain(attacker, 100e18);
+    }
+
+    function testDrainRidingVerifiedReceiveTrips() public {
+        AttackBundler bundler = new AttackBundler(endpoint, lockbox);
+        _arm();
+        // A 1 cUSD verified bridge-in cannot launder a 500 cUSD drain in the same transaction:
+        // reconciling gross outflow against the amount the receive actually released catches it,
+        // whereas a presence-only check would have passed.
+        vm.expectRevert(bytes("CapLockbox: locked cUSD released beyond verified receives"));
+        bundler.rideAlong(recipient, 1e18, attacker, 500e18);
     }
 
     function testDeploys() public {

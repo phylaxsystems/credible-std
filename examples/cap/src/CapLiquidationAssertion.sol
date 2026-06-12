@@ -37,18 +37,24 @@ contract CapLiquidationAssertion is CapLiquidationHelpers {
         registerFnCallTrigger(this.assertLiquidationRetainsBacking.selector, ICapLenderLike.liquidate.selector);
     }
 
-    /// @notice A value-moving liquidation must strictly reduce the agent's debt for the asset.
+    /// @notice A value-moving liquidation must repay principal, netting out realized interest.
     /// @dev Fires per `liquidate` call. Skips no-op liquidations (`amount == 0`, which move no
-    ///      value and seize no collateral). Otherwise fails if the agent's debt for the liquidated
-    ///      asset did not fall across the call — i.e. collateral was seized without repaying debt.
+    ///      value and seize no collateral). `debt()` is principal plus accrued restaker interest,
+    ///      and a `liquidate` realizes that interest into the agent's debt *before* repaying — so a
+    ///      raw `debtPost < debtPre` check would false-trip an honest partial liquidation whose
+    ///      realized interest exceeds the principal it repays. We therefore require debt to end
+    ///      strictly below `debtPre + realizedInterest`: principal must actually be repaid, while
+    ///      legitimate interest realization is not mistaken for "collateral seized, debt untouched".
     function assertLiquidationReducesDebt() external view {
         LiquidationCall memory liq = _resolveLiquidation();
         if (liq.amount == 0) return;
 
-        uint256 debtPre = _debtAt(liq.agent, liq.asset, _preCall(liq.callStart));
+        PhEvm.ForkId memory pre = _preCall(liq.callStart);
+        uint256 debtPre = _debtAt(liq.agent, liq.asset, pre);
         uint256 debtPost = _debtAt(liq.agent, liq.asset, _postCall(liq.callEnd));
+        uint256 realized = _realizedRestakerInterestAt(liq.agent, liq.asset, pre);
 
-        require(debtPost < debtPre, "CapLiquidation: debt not reduced");
+        require(debtPost < debtPre + realized, "CapLiquidation: debt not reduced");
     }
 
     /// @notice A liquidation must not drain the vault's claimable backing for the asset.

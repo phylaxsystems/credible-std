@@ -127,8 +127,19 @@ contract CapMintBackingAssertionTest is Test, CredibleTest {
         cap.setInfiniteMint(true);
         _armSolvency();
         // Mint 100 cUSD with no asset pulled and no backing recorded.
-        vm.expectRevert(bytes("CapBacking: cUSD not fully backed"));
+        vm.expectRevert(bytes("CapBacking: backing conservation violated"));
         cap.mint(address(usdc), 100e6, 0, user, block.timestamp);
+    }
+
+    function testUnbackedMintWithinBufferTrips() public {
+        // Start over-collateralized: $1000 backing vs $900 cUSD (a +$100 surplus buffer).
+        cap.seed(address(usdc), 1_000e6, 900e18);
+        cap.setInfiniteMint(true);
+        _armSolvency();
+        // An unbacked 50 cUSD mint stays net-positive ($1000 backing vs $950 supply), so a
+        // floor-only check would pass it — but it erodes the buffer, so conservation trips.
+        vm.expectRevert(bytes("CapBacking: backing conservation violated"));
+        cap.mint(address(usdc), 50e6, 0, user, block.timestamp);
     }
 
     function testHonestBurnStaysBacked() public {

@@ -15,13 +15,19 @@ import {ILayerZeroReceiverLike} from "./CapOFTLockboxInterfaces.sol";
 ///      adapter releases that locked cUSD exclusively inside `lzReceive`, called by the trusted
 ///      endpoint after the source chain burned an equal amount.
 ///
-///      The invariant: any outflow of the locked token from the lockbox must coincide with a
-///      successful `lzReceive` invoked by the configured endpoint. This blocks the "becoming Kelp"
-///      failure mode — locked backing being drained (compromised owner/upgrade, stale approval,
-///      faulty path) so remote cUSD is left unbacked — even when no single contract `require`
-///      would catch it. The cumulative-outflow trigger fires on any release, so legitimate
-///      bridge-ins pass (their `lzReceive` is present) while unauthorized drains revert.
+///      The invariant: every locked-token unit that leaves the lockbox in a transaction must be
+///      released *inside* a successful `lzReceive` invoked by the configured endpoint. We do not
+///      check for the mere presence of such a call — that would let an attacker drain the lockbox
+///      alongside any unrelated (or even reverted) bridge-in. Instead we reconcile the gross
+///      outflow of the locked token against the amount actually transferred out within verified
+///      receive calls: `grossOutflow <= creditedByVerifiedReceives`. This binds the released
+///      amount and recipient to a verified remote burn, blocking the "becoming Kelp" failure mode
+///      (locked backing drained via compromised owner/upgrade, stale approval, or faulty path so
+///      remote cUSD is left unbacked) even when it rides in the same transaction as honest traffic.
 contract CapOFTLockboxBackingAssertion is Assertion {
+    /// @dev `Transfer(address,address,uint256)` topic0.
+    bytes32 internal constant TRANSFER_SIG = keccak256("Transfer(address,address,uint256)");
+
     /// @dev Rolling window for the outflow watcher and its (low) trip threshold in bps. Any
     ///      material release of locked cUSD fires the check; the assertion then validates it.
     uint256 internal constant WINDOW = 1 hours;
@@ -43,28 +49,57 @@ contract CapOFTLockboxBackingAssertion is Assertion {
         watchCumulativeOutflow(LOCKED_TOKEN, WATCH_TRIGGER_BPS, WINDOW, this.assertReleaseOnlyOnReceive.selector);
     }
 
-    /// @notice Locked cUSD may only leave the lockbox via a verified endpoint `lzReceive`.
-    /// @dev Triggered when locked cUSD flows out of the adopter. Fails unless the transaction
-    ///      contains a successful `lzReceive` call into the lockbox made by the trusted endpoint,
-    ///      i.e. the release settles a verified remote burn rather than an unauthorized drain.
+    /// @notice Locked cUSD may only leave the lockbox via a verified endpoint `lzReceive`, and only
+    ///         up to the amount those receives actually release.
+    /// @dev Triggered when locked cUSD flows out of the adopter. Compares the gross amount of the
+    ///      locked token transferred out of the lockbox this transaction against the amount
+    ///      transferred out *within* successful endpoint-driven `lzReceive` calls. Any excess —
+    ///      an unauthorized drain, or a drain riding alongside a legitimate (or reverted) bridge-in
+    ///      — is unbacked and reverts.
     function assertReleaseOnlyOnReceive() external view {
         PhEvm.OutflowContext memory ctx = ph.outflowContext();
         require(ctx.token == LOCKED_TOKEN, "CapLockbox: unwatched token");
 
-        if (!_endpointReceivePresent()) {
-            revert("CapLockbox: locked cUSD released outside bridge receive");
+        address lockbox = ph.getAssertionAdopter();
+        uint256 released = _grossOutflow(lockbox);
+        uint256 credited = _creditedByVerifiedReceives(lockbox);
+
+        require(released <= credited, "CapLockbox: locked cUSD released beyond verified receives");
+    }
+
+    /// @notice Total locked-token units transferred out of the lockbox during this transaction.
+    function _grossOutflow(address lockbox) internal view returns (uint256 outflow) {
+        PhEvm.Erc20TransferData[] memory transfers = ph.getErc20Transfers(LOCKED_TOKEN, _postTx());
+        for (uint256 i; i < transfers.length; ++i) {
+            if (transfers[i].from == lockbox) outflow += transfers[i].value;
         }
     }
 
-    /// @notice True when the trusted endpoint invoked `lzReceive` on the lockbox this transaction.
-    function _endpointReceivePresent() internal view returns (bool) {
-        PhEvm.CallInputs[] memory calls =
-            ph.getAllCallInputs(ph.getAssertionAdopter(), ILayerZeroReceiverLike.lzReceive.selector);
+    /// @notice Locked-token units released by successful endpoint-driven `lzReceive` calls.
+    /// @dev Sums the lockbox's outgoing `Transfer` amounts emitted *within* each endpoint-driven
+    ///      `lzReceive` call. Scoping to the call binds both the released amount and its recipient
+    ///      to a verified remote burn, rather than trusting the presence of an unrelated receive
+    ///      elsewhere in the transaction. Success is gated implicitly: a reverted `lzReceive`
+    ///      commits no logs, so its rolled-back release contributes nothing to the credited total.
+    function _creditedByVerifiedReceives(address lockbox) internal view returns (uint256 credited) {
+        PhEvm.CallInputs[] memory calls = ph.getAllCallInputs(lockbox, ILayerZeroReceiverLike.lzReceive.selector);
+
+        PhEvm.LogQuery memory query = PhEvm.LogQuery({emitter: LOCKED_TOKEN, signature: TRANSFER_SIG});
 
         for (uint256 i; i < calls.length; ++i) {
-            if (calls[i].caller == ENDPOINT) return true;
-        }
+            if (calls[i].caller != ENDPOINT) continue;
 
-        return false;
+            PhEvm.Log[] memory logs = ph.getLogsForCall(query, calls[i].id);
+            for (uint256 j; j < logs.length; ++j) {
+                // topics: [sig, from, to]; data: amount. Count only releases out of the lockbox.
+                if (logs[j].topics.length == 3 && _topicAddress(logs[j].topics[1]) == lockbox) {
+                    credited += abi.decode(logs[j].data, (uint256));
+                }
+            }
+        }
+    }
+
+    function _topicAddress(bytes32 topic) internal pure returns (address) {
+        return address(uint160(uint256(topic)));
     }
 }
