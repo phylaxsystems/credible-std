@@ -9,6 +9,9 @@ import {CapOFTLockboxBackingAssertion} from "../src/CapOFTLockboxBackingAssertio
 
 /// @notice OFTAdapter stand-in holding locked cUSD. Releases only inside `lzReceive`
 ///         (mimicking LayerZero's endpoint-only guard); `drain` models an unauthorized exit.
+///         Messages use the OFT codec: `sendTo` (bytes32) ++ `amountSD` (uint64, 6 shared
+///         decimals). A `releaseMultiplier` above 1 models a faulty/upgraded adapter that
+///         releases more than the verified message authorizes.
 contract MockLockbox {
     struct Origin {
         uint32 srcEid;
@@ -16,19 +19,25 @@ contract MockLockbox {
         uint64 nonce;
     }
 
+    /// @dev 18 local decimals, 6 shared decimals.
+    uint256 internal constant RATE = 1e12;
+
     ERC20Mock internal immutable TOKEN;
     address internal immutable ENDPOINT;
+    uint256 internal immutable RELEASE_MULTIPLIER;
 
-    constructor(address token_, address endpoint_) {
+    constructor(address token_, address endpoint_, uint256 releaseMultiplier_) {
         TOKEN = ERC20Mock(token_);
         ENDPOINT = endpoint_;
+        RELEASE_MULTIPLIER = releaseMultiplier_;
     }
 
     /// @dev Standard OFTAdapter credit: release locked tokens to the remote-burn recipient.
     function lzReceive(Origin calldata, bytes32, bytes calldata message, address, bytes calldata) external {
         require(msg.sender == ENDPOINT, "not endpoint");
-        (address to, uint256 amount) = abi.decode(message, (address, uint256));
-        TOKEN.transfer(to, amount);
+        address to = address(uint160(uint256(bytes32(message[0:32]))));
+        uint256 amount = uint256(uint64(bytes8(message[32:40]))) * RATE;
+        TOKEN.transfer(to, amount * RELEASE_MULTIPLIER);
     }
 
     /// @dev Unauthorized release path (compromised owner / faulty function / stale approval).
@@ -40,11 +49,12 @@ contract MockLockbox {
 /// @notice Trusted LayerZero endpoint stand-in that drives verified receives.
 contract MockEndpoint {
     function deliver(address lockbox, address to, uint256 amount) external {
+        bytes memory message = abi.encodePacked(bytes32(uint256(uint160(to))), uint64(amount / 1e12));
         MockLockbox(lockbox)
             .lzReceive(
                 MockLockbox.Origin({srcEid: 1, sender: bytes32(0), nonce: 1}),
                 bytes32(uint256(1)),
-                abi.encode(to, amount),
+                message,
                 address(this),
                 ""
             );
@@ -80,16 +90,20 @@ contract CapOFTLockboxBackingAssertionTest is Test, CredibleTest {
     function setUp() public {
         cusd = new ERC20Mock();
         endpoint = new MockEndpoint();
-        lockbox = new MockLockbox(address(cusd), address(endpoint));
+        lockbox = new MockLockbox(address(cusd), address(endpoint), 1);
         // 1000 cUSD locked, backing the remote-chain supply.
         cusd.mint(address(lockbox), 1_000e18);
     }
 
-    function _arm() internal {
+    function _arm(address lockbox_) internal {
         bytes memory createData = abi.encodePacked(
-            type(CapOFTLockboxBackingAssertion).creationCode, abi.encode(address(cusd), address(endpoint))
+            type(CapOFTLockboxBackingAssertion).creationCode, abi.encode(address(cusd), address(endpoint), 1e12)
         );
-        cl.assertion(address(lockbox), createData, CapOFTLockboxBackingAssertion.assertReleaseOnlyOnReceive.selector);
+        cl.assertion(lockbox_, createData, CapOFTLockboxBackingAssertion.assertReleaseOnlyOnReceive.selector);
+    }
+
+    function _arm() internal {
+        _arm(address(lockbox));
     }
 
     function testReceiveReleaseAllowed() public {
@@ -115,8 +129,19 @@ contract CapOFTLockboxBackingAssertionTest is Test, CredibleTest {
         bundler.rideAlong(recipient, 1e18, attacker, 500e18);
     }
 
+    function testFaultyAdapterOverReleaseTrips() public {
+        // A faulty/upgraded adapter releases 500x what the verified message authorizes. Crediting
+        // by the message amount (not the adapter's own transfer logs) catches the excess.
+        MockLockbox faulty = new MockLockbox(address(cusd), address(endpoint), 500);
+        cusd.mint(address(faulty), 1_000e18);
+        _arm(address(faulty));
+        vm.expectRevert(bytes("CapLockbox: locked cUSD released beyond verified receives"));
+        endpoint.deliver(address(faulty), recipient, 1e18);
+    }
+
     function testDeploys() public {
-        CapOFTLockboxBackingAssertion assertion = new CapOFTLockboxBackingAssertion(address(cusd), address(endpoint));
+        CapOFTLockboxBackingAssertion assertion =
+            new CapOFTLockboxBackingAssertion(address(cusd), address(endpoint), 1e12);
         assertTrue(address(assertion) != address(0));
     }
 }

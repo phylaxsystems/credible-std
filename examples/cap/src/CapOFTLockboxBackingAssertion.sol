@@ -16,14 +16,18 @@ import {ILayerZeroReceiverLike} from "./CapOFTLockboxInterfaces.sol";
 ///      endpoint after the source chain burned an equal amount.
 ///
 ///      The invariant: every locked-token unit that leaves the lockbox in a transaction must be
-///      released *inside* a successful `lzReceive` invoked by the configured endpoint. We do not
-///      check for the mere presence of such a call — that would let an attacker drain the lockbox
-///      alongside any unrelated (or even reverted) bridge-in. Instead we reconcile the gross
-///      outflow of the locked token against the amount actually transferred out within verified
-///      receive calls: `grossOutflow <= creditedByVerifiedReceives`. This binds the released
-///      amount and recipient to a verified remote burn, blocking the "becoming Kelp" failure mode
-///      (locked backing drained via compromised owner/upgrade, stale approval, or faulty path so
-///      remote cUSD is left unbacked) even when it rides in the same transaction as honest traffic.
+///      released *inside* a successful `lzReceive` invoked by the configured endpoint, and only up
+///      to the amount the verified message itself authorizes. We do not check for the mere
+///      presence of such a call — that would let an attacker drain the lockbox alongside any
+///      unrelated (or even reverted) bridge-in. Instead we reconcile the gross outflow of the
+///      locked token against a credit derived per verified receive:
+///      `grossOutflow <= Σ min(messageAuthorizedAmount, amountReleasedWithinTheCall)`.
+///      The message amount caps the credit, so a faulty or maliciously upgraded adapter that
+///      releases more than the remote burn authorized still trips; the in-call release floor
+///      gates success (a reverted `lzReceive` commits no logs and credits nothing). This blocks
+///      the "becoming Kelp" failure mode (locked backing drained via compromised owner/upgrade,
+///      stale approval, or faulty path so remote cUSD is left unbacked) even when the drain rides
+///      in the same transaction as honest traffic.
 contract CapOFTLockboxBackingAssertion is Assertion {
     /// @dev `Transfer(address,address,uint256)` topic0.
     bytes32 internal constant TRANSFER_SIG = keccak256("Transfer(address,address,uint256)");
@@ -39,9 +43,15 @@ contract CapOFTLockboxBackingAssertion is Assertion {
     /// @notice The trusted LayerZero endpoint authorized to drive `lzReceive`.
     address internal immutable ENDPOINT;
 
-    constructor(address lockedToken_, address endpoint_) {
+    /// @notice Conversion rate from OFT shared-decimal units to locked-token local units,
+    ///         i.e. `10 ** (localDecimals - sharedDecimals)` (1e12 for an 18-decimal token with
+    ///         LayerZero's default 6 shared decimals).
+    uint256 internal immutable DECIMAL_CONVERSION_RATE;
+
+    constructor(address lockedToken_, address endpoint_, uint256 decimalConversionRate_) {
         LOCKED_TOKEN = lockedToken_;
         ENDPOINT = endpoint_;
+        DECIMAL_CONVERSION_RATE = decimalConversionRate_;
         registerAssertionSpec(AssertionSpec.Experimental);
     }
 
@@ -75,12 +85,14 @@ contract CapOFTLockboxBackingAssertion is Assertion {
         }
     }
 
-    /// @notice Locked-token units released by successful endpoint-driven `lzReceive` calls.
-    /// @dev Sums the lockbox's outgoing `Transfer` amounts emitted *within* each endpoint-driven
-    ///      `lzReceive` call. Scoping to the call binds both the released amount and its recipient
-    ///      to a verified remote burn, rather than trusting the presence of an unrelated receive
-    ///      elsewhere in the transaction. Success is gated implicitly: a reverted `lzReceive`
-    ///      commits no logs, so its rolled-back release contributes nothing to the credited total.
+    /// @notice Locked-token units authorized for release by successful endpoint-driven
+    ///         `lzReceive` calls.
+    /// @dev Per endpoint-driven `lzReceive`, credits `min(messageAuthorizedAmount,
+    ///      amountReleasedWithinTheCall)`. The message amount — decoded from the verified OFT
+    ///      payload, the same value the remote chain burned — is the cap, so a faulty or upgraded
+    ///      adapter releasing more than authorized is not laundered by its own transfer logs. The
+    ///      in-call release floor gates success: a reverted `lzReceive` commits no logs, so its
+    ///      rolled-back release contributes nothing.
     function _creditedByVerifiedReceives(address lockbox) internal view returns (uint256 credited) {
         PhEvm.CallInputs[] memory calls = ph.getAllCallInputs(lockbox, ILayerZeroReceiverLike.lzReceive.selector);
 
@@ -89,14 +101,38 @@ contract CapOFTLockboxBackingAssertion is Assertion {
         for (uint256 i; i < calls.length; ++i) {
             if (calls[i].caller != ENDPOINT) continue;
 
+            uint256 authorized = _messageAmount(calls[i].input);
+            if (authorized == 0) continue;
+
+            uint256 releasedInCall;
             PhEvm.Log[] memory logs = ph.getLogsForCall(query, calls[i].id);
             for (uint256 j; j < logs.length; ++j) {
                 // topics: [sig, from, to]; data: amount. Count only releases out of the lockbox.
                 if (logs[j].topics.length == 3 && _topicAddress(logs[j].topics[1]) == lockbox) {
-                    credited += abi.decode(logs[j].data, (uint256));
+                    releasedInCall += abi.decode(logs[j].data, (uint256));
                 }
             }
+
+            credited += releasedInCall < authorized ? releasedInCall : authorized;
         }
+    }
+
+    /// @notice Amount of locked token the verified message authorizes for release, in local units.
+    /// @dev `input` is the `lzReceive` calldata without the 4-byte selector (`getAllCallInputs`
+    ///      strips it), so the arguments decode directly. The OFT codec packs the message as
+    ///      `sendTo` (bytes32) at [0, 32) followed by `amountSD` (uint64, shared decimals) at
+    ///      [32, 40). A message too short to carry an amount authorizes nothing.
+    function _messageAmount(bytes memory input) internal view returns (uint256) {
+        (,, bytes memory message,,) =
+            abi.decode(input, (ILayerZeroReceiverLike.Origin, bytes32, bytes, address, bytes));
+        if (message.length < 40) return 0;
+
+        uint64 amountSD;
+        assembly {
+            // Skip the 32-byte length word and the 32-byte `sendTo`; amountSD is the top 8 bytes.
+            amountSD := shr(192, mload(add(message, 64)))
+        }
+        return uint256(amountSD) * DECIMAL_CONVERSION_RATE;
     }
 
     function _topicAddress(bytes32 topic) internal pure returns (address) {

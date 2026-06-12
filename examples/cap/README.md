@@ -9,6 +9,11 @@ FOUNDRY_PROFILE=cap forge build
 FOUNDRY_PROFILE=cap pcl test
 ```
 
+Requires `pcl` >= 1.4.0. These assertions register cumulative-flow triggers and use the
+`getLogsForCall` precompile; older builds fail during assertion setup with
+`Fn selector not found` / `Precompile selector not found` and execute 0 tests.
+Verified with `pcl` 1.4.0 (commit `a600e1d`).
+
 ## Files
 
 ### Backing conservation — no infinite mint of cUSD
@@ -34,10 +39,12 @@ FOUNDRY_PROFILE=cap pcl test
 ### Cross-chain backing — keep the OFT lockbox honest
 
 - `CapOFTLockboxBackingAssertion.sol` — on the home chain, the gross outflow of locked cUSD from the
-  `OFTLockbox` (LayerZero `OFTAdapter`) must be covered by the amount actually released *inside*
-  successful endpoint-driven `lzReceive` calls. This binds the released amount and recipient to a
-  verified remote burn, so a drain cannot ride alongside an unrelated (or reverted) bridge-in and
-  leave remote `L2Token` supply unbacked.
+  `OFTLockbox` (LayerZero `OFTAdapter`) must be covered by endpoint-driven `lzReceive` calls, each
+  credited at `min(message-authorized amount, amount actually released inside the call)`. Capping by
+  the decoded OFT message amount binds the release to what the remote chain verifiably burned (a
+  faulty/upgraded adapter over-releasing trips); the in-call release floor gates success (a reverted
+  receive credits nothing). A drain therefore cannot ride alongside an unrelated, reverted, or
+  dust-sized bridge-in and leave remote `L2Token` supply unbacked.
 - `CapOFTLockboxInterfaces.sol`
 
 ### Existing examples
