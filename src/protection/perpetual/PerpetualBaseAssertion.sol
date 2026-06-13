@@ -496,11 +496,13 @@ abstract contract PerpetualBaseAssertion is Assertion {
 
         for (uint256 i; i < calls.length; ++i) {
             if (calls[i].id == context.callStart) {
+                // `getAllCallInputs` returns calldata args WITHOUT the 4-byte selector (it is the
+                // query key), but `decodeOperation` expects selector-prefixed calldata. Prepend it.
                 return IPerpetualProtectionSuite.TriggeredCall({
                     selector: context.selector,
                     caller: calls[i].caller,
                     target: calls[i].target_address,
-                    input: calls[i].input,
+                    input: bytes.concat(context.selector, calls[i].input),
                     callStart: context.callStart,
                     callEnd: context.callEnd
                 });

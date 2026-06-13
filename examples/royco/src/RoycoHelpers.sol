@@ -445,8 +445,11 @@ abstract contract RoycoVaultTrancheHelpers is RoycoHelpers {
                 continue;
             }
 
+            // `matchingCalls` returns calldata args WITHOUT the 4-byte selector (it is the query
+            // key), so decode the args tuple directly — unlike the `ph.callinputAt(...)` paths,
+            // whose raw calldata still carries the selector and needs `_stripSelector`.
             (uint256 kernelShares, address kernelReceiver, bool bypassRestrictions) =
-                abi.decode(_stripSelector(calls[i].input), (uint256, address, bool));
+                abi.decode(calls[i].input, (uint256, address, bool));
             if (kernelShares != shares || kernelReceiver != receiver || bypassRestrictions) {
                 continue;
             }
