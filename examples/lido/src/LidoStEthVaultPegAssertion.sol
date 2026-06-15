@@ -34,6 +34,10 @@ contract LidoStEthVaultPegAssertion is LidoVaultHelpers {
     /// @notice Max tolerated stETH/ETH deviation from peg, in bps, for entries and exits.
     uint256 public immutable maxEntryDepegBps;
 
+    /// @notice Max age, in seconds, the stETH/ETH feed answer may have before entries and exits are
+    ///         gated as a depeg (fails closed). Zero keeps only the round-integrity checks.
+    uint256 public immutable maxFeedStalenessSecs;
+
     /// @notice wstETH token, the source of Lido's protocol exchange rate.
     address public immutable wstEth;
 
@@ -48,6 +52,7 @@ contract LidoStEthVaultPegAssertion is LidoVaultHelpers {
         address stEthEthFeed_,
         uint8 stEthEthFeedDecimals_,
         uint256 maxEntryDepegBps_,
+        uint256 maxFeedStalenessSecs_,
         address wstEth_,
         address wstEthRateProvider_,
         uint256 maxProviderMismatchBps_
@@ -59,6 +64,7 @@ contract LidoStEthVaultPegAssertion is LidoVaultHelpers {
         stEthEthFeed = stEthEthFeed_;
         pegUnit = 10 ** uint256(stEthEthFeedDecimals_);
         maxEntryDepegBps = maxEntryDepegBps_;
+        maxFeedStalenessSecs = maxFeedStalenessSecs_;
         wstEth = wstEth_;
         wstEthRateProvider = wstEthRateProvider_;
         maxProviderMismatchBps = maxProviderMismatchBps_;
@@ -89,8 +95,8 @@ contract LidoStEthVaultPegAssertion is LidoVaultHelpers {
         }
 
         require(
-            !_isStEthDepeggedAt(stEthEthFeed, pegUnit, maxEntryDepegBps, preFork)
-                && !_isStEthDepeggedAt(stEthEthFeed, pegUnit, maxEntryDepegBps, postFork),
+            !_isStEthDepeggedAt(stEthEthFeed, pegUnit, maxEntryDepegBps, maxFeedStalenessSecs, preFork)
+                && !_isStEthDepeggedAt(stEthEthFeed, pegUnit, maxEntryDepegBps, maxFeedStalenessSecs, postFork),
             "LidoVault: stETH off peg, share pricing unsafe"
         );
     }

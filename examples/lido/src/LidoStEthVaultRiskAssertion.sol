@@ -46,6 +46,10 @@ contract LidoStEthVaultRiskAssertion is LidoVaultHelpers {
     /// @notice Max tolerated stETH/ETH deviation from peg, in bps, before reduce-only mode.
     uint256 public immutable maxDepegBps;
 
+    /// @notice Max age, in seconds, the stETH/ETH feed answer may have before it is treated as a
+    ///         depeg (fails closed into reduce-only). Zero keeps only the round-integrity checks.
+    uint256 public immutable maxFeedStalenessSecs;
+
     /// @notice Share-pricing rate source; unreadable rate forces reduce-only. Zero disables.
     address public immutable rateSource;
 
@@ -92,6 +96,7 @@ contract LidoStEthVaultRiskAssertion is LidoVaultHelpers {
         address stEthEthFeed;
         uint8 stEthEthFeedDecimals;
         uint256 maxDepegBps;
+        uint256 maxFeedStalenessSecs;
         address rateSource;
         address borrowedAsset;
         address borrowedAssetReserve;
@@ -111,26 +116,23 @@ contract LidoStEthVaultRiskAssertion is LidoVaultHelpers {
         require(config.aavePool != address(0), "LidoVault: zero pool");
         require(config.minHealthFactor >= 1e18, "LidoVault: floor below liquidation");
         require(config.reduceOnlyHealthFactor >= config.minHealthFactor, "LidoVault: band below floor");
-        require(
-            config.minExitLiquidityBps == 0
-                || (config.borrowedAsset != address(0)
-                    && config.borrowedAssetReserve != address(0)
-                    && config.borrowedAssetDebtToken != address(0)),
-            "LidoVault: zero exit-liquidity token"
-        );
-        require(
-            config.minCollateralLiquidityBps == 0
-                || (config.collateralAsset != address(0)
-                    && config.collateralAssetReserve != address(0)
-                    && config.collateralAssetSupplyToken != address(0)),
-            "LidoVault: zero collateral-liquidity token"
-        );
+        if (config.minExitLiquidityBps != 0) {
+            require(config.borrowedAsset != address(0), "LidoVault: zero borrowed asset");
+            require(config.borrowedAssetReserve != address(0), "LidoVault: zero borrowed reserve");
+            require(config.borrowedAssetDebtToken != address(0), "LidoVault: zero borrowed debt token");
+        }
+        if (config.minCollateralLiquidityBps != 0) {
+            require(config.collateralAsset != address(0), "LidoVault: zero collateral asset");
+            require(config.collateralAssetReserve != address(0), "LidoVault: zero collateral reserve");
+            require(config.collateralAssetSupplyToken != address(0), "LidoVault: zero collateral supply token");
+        }
 
         vault = config.vault;
         aavePool = config.aavePool;
         stEthEthFeed = config.stEthEthFeed;
         pegUnit = 10 ** uint256(config.stEthEthFeedDecimals);
         maxDepegBps = config.maxDepegBps;
+        maxFeedStalenessSecs = config.maxFeedStalenessSecs;
         rateSource = config.rateSource;
         borrowedAsset = config.borrowedAsset;
         borrowedAssetReserve = config.borrowedAssetReserve;
@@ -175,8 +177,8 @@ contract LidoStEthVaultRiskAssertion is LidoVaultHelpers {
         (, uint256 postDebt, uint256 postHf) = _aaveAccountDataAt(aavePool, vault, postFork);
 
         bool unhealthy = preDebt != 0 && preHf < reduceOnlyHealthFactor;
-        bool shaky =
-            _isStEthDepeggedAt(stEthEthFeed, pegUnit, maxDepegBps, preFork) || !_canReadRateAt(rateSource, preFork);
+        bool shaky = _isStEthDepeggedAt(stEthEthFeed, pegUnit, maxDepegBps, maxFeedStalenessSecs, preFork)
+            || !_canReadRateAt(rateSource, preFork);
         bool illiquid = _collateralIlliquidAt(preFork);
 
         if (unhealthy || shaky || illiquid) {

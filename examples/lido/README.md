@@ -10,11 +10,18 @@ without binding to any one stack's function selectors. Every invariant is expres
 boundaries (`registerTxEndTrigger` + pre/post-tx fork reads) or as a rolling cumulative-flow
 trigger, so the suite only needs addresses and thresholds to deploy against a concrete vault.
 
-## Build
+## Build & test
 
 ```sh
 FOUNDRY_PROFILE=lido forge build
+FOUNDRY_PROFILE=lido pcl test
 ```
+
+Requires `pcl` >= 1.4.0. The suite registers `registerTxEndTrigger` assertions and reads protocol
+state through `ph.staticcallAt` at pre/post-tx forks; every invariant below ships with pass-and-trip
+`CredibleTest` coverage under `test/` (mock pool / oracle / feed / rate-source / token knobs that
+trip one invariant at a time). The `watchCumulativeOutflow` breaker is executor-driven and not
+simulated by local `pcl test`, so its hard-revert decision is exercised directly.
 
 ## The headline ask: keep stETH withdrawable back to Lido
 
@@ -87,7 +94,7 @@ For the full "never fully deployed and never drained" guarantee, configure both.
 
 | Invariant | Failure point covered |
 |---|---|
-| Reduce-only regime: when the pre-tx health factor is below the comfort band, stETH trades off peg, the rate source can't report a rate, or the collateral reserve is no longer liquid enough for the vault to exit, a transaction may not grow debt or lower the health factor — and under market-condition triggers (shaky pricing, illiquid collateral) it may not grow the supplied position either | no new allocations into unhealthy positions; reduce-only when oracles are shaky |
+| Reduce-only regime: when the pre-tx health factor is below the comfort band, stETH trades off peg (or the stETH/ETH feed is stale, incomplete, or unreadable — fail-closed), the rate source can't report a rate, or the collateral reserve is no longer liquid enough for the vault to exit, a transaction may not grow debt or lower the health factor — and under market-condition triggers (shaky pricing, illiquid collateral) it may not grow the supplied position either | no new allocations into unhealthy positions; reduce-only when oracles are shaky |
 | Exit-liquidity guard: a transaction that grows debt must leave the borrowed reserve holding ≥ a configured multiple of the vault's debt | underlying market health (the vault can always repay and unwind) |
 | Collateral withdrawability guard: a transaction that deepens the supplied position must leave the collateral reserve holding ≥ a configured fraction of the vault's supplied collateral in un-borrowed form | the deployed leg stays withdrawable at execution time — distinct from the vault-held buffer floor above |
 | Position envelope: the health factor ends every transaction above a hard floor, may only decline while staying inside the comfort band, and the raw collateral/debt ratio holds a minimum | health factor must not degrade; collateral ratio maintained |
@@ -96,7 +103,7 @@ For the full "never fully deployed and never drained" guarantee, configure both.
 
 | Invariant | Failure point covered |
 |---|---|
-| Supply-change depeg gate: any transaction that changes share supply — a mint or burn through any path (teller, queue, solver, direct) — reverts while the stETH/ETH market price is outside the peg band | underlying asset depeg — users cannot enter/exit at a fictional parity rate |
+| Supply-change depeg gate: any transaction that changes share supply — a mint or burn through any path (teller, queue, solver, direct) — reverts while the stETH/ETH market price is outside the peg band, or while the feed is stale, reports an incomplete round, or carries an unanswered round (fail-closed, so an oracle outage cannot hold the gate open on a stale on-peg price) | underlying asset depeg — users cannot enter/exit at a fictional parity rate |
 | wstETH rate integrity: `stEthPerToken()` must not decrease within a transaction, and the vault's wstETH rate provider (if configured) must match it within tolerance | rate-provider substitution/manipulation while shares are priced |
 
 ### `LidoStEthVaultNavAssertion` — adopter: the contract that reports the share rate
@@ -133,11 +140,16 @@ Everything protocol-specific is constructor configuration:
   for the withdrawability guard (e.g. wstETH / awstETH / awstETH; on Aave the reserve custody and
   the receipt token are the same contract)
 - `stEthEthFeed` — a Chainlink-style stETH/ETH feed (mainnet: `0x86392dC19c0b719886221c68AC0C1F0e8DB4eF14`, 18 decimals)
+- `maxFeedStalenessSecs` — how old the feed answer may be before the depeg gate fails closed and
+  treats the price as off peg. Set it to the feed's heartbeat plus a margin (the mainnet stETH/ETH
+  feed heartbeat is ~24h). Independent of this bound, an incomplete round (`updatedAt == 0`) or a
+  carried-over answer (`answeredInRound < roundId`) always fails closed.
 
-Optional signals disable cleanly: a zero feed disables depeg detection, a zero `rateSource`
-disables the pricing-health signal, zero `minCollateralRatioBps` / `minExitLiquidityBps` /
-`minBufferBps` / `outflowThresholdBps` disable those guards, a zero `aavePool` drops the position
-leg from NAV, a zero `deployedStEthReceipt` sizes the buffer floor against idle holdings only.
+Optional signals disable cleanly: a zero feed disables depeg detection, a zero `maxFeedStalenessSecs`
+keeps only the round-integrity checks (no age bound), a zero `rateSource` disables the pricing-health
+signal, zero `minCollateralRatioBps` / `minExitLiquidityBps` / `minBufferBps` / `outflowThresholdBps`
+disable those guards, a zero `aavePool` drops the position leg from NAV, a zero `deployedStEthReceipt`
+sizes the buffer floor against idle holdings only.
 
 Suggested starting thresholds for a looped stETH vault on Aave:
 
@@ -148,7 +160,8 @@ Suggested starting thresholds for a looped stETH vault on Aave:
 - **Risk:** `minHealthFactor = 1.01e18` (the floor Lido itself codified in its GGV migrator),
   `reduceOnlyHealthFactor = 1.05e18`, `minExitLiquidityBps = 10_000` (full unwind must be possible),
   `minCollateralLiquidityBps = 10_000`.
-- **Peg / NAV:** `maxDepegBps = 100` (1%), `rateToleranceBps = 50`.
+- **Peg / NAV:** `maxDepegBps = 100` (1%), `maxFeedStalenessSecs = 90_000` (~25h, the stETH/ETH
+  feed heartbeat plus a margin), `rateToleranceBps = 50`.
 
 ## Scope and limitations
 
@@ -170,15 +183,19 @@ Suggested starting thresholds for a looped stETH vault on Aave:
 
 ## Files
 
-- LidoStEthExitBufferAssertion.sol
-- LidoStEthVaultRiskAssertion.sol
-- LidoStEthVaultPegAssertion.sol
-- LidoStEthVaultNavAssertion.sol
-- LidoVaultHelpers.sol
-- LidoVaultInterfaces.sol
+- src/LidoStEthExitBufferAssertion.sol
+- src/LidoStEthVaultRiskAssertion.sol
+- src/LidoStEthVaultPegAssertion.sol
+- src/LidoStEthVaultNavAssertion.sol
+- src/LidoVaultHelpers.sol
+- src/LidoVaultInterfaces.sol
+- test/LidoMocks.sol — shared mocks (pool / oracle / feed / rate source / tokens / vault adopter)
+- test/LidoStEthExitBufferAssertion.t.sol
+- test/LidoStEthVaultRiskAssertion.t.sol
+- test/LidoStEthVaultPegAssertion.t.sol
+- test/LidoStEthVaultNavAssertion.t.sol
 
 ## Next steps
 
-- `CredibleTest` E2E coverage (mock pool/rate-source/feed/token knobs that trip one invariant at a time)
 - Destination-aware outflow breaker (exempt transfers to Lido's `WithdrawalQueueERC721`)
 - Morpho/Euler position legs for the NAV and health checks

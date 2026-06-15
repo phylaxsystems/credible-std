@@ -28,25 +28,37 @@ abstract contract LidoVaultHelpers is Assertion {
     }
 
     /// @notice Returns whether the stETH/ETH market price has left the configured peg band.
-    /// @dev A zero feed address disables the check. An unreadable feed or non-positive answer
-    ///      counts as depegged so the protected paths fail closed.
-    function _isStEthDepeggedAt(address feed, uint256 pegUnit, uint256 maxDepegBps, PhEvm.ForkId memory fork)
-        internal
-        view
-        returns (bool)
-    {
+    /// @dev A zero feed address disables the check. The check fails closed — treats the price as
+    ///      depegged — whenever the feed cannot be trusted to report a live, on-peg answer:
+    ///      an unreadable or malformed feed, a non-positive answer, an incomplete round
+    ///      (`updatedAt == 0`), a carried-over stale answer (`answeredInRound < roundId`), or an
+    ///      answer older than `maxStaleness` seconds. Without this an oracle outage would leave a
+    ///      stale on-peg price in place and keep the depeg-gated paths (risk allocation, share
+    ///      mint/burn) open during exactly the conditions they exist to block. A zero
+    ///      `maxStaleness` disables only the age bound; the round-integrity checks always apply.
+    function _isStEthDepeggedAt(
+        address feed,
+        uint256 pegUnit,
+        uint256 maxDepegBps,
+        uint256 maxStaleness,
+        PhEvm.ForkId memory fork
+    ) internal view returns (bool) {
         if (feed == address(0)) {
             return false;
         }
 
         PhEvm.StaticCallResult memory result =
             ph.staticcallAt(feed, abi.encodeCall(IChainlinkFeedLike.latestRoundData, ()), FORK_VIEW_GAS, fork);
-        if (!result.ok) {
+        if (!result.ok || result.data.length < 160) {
             return true;
         }
 
-        (, int256 answer,,,) = abi.decode(result.data, (uint80, int256, uint256, uint256, uint80));
-        if (answer <= 0) {
+        (uint80 roundId, int256 answer,, uint256 updatedAt, uint80 answeredInRound) =
+            abi.decode(result.data, (uint80, int256, uint256, uint256, uint80));
+        if (answer <= 0 || updatedAt == 0 || answeredInRound < roundId) {
+            return true;
+        }
+        if (maxStaleness != 0 && block.timestamp > updatedAt && block.timestamp - updatedAt > maxStaleness) {
             return true;
         }
 
