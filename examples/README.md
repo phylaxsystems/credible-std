@@ -20,6 +20,7 @@ FOUNDRY_PROFILE=<protocol> forge build
 | `curve/` | `curve` | crvUSD controller, LlamaLend, CurveLlamma, StableSwap-NG, TriCrypto-NG |
 | `denaria/` | `all-protection-suites` | Denaria perpetual operation safety |
 | `euler/` | `eulerv2` | EVault, circuit breaker, sandwich detection |
+| `lido/` | `lido` | Lido stETH vaults (generic): withdrawable-stETH buffer floor + outflow breaker, position risk regime, depeg gates, rate-vs-NAV |
 | `nado/` | `ink/assertions` | Nado perpetual clearinghouse |
 | `royco/` | `royco-dawn` | Royco kernel accounting, cumulative flow, vault tranche |
 | `safe/` | `safe-protection-suite` | Safe config lock + tx-shape assertions |
