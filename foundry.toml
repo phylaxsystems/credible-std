@@ -115,6 +115,14 @@ cache_path = "examples/euler/cache"
 libs = ["lib"]
 remappings = ["credible-std/=src/"]
 
+[profile.lido]
+src = "examples/lido/src"
+test = "examples/lido/test"
+out = "examples/lido/out"
+cache_path = "examples/lido/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+
 [profile.lighter]
 src = "examples/lighter/src"
 test = "examples/lighter/test"
