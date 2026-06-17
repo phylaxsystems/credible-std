@@ -483,6 +483,48 @@ interface PhEvm {
     function inflowContext() external view returns (InflowContext memory ctx);
 
     // ---------------------------------------------------------------
+    //  Experimental: rate-of-change (first-derivative) flow signal
+    // ---------------------------------------------------------------
+
+    /// @notice Rate-of-change statistics for a cumulative-flow-triggered assertion.
+    /// @dev All rate fields are basis points of `tvlSnapshot` per second, derived
+    ///      from the same rolling-window buckets as the cumulative context (no
+    ///      extra storage). A single 10s bucket draining the whole snapshot reads
+    ///      ~1000 bps/s. Use this to suppress false positives of the cumulative
+    ///      breaker: a large-but-slow withdrawal reads a benign peak rate. Never
+    ///      gate the cumulative alert on it — treat it as OR-style escalation only.
+    struct FlowRateContext {
+        /// @notice The ERC20 token that triggered the assertion. address(0) if no flow trigger fired.
+        address token;
+        /// @notice Peak per-bucket net flow rate over the window (bps of TVL / second)
+        uint256 peakRateBps;
+        /// @notice Most recent in-window bucket's net flow rate (bps of TVL / second)
+        uint256 lastRateBps;
+        /// @notice Mean net flow rate across the active window span (bps of TVL / second)
+        uint256 meanRateBps;
+        /// @notice Adopter's token balance at window start
+        uint256 tvlSnapshot;
+        /// @notice Timestamp when the current window began
+        uint256 windowStart;
+        /// @notice Timestamp when the current window expires
+        uint256 windowEnd;
+    }
+
+    /// @notice Returns the outflow rate-of-change context for the current invocation.
+    /// @dev EXPERIMENTAL: requires registerAssertionSpec(AssertionSpec.Experimental).
+    ///      Only valid inside an assertion function triggered by
+    ///      watchCumulativeOutflow. Returns a zeroed struct otherwise.
+    /// @return ctx The outflow rate-of-change context for the current invocation.
+    function outflowRate() external view returns (FlowRateContext memory ctx);
+
+    /// @notice Returns the inflow rate-of-change context for the current invocation.
+    /// @dev EXPERIMENTAL: requires registerAssertionSpec(AssertionSpec.Experimental).
+    ///      Only valid inside an assertion function triggered by
+    ///      watchCumulativeInflow. Returns a zeroed struct otherwise.
+    /// @return ctx The inflow rate-of-change context for the current invocation.
+    function inflowRate() external view returns (FlowRateContext memory ctx);
+
+    // ---------------------------------------------------------------
     //  V2: Anomaly detection
     // ---------------------------------------------------------------
 
