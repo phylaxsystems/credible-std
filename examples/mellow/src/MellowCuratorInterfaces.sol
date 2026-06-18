@@ -53,19 +53,3 @@ interface IMellowRiskManager {
 
     function subvaultState(address subvault) external view returns (State memory); // 0x36f1409f
 }
-
-/// @notice Minimal surface of the Vault's module wiring (its trust graph). Matches the getters on
-///         `src/modules/ShareModule.sol` and `src/modules/VaultModule.sol`.
-/// @dev These addresses are set once at initialization and have no on-chain setter in
-///      flexible-vaults; the only way to change them is a proxy upgrade or a storage collision.
-///      Return types are declared `address` here — the selector is unaffected by the return type,
-///      and the returned word decodes directly to the wired module address.
-interface IMellowVaultConfig {
-    function oracle() external view returns (address); // 0x7dc0d1d0
-
-    function shareManager() external view returns (address); // 0x5c60173d
-
-    function feeManager() external view returns (address); // 0xd0fb0203
-
-    function riskManager() external view returns (address); // 0x47842663
-}

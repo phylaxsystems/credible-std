@@ -101,62 +101,6 @@ contract MockMellowRiskManager {
     }
 }
 
-/// @notice Vault proxy stand-in for the config lock. The trust-graph getters read normal storage;
-///         the rewire/upgrade helpers each move exactly one thing so a test trips one failure mode.
-contract MockMellowVault {
-    bytes32 internal constant IMPLEMENTATION_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
-
-    address internal oracleAddr;
-    address internal shareManagerAddr;
-    address internal feeManagerAddr;
-    address internal riskManagerAddr;
-    uint256 public pokes;
-
-    constructor(address oracle_, address shareManager_, address feeManager_, address riskManager_) {
-        oracleAddr = oracle_;
-        shareManagerAddr = shareManager_;
-        feeManagerAddr = feeManager_;
-        riskManagerAddr = riskManager_;
-    }
-
-    function oracle() external view returns (address) {
-        return oracleAddr;
-    }
-
-    function shareManager() external view returns (address) {
-        return shareManagerAddr;
-    }
-
-    function feeManager() external view returns (address) {
-        return feeManagerAddr;
-    }
-
-    function riskManager() external view returns (address) {
-        return riskManagerAddr;
-    }
-
-    /// @dev Honest no-op mutation: touches the vault without changing any locked config.
-    function poke() external {
-        pokes += 1;
-    }
-
-    function rewireOracle(address newOracle) external {
-        oracleAddr = newOracle;
-    }
-
-    function rewireRiskManager(address newRiskManager) external {
-        riskManagerAddr = newRiskManager;
-    }
-
-    /// @dev Simulates a rogue proxy upgrade by writing the EIP-1967 implementation slot directly.
-    function upgradeImplementation(address newImplementation) external {
-        bytes32 slot = IMPLEMENTATION_SLOT;
-        assembly {
-            sstore(slot, newImplementation)
-        }
-    }
-}
-
 /// @notice Subvault stand-in for the allocation-health guard. Each helper performs a one-transaction
 ///         market move by rewriting the supply-receipt balance (the subvault's supplied position)
 ///         and the underlying liquidity custodied by the receipt, so a test drives the exact

@@ -52,12 +52,11 @@ What the Verifier does **not** check is the *state of the market* it authorizes 
 approved `supply` can still land in a reserve borrowed down to near-100% utilization, and Aave does
 not guard that at deposit time (illiquidity only bites on withdraw). `MellowSubvaultAllocationAssertion`
 fills that gap. (The Verifier's own allowlist being widened by a stolen `SET_MERKLE_ROOT_ROLE` key is
-a separate blind spot — a `merkleRoot` freeze in the spirit of `MellowConfigLockAssertion` is the
-companion, listed under next steps.)
+a separate blind spot — a `merkleRoot` freeze is the companion, listed under next steps.)
 
 ## Assertions
 
-Five focused assertions, each adopted by a different contract because each defends a different
+Four focused assertions, each adopted by a different contract because each defends a different
 curator-power surface. Signatures and selectors are taken from `mellow-finance/flexible-vaults`.
 
 ### `MellowVaultOutflowAssertion` — adopter: the `Vault` (deposit-asset custody)
@@ -98,18 +97,6 @@ accounted balance is completely unbounded on-chain. This adds the missing magnit
 directions, relative to the pre-call balance with an absolute floor so corrections on a near-zero
 balance are still possible.
 
-### `MellowConfigLockAssertion` — adopter: the `Vault` (a `TransparentUpgradeableProxy`)
-
-| Invariant | Failure point covered |
-|---|---|
-| The vault's wired `oracle` / `shareManager` / `feeManager` / `riskManager` must match the expected addresses after every transaction (per-field opt-in) | swapping the price source or mint/burn authority for an attacker-controlled contract |
-| The EIP-1967 implementation and admin slots must be unwritten during the transaction | a rogue proxy upgrade swapping the entire vault logic in one call |
-
-The trust-graph addresses have no on-chain setter in flexible-vaults — the only way to change one is
-an upgrade or a storage collision — so a post-transaction value check is a strong, refactor-proof
-invariant. A *legitimate* governance upgrade is exactly what trips this; run planned upgrades with
-the assertion disarmed.
-
 ### `MellowSubvaultAllocationAssertion` — adopter: a `Subvault`
 
 | Invariant | Failure point covered |
@@ -136,8 +123,6 @@ final):
   realistic single-report slashing move).
 - **Balance correction:** `maxModifyBps = 2_000` with `absoluteFloorShares` set to the largest
   correction expected on a near-zero balance.
-- **Config lock:** pass the deployment's `oracle` / `shareManager` / `feeManager` / `riskManager`
-  to lock them (or `address(0)` to leave a field unchecked).
 - **Subvault allocation:** `minExitLiquidityBps = 10_000` (the full position must stay withdrawable),
   per watched `(asset, aToken)` market, applied to each subvault that allocates into a lending market.
 
@@ -150,24 +135,22 @@ final):
   outflow, so calibrate generously; it is not simulated by local `pcl test`.
 - **Oracle guard skips bootstrap/suspicious reports.** The first report for an asset and any
   protocol-flagged-suspicious report do not propagate to vault accounting, so they are not bounded.
-- **Config lock trips on legitimate upgrades.** Disarm during planned governance upgrades.
 - **Adopter scope.** Each assertion only fires for transactions that touch its adopter; deploy all
-  four to cover the full curator-power surface (`Vault`, `Oracle`, `RiskManager`).
+  four to cover the full curator-power surface (`Vault`, `Oracle`, `RiskManager`, and each lending
+  `Subvault`).
 
 ## Files
 
 - src/MellowVaultOutflowAssertion.sol
 - src/MellowOracleReportGuardAssertion.sol
 - src/MellowRiskManagerBalanceAssertion.sol
-- src/MellowConfigLockAssertion.sol
 - src/MellowSubvaultAllocationAssertion.sol
 - src/MellowCuratorHelpers.sol — shared fork reads, calldata decode, signed-int math
-- src/MellowCuratorInterfaces.sol — minimal `Oracle` / `RiskManager` / vault-config surfaces + selectors
-- test/MellowMocks.sol — shared mocks (oracle / risk manager / vault proxy / subvault / token), one knob per failure mode
+- src/MellowCuratorInterfaces.sol — minimal `Oracle` / `RiskManager` surfaces + selectors
+- test/MellowMocks.sol — shared mocks (oracle / risk manager / subvault / token), one knob per failure mode
 - test/MellowVaultOutflowAssertion.t.sol
 - test/MellowOracleReportGuardAssertion.t.sol
 - test/MellowRiskManagerBalanceAssertion.t.sol
-- test/MellowConfigLockAssertion.t.sol
 - test/MellowSubvaultAllocationAssertion.t.sol
 
 ## Next steps
