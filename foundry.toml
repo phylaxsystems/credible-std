@@ -139,6 +139,14 @@ cache_path = "examples/lighter/cache"
 libs = ["lib"]
 remappings = ["credible-std/=src/"]
 
+[profile.mellow]
+src = "examples/mellow/src"
+test = "examples/mellow/test"
+out = "examples/mellow/out"
+cache_path = "examples/mellow/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+
 [profile.nado]
 src = "examples/nado/src"
 test = "examples/nado/test"
