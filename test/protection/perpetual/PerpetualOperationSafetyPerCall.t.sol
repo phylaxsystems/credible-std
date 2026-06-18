@@ -88,7 +88,9 @@ contract TestPerpRiskAssertion is PerpetualBaseAssertion, IPerpetualProtectionSu
         OperationContext calldata operation,
         PhEvm.ForkId calldata fork
     ) external view override returns (AccountSnapshot memory snapshot) {
-        int256 equity = abi.decode(_viewAt(PERP, abi.encodeCall(ITestPerp.equityOf, (operation.account)), fork), (int256));
+        int256 equity = abi.decode(
+            _viewAt(PERP, abi.encodeCall(ITestPerp.equityOf, (operation.account)), fork), (int256)
+        );
         snapshot.risk.equity = equity;
         snapshot.risk.hasBadDebt = equity < 0;
         snapshot.risk.isHealthy = equity >= 0;
@@ -138,7 +140,12 @@ contract TestPerpRiskAssertion is PerpetualBaseAssertion, IPerpetualProtectionSu
         PhEvm.ForkId calldata
     ) external pure override returns (AccountingConservationCheck[] memory) {}
 
-    function getAccountSnapshot(address, PhEvm.ForkId calldata) external pure override returns (AccountSnapshot memory) {}
+    function getAccountSnapshot(address, PhEvm.ForkId calldata)
+        external
+        pure
+        override
+        returns (AccountSnapshot memory)
+    {}
 
     function getAccountState(address, PhEvm.ForkId calldata) external pure override returns (AccountState memory) {}
 
