@@ -174,6 +174,11 @@ contract PerpetualOperationSafetyPerCallTest is Test, CredibleTest {
 
     function _arm() internal {
         bytes memory createData = abi.encodePacked(type(TestPerpRiskAssertion).creationCode, abi.encode(address(perp)));
+        // `assertOperationSafety()` is declared on the abstract `PerpetualBaseAssertion` and inherited
+        // (not redeclared) by `TestPerpRiskAssertion`, so the selector must be referenced through the
+        // base — `TestPerpRiskAssertion.assertOperationSafety.selector` does not compile. The selector
+        // value is identical either way and the harness resolves it against the deployed contract.
+        // Mirrors the sibling lending suite (test/protection/lending/LendingSolvencyPerCall.t.sol).
         cl.assertion(address(perp), createData, PerpetualBaseAssertion.assertOperationSafety.selector);
     }
 
