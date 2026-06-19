@@ -30,3 +30,26 @@ jobs:
 
       - name: Run protection PCL tests
         run: FOUNDRY_PROFILE=ci pcl test --match-path 'test/protection/**'
+
+  # Example assertion suites live under their own foundry profiles (examples/<name>) and also use the
+  # Phorge-only `cl.assertion` cheatcode, so they run under `pcl test` here. Add a profile to the
+  # matrix when its example is ready to be gated on every PR.
+  examples-pcl:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [fluid]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install PCL
+        run: |
+          curl -sSL https://github.com/phylaxsystems/pcl/releases/download/1.5.0/pcl-1.5.0-linux-x86_64.tar.gz | tar -xz
+          sudo install pcl/pcl /usr/local/bin/pcl
+
+      - name: Run ${{ matrix.profile }} example PCL tests
+        run: FOUNDRY_PROFILE=${{ matrix.profile }} pcl test
