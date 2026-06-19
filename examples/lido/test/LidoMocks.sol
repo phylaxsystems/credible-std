@@ -12,6 +12,8 @@ contract MockERC20 {
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
 
+    event Transfer(address indexed from, address indexed to, uint256 value);
+
     constructor(string memory name_, string memory symbol_, uint8 decimals_) {
         name = name_;
         symbol = symbol_;
@@ -21,11 +23,13 @@ contract MockERC20 {
     function mint(address to, uint256 amount) public {
         balanceOf[to] += amount;
         totalSupply += amount;
+        emit Transfer(address(0), to, amount);
     }
 
     function burn(address from, uint256 amount) public {
         balanceOf[from] -= amount;
         totalSupply -= amount;
+        emit Transfer(from, address(0), amount);
     }
 
     /// @dev Overwrites a balance and keeps `totalSupply` consistent.
@@ -56,6 +60,7 @@ contract MockERC20 {
     function _transfer(address from, address to, uint256 amount) internal {
         balanceOf[from] -= amount;
         balanceOf[to] += amount;
+        emit Transfer(from, to, amount);
     }
 }
 
