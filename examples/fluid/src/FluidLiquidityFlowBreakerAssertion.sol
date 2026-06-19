@@ -106,7 +106,12 @@ contract FluidLiquidityFlowBreakerAssertion is FluidLiquidityBase {
     }
 
     function _successfulOperateCalls() internal pure returns (PhEvm.CallFilter memory filter) {
-        filter.callType = 1; // CALL only: ignore failed probes, staticcalls and delegatecalls.
-        filter.successOnly = true;
+        // Start from the shared "successful, any depth" filter (minDepth 0, maxDepth uint32 max) so
+        // `operate` calls routed through a router/proxy (depth > 1) are still scanned, then narrow to
+        // CALL only — ignore failed probes, staticcalls and delegatecalls. Hand-setting only callType
+        // and successOnly would leave maxDepth at its zero default and make coverage depend on
+        // precompile defaults (a depth-0-only read would miss every real, nested `operate`).
+        filter = _successOnlyFilter();
+        filter.callType = 1;
     }
 }

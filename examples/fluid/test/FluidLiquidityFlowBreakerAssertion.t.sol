@@ -22,9 +22,13 @@ contract BreakerHarness is FluidLiquidityFlowBreakerAssertion {
         return _operateBorrowsToken(input, token);
     }
 
-    function successfulOperateFilter() external pure returns (uint8 callType, bool successOnly) {
+    function successfulOperateFilter()
+        external
+        pure
+        returns (uint8 callType, uint32 minDepth, uint32 maxDepth, bool topLevelOnly, bool successOnly)
+    {
         PhEvm.CallFilter memory filter = _successfulOperateCalls();
-        return (filter.callType, filter.successOnly);
+        return (filter.callType, filter.minDepth, filter.maxDepth, filter.topLevelOnly, filter.successOnly);
     }
 }
 
@@ -102,9 +106,15 @@ contract FluidLiquidityFlowBreakerAssertionTest is Test {
     }
 
     function testWarningTierUsesSuccessfulCallFilter() public view {
-        (uint8 callType, bool successOnly) = breaker.successfulOperateFilter();
-        assertEq(callType, 1);
+        (uint8 callType, uint32 minDepth, uint32 maxDepth, bool topLevelOnly, bool successOnly) =
+            breaker.successfulOperateFilter();
+        assertEq(callType, 1); // CALL only
         assertTrue(successOnly);
+        // Scan `operate` at ANY depth so router/proxy-routed borrows of the breached token are not
+        // missed — depth must not be left to precompile defaults.
+        assertEq(minDepth, 0);
+        assertEq(maxDepth, type(uint32).max);
+        assertFalse(topLevelOnly);
     }
 
     // --- Deployment smoke -------------------------------------------------
