@@ -30,7 +30,13 @@ interface PhEvm {
     /// @notice Represents the inputs to a call made during transaction execution
     /// @dev Used by getCallInputs() and related functions to inspect call details
     struct CallInputs {
-        /// @notice The calldata of the call
+        /// @notice The ABI-encoded call arguments, WITHOUT the 4-byte function selector.
+        /// @dev The `get*CallInputs` queries (getAllCallInputs/getCallInputs/getStaticCallInputs/
+        ///      getDelegateCallInputs/getCallCodeInputs) key on `selector`, so it is stripped from
+        ///      this field and only the argument tail remains. To rebuild full calldata, prepend the
+        ///      selector: `bytes.concat(selector, input)`. Do NOT slice `input[4:]` — the selector is
+        ///      already gone, and slicing would drop the first argument word. Contrast `callinputAt`,
+        ///      which returns the raw selector-prefixed calldata.
         bytes input;
         /// @notice The gas limit of the call
         uint64 gas_limit;
@@ -130,6 +136,10 @@ interface PhEvm {
         uint8 callType;
         bool success;
         uint256 value;
+        /// @notice The ABI-encoded call arguments, WITHOUT the 4-byte function selector.
+        /// @dev Same shape as `CallInputs.input`: `matchingCalls` keys on `selector`, so it is
+        ///      stripped here. Prepend `selector` (`bytes.concat(selector, input)`) before decoding;
+        ///      do not slice `input[4:]`.
         bytes input;
     }
 
@@ -229,7 +239,11 @@ interface PhEvm {
     function getLogs() external returns (Log[] memory logs);
 
     /// @notice Get all call inputs for a target and selector (all call types)
-    /// @dev Includes CALL, STATICCALL, DELEGATECALL, and CALLCODE
+    /// @dev Includes CALL, STATICCALL, DELEGATECALL, and CALLCODE.
+    ///      Each returned `CallInputs.input` is the ABI-encoded arguments WITHOUT the 4-byte
+    ///      selector (the selector is the query key here). Prepend it with
+    ///      `bytes.concat(selector, calls[i].input)` to reconstruct full calldata before decoding;
+    ///      do not slice `input[4:]`. See the `CallInputs.input` field docs.
     /// @param target The target contract address
     /// @param selector The function selector to filter by
     /// @return calls Array of CallInputs matching the criteria
@@ -313,6 +327,8 @@ interface PhEvm {
     // ---------------------------------------------------------------
 
     /// @notice Returns calls matching the given target, selector, and filter criteria.
+    /// @dev Each returned `TriggerCall.input` is the ABI-encoded arguments WITHOUT the 4-byte
+    ///      selector — prepend `selector` before decoding (see the `TriggerCall.input` field docs).
     /// @param target The target contract address.
     /// @param selector The function selector to filter by.
     /// @param filter Filtering criteria (call type, depth, success).
