@@ -90,12 +90,25 @@ abstract contract FluidLiquidityBase is Assertion {
         borrowExchangePrice = (epac >> BITS_BORROW_EXCHANGE_PRICE) & MASK_64;
     }
 
-    function _exchangePricesSlot(address token) internal pure returns (bytes32) {
-        return keccak256(abi.encode(token, SLOT_EXCHANGE_PRICES_AND_CONFIG));
+    /// @dev `mapping(address => ...)` slot is `keccak256(abi.encode(key, baseSlot))`. Both operands
+    ///      are fixed 32-byte words, so we hash them straight from the EVM scratch space (0x00-0x40)
+    ///      instead of allocating an `abi.encode` buffer — identical result, no memory growth, and it
+    ///      clears the `asm-keccak256` lint. `mstore(0x00, token)` left-pads the address exactly as
+    ///      `abi.encode` would.
+    function _exchangePricesSlot(address token) internal pure returns (bytes32 slot) {
+        assembly {
+            mstore(0x00, token)
+            mstore(0x20, SLOT_EXCHANGE_PRICES_AND_CONFIG)
+            slot := keccak256(0x00, 0x40)
+        }
     }
 
-    function _totalAmountsSlot(address token) internal pure returns (bytes32) {
-        return keccak256(abi.encode(token, SLOT_TOTAL_AMOUNTS));
+    function _totalAmountsSlot(address token) internal pure returns (bytes32 slot) {
+        assembly {
+            mstore(0x00, token)
+            mstore(0x20, SLOT_TOTAL_AMOUNTS)
+            slot := keccak256(0x00, 0x40)
+        }
     }
 
     function _readSlot(bytes32 slot, PhEvm.ForkId memory fork) internal view returns (uint256) {
@@ -133,19 +146,24 @@ abstract contract FluidLiquidityBase is Assertion {
         return coefficient << exponent;
     }
 
-    /// @notice Reads the ABI word for `argIndex` of a call's calldata as an `int256`.
-    /// @dev `input` comes from `ph.callinputAt`, which preserves the 4-byte selector.
+    /// @notice Reads the ABI word for `argIndex` of a call's arguments as an `int256`.
+    /// @dev `input` is the selector-stripped argument tail as returned by `ph.matchingCalls(...).input`
+    ///      (and the `ph.get*CallInputs` family): the 4-byte selector is the query key and is NOT
+    ///      present, so arg `argIndex` sits at byte offset `argIndex * 32`. Do not add a 4-byte
+    ///      selector offset here. If a caller ever sources selector-prefixed calldata (e.g.
+    ///      `ph.callinputAt`), it must strip the leading selector before calling this.
     function _int256Arg(bytes memory input, uint256 argIndex) internal pure returns (int256 value) {
-        uint256 offset = 4 + argIndex * 32;
+        uint256 offset = argIndex * 32;
         require(input.length >= offset + 32, "Fluid: malformed calldata");
         assembly {
             value := mload(add(add(input, 0x20), offset))
         }
     }
 
-    /// @notice Reads the ABI word for `argIndex` of a call's calldata as an `address`.
+    /// @notice Reads the ABI word for `argIndex` of a call's arguments as an `address`.
+    /// @dev Same selector-stripped `input` contract as `_int256Arg`.
     function _addressArg(bytes memory input, uint256 argIndex) internal pure returns (address account) {
-        uint256 offset = 4 + argIndex * 32;
+        uint256 offset = argIndex * 32;
         require(input.length >= offset + 32, "Fluid: malformed calldata");
         assembly {
             account := and(mload(add(add(input, 0x20), offset)), 0xffffffffffffffffffffffffffffffffffffffff)

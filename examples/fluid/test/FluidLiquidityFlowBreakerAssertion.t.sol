@@ -8,10 +8,13 @@ import {FluidLiquidityFlowBreakerAssertion} from "../src/FluidLiquidityFlowBreak
 import {IFluidLiquidityLike} from "../src/FluidInterfaces.sol";
 
 /// @notice Exposes the breaker's pure borrow-detection policy so it can be exercised directly.
-/// @dev The `watchCumulativeOutflow` trigger that fires the live assertion is driven by the
-///      executor's rolling-window accounting and is not simulated by local `pcl test`, so the
-///      warning-tier policy is validated through `operateBorrowsToken` rather than an armed
-///      `cl.assertion` call (mirroring the Lighter circuit-breaker example).
+/// @dev The `watchCumulativeOutflow` trigger that fires the live assertion, and the `ph.matchingCalls`
+///      query it feeds on, are driven by the executor's rolling-window accounting and are not
+///      simulated by local `pcl test`, so the warning-tier policy is validated through
+///      `operateBorrowsToken` rather than an armed `cl.assertion` call (mirroring the Lighter
+///      circuit-breaker example). Critically, the policy is exercised against the exact
+///      selector-stripped argument tail that `ph.matchingCalls(...).input` returns in production — see
+///      `_matchingCallsInput` — so the selector-offset regression this fix addresses is caught here.
 contract BreakerHarness is FluidLiquidityFlowBreakerAssertion {
     constructor(address[] memory tokens_) FluidLiquidityFlowBreakerAssertion(tokens_) {}
 
@@ -39,32 +42,63 @@ contract FluidLiquidityFlowBreakerAssertionTest is Test {
         breaker = new BreakerHarness(tokens);
     }
 
-    function _operateCalldata(address token, int256 supplyAmount, int256 borrowAmount)
+    /// @notice Builds the input the breaker actually decodes in production.
+    /// @dev `ph.matchingCalls(...).input` returns the ABI argument tail with the 4-byte selector (the
+    ///      query key) stripped, so the policy must be tested against that shape, NOT against full
+    ///      selector-prefixed calldata. `abi.encode(args)` is byte-identical to
+    ///      `abi.encodeWithSelector(sel, args)[4:]` (asserted by
+    ///      `testMatchingCallsInputIsSelectorStripped`). Feeding selector-prefixed calldata here is
+    ///      what masked the original decode bug.
+    function _matchingCallsInput(address token, int256 supplyAmount, int256 borrowAmount)
         internal
         pure
         returns (bytes memory)
     {
-        return abi.encodeWithSelector(
-            IFluidLiquidityLike.operate.selector, token, supplyAmount, borrowAmount, address(0), address(0), bytes("")
-        );
+        return abi.encode(token, supplyAmount, borrowAmount, address(0), address(0), bytes(""));
     }
 
     // --- Warning-tier policy: block new borrows of the breached token ----
 
     function testBorrowOfBreachedTokenIsBlocked() public view {
-        assertTrue(breaker.operateBorrowsToken(_operateCalldata(TOKEN, int256(0), int256(100e6)), TOKEN));
+        assertTrue(breaker.operateBorrowsToken(_matchingCallsInput(TOKEN, int256(0), int256(100e6)), TOKEN));
     }
 
     function testRepayOfBreachedTokenIsAllowed() public view {
-        assertFalse(breaker.operateBorrowsToken(_operateCalldata(TOKEN, int256(0), -int256(100e6)), TOKEN));
+        assertFalse(breaker.operateBorrowsToken(_matchingCallsInput(TOKEN, int256(0), -int256(100e6)), TOKEN));
     }
 
     function testSupplyOnlyIsAllowed() public view {
-        assertFalse(breaker.operateBorrowsToken(_operateCalldata(TOKEN, int256(100e6), int256(0)), TOKEN));
+        assertFalse(breaker.operateBorrowsToken(_matchingCallsInput(TOKEN, int256(100e6), int256(0)), TOKEN));
     }
 
     function testBorrowOfOtherTokenIsAllowed() public view {
-        assertFalse(breaker.operateBorrowsToken(_operateCalldata(OTHER, int256(0), int256(100e6)), TOKEN));
+        assertFalse(breaker.operateBorrowsToken(_matchingCallsInput(OTHER, int256(0), int256(100e6)), TOKEN));
+    }
+
+    // --- Regression guards for the selector-stripped input contract ------
+
+    /// @dev Pins the production input shape: the args-only encoding the policy decodes must equal the
+    ///      selector-prefixed operate calldata with its leading 4 bytes removed — exactly what
+    ///      `ph.matchingCalls(...).input` yields. Breaks if `_matchingCallsInput` drifts from reality.
+    function testMatchingCallsInputIsSelectorStripped() public pure {
+        bytes memory full = abi.encodeWithSelector(
+            IFluidLiquidityLike.operate.selector, TOKEN, int256(0), int256(100e6), address(0), address(0), bytes("")
+        );
+        bytes memory stripped = new bytes(full.length - 4);
+        for (uint256 i; i < stripped.length; ++i) {
+            stripped[i] = full[i + 4];
+        }
+        assertEq(keccak256(stripped), keccak256(_matchingCallsInput(TOKEN, int256(0), int256(100e6))));
+    }
+
+    /// @dev If the 4-byte selector offset is ever re-added to the arg decoders, full selector-prefixed
+    ///      calldata would decode as a borrow of TOKEN and this would flip to a (spurious) detection.
+    ///      With the correct args-only decode the selector shifts the token word, so no match.
+    function testSelectorPrefixedCalldataIsNotDecodedAsBorrow() public view {
+        bytes memory full = abi.encodeWithSelector(
+            IFluidLiquidityLike.operate.selector, TOKEN, int256(0), int256(100e6), address(0), address(0), bytes("")
+        );
+        assertFalse(breaker.operateBorrowsToken(full, TOKEN));
     }
 
     function testWarningTierUsesSuccessfulCallFilter() public view {

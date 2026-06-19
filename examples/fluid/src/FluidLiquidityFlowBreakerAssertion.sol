@@ -77,10 +77,12 @@ contract FluidLiquidityFlowBreakerAssertion is FluidLiquidityBase {
         }
     }
 
-    /// @notice Pure policy decision: does this `operate` calldata borrow `token`?
-    /// @dev A borrow is `borrowAmount_ > 0` for the breached token; repays (`< 0`), supplies, and
-    ///      operations on other tokens return false. Extracted so the policy is unit-testable without
-    ///      the live outflow trigger context (which local `pcl test` does not simulate).
+    /// @notice Pure policy decision: do these `operate` arguments borrow `token`?
+    /// @dev `input` is the selector-stripped argument tail exactly as `ph.matchingCalls(...).input`
+    ///      yields it (no 4-byte selector — see `_addressArg`/`_int256Arg`). A borrow is
+    ///      `borrowAmount_ > 0` for the breached token; repays (`< 0`), supplies, and operations on
+    ///      other tokens return false. Extracted so the policy is unit-testable without the live
+    ///      outflow trigger context (which local `pcl test` does not simulate).
     function _operateBorrowsToken(bytes memory input, address token) internal pure returns (bool) {
         return _addressArg(input, OPERATE_TOKEN_ARG) == token && _int256Arg(input, OPERATE_BORROW_ARG) > 0;
     }

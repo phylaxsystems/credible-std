@@ -24,6 +24,9 @@ FOUNDRY_PROFILE=fluid forge build
 FOUNDRY_PROFILE=fluid pcl test
 ```
 
+This suite runs on every PR via the `examples-pcl` matrix job in
+`.github/workflows/solidity-test.yml`, so a regression in these assertions fails CI.
+
 ## Assertions
 
 ### `FluidLiquiditySolvencyAssertion` — Liquidity Layer (business logic)
