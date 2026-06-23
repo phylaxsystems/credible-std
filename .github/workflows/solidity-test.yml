@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: [fluid, lido]
+        profile: [fluid, lido, mellow]
     steps:
       - name: Checkout
         uses: actions/checkout@v6

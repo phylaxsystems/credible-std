@@ -21,6 +21,7 @@ FOUNDRY_PROFILE=<protocol> forge build
 | `denaria/` | `all-protection-suites` | Denaria perpetual operation safety |
 | `euler/` | `eulerv2` | EVault, circuit breaker, sandwich detection |
 | `lido/` | `lido` | Lido stETH vaults (generic): withdrawable-stETH buffer floor + outflow breaker, position risk regime, depeg gates, rate-vs-NAV |
+| `mellow/` | `mellow` | Mellow flexible-vaults compromised-curator suite: vault outflow breaker, immutable oracle-report drift cap, RiskManager balance-correction containment, subvault allocation-health (no allocating into illiquid markets) |
 | `nado/` | `ink/assertions` | Nado perpetual clearinghouse |
 | `royco/` | `royco-dawn` | Royco kernel accounting, cumulative flow, vault tranche |
 | `safe/` | `safe-protection-suite` | Safe config lock + tx-shape assertions |
