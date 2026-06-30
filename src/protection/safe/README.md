@@ -4,7 +4,7 @@ This package contains Safe-native protections. They cover different surfaces and
 
 - `SafeConfigLockAssertion` (Credible Layer assertion) checks the Safe configuration envelope after a transaction.
 - `SafeTxShapeAssertion` (Credible Layer assertion) checks the direct actions a Safe is about to execute through owner or module entrypoints.
-- `CredibleSafeGuard` (Safe transaction guard) allows Safe executions only while the current block is credible, and fails open when the credible builder set is offline.
+- `CredibleSafeGuard` (Safe transaction guard) allows owner/multisig Safe transactions only while the current block is credible, and fails open when the credible builder set is offline. It gates the owner-path `execTransaction` only; module executions bypass transaction guards (see [Scope](#scope)).
 
 The two `*Assertion` contracts run inside the PhEvm. `CredibleSafeGuard` is a plain on-chain Gnosis Safe transaction guard installed on the Safe via `setGuard`.
 
@@ -44,6 +44,10 @@ The target is to fail open after roughly 15 minutes with no credible blocks. The
 - While the credible builder set is live, a Safe transaction cannot land in a non-credible block, such as one built by a builder that does not enforce assertions.
 - If the credible builder set goes offline for longer than the configured window, the Safe keeps working.
 - The guard gates only on block credibility and does not inspect the transaction target, value, calldata, or signatures. Pair it with `SafeConfigLockAssertion`, `SafeTxShapeAssertion`, or other assertions to constrain what the Safe may do within a credible block.
+
+### Scope
+
+`CredibleSafeGuard` is a Safe *transaction* guard, so it gates only the owner/multisig `execTransaction` path. Module executions (`execTransactionFromModule` / `execTransactionFromModuleReturnData`) bypass transaction guards entirely, so an enabled module can still execute while the current block is not credible. To gate module executions, install a separate Safe module guard (the v1.5.0 `checkModuleTransaction` hook) or protect that path with a Credible Layer assertion such as `SafeTxShapeAssertion`.
 
 ## Safe Tx Shape Assertion
 

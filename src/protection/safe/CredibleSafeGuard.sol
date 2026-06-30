@@ -45,11 +45,19 @@ interface ITransactionGuard is IERC165 {
 
 /// @title CredibleSafeGuard
 /// @author Phylax Systems
-/// @notice Safe transaction guard that only allows Safe executions while the current block is
-///         credible, i.e. built by a Credible Layer builder that enforces assertions. When the
-///         credible builder set is offline the guard fails open so the Safe is never bricked.
+/// @notice Safe transaction guard that only allows owner/multisig Safe transactions while the
+///         current block is credible, i.e. built by a Credible Layer builder that enforces
+///         assertions. When the credible builder set is offline the guard fails open so the Safe
+///         is never bricked.
 /// @dev Installed on a Safe via `setGuard(address(thisGuard))`. The Safe calls
 ///      {checkTransaction} before every owner-path execution; a revert blocks that execution.
+///
+///      Scope. This guard implements only Safe's transaction-guard interface ({ITransactionGuard}),
+///      so it gates the owner/multisig `execTransaction` path only. Module executions
+///      (`execTransactionFromModule`/`...ReturnData`) do not run transaction guards, so an enabled
+///      module can still execute while the current block is not credible. Gating module executions
+///      requires a separate Safe module guard (the v1.5.0 `checkModuleTransaction` hook) or a
+///      Credible Layer assertion such as {SafeTxShapeAssertion}.
 ///
 ///      Decision in {checkTransaction}:
 ///      1. If the credible builder set looks offline (the most recent credible block is more
