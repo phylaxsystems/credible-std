@@ -216,28 +216,48 @@ contract CredibleBlockGuardTest is Test {
     }
 
     // ---------------------------------------------------------------------
-    // Fuzz: decision is exactly "credible current block OR gap beyond threshold"
+    // Decision table: allowed == "credible current block OR gap beyond threshold"
+    //
+    // The gate is fully deterministic, so a fixed table over the boundary-relevant
+    // gaps (below / at / above the threshold, with the current block credible or
+    // not) gives the same coverage an equivalent fuzz test would. It is kept
+    // table-driven rather than fuzzed because this directory is gated by the
+    // `pcl test` runner, whose fuzzing worker overflows its stack and aborts the
+    // whole protection job.
     // ---------------------------------------------------------------------
 
-    function testFuzz_decisionMatchesSpec(uint256 gap, bool currentCredible) public {
-        gap = bound(gap, 0, 10 * THRESHOLD);
-        // Keep BASE_BLOCK large enough that block.number - gap never underflows.
-        registry.setLastCredibleBlock(block.number - gap);
-        if (currentCredible) registry.setCredibleBlock(block.number, true);
+    function test_decisionMatchesSpec_acrossGaps() public {
+        uint256[6] memory gaps = [uint256(0), 1, THRESHOLD - 1, THRESHOLD, THRESHOLD + 1, 10 * THRESHOLD];
+
+        for (uint256 i = 0; i < gaps.length; i++) {
+            _assertDecision(gaps[i], false);
+            _assertDecision(gaps[i], true);
+        }
+    }
+
+    /// @dev Asserts the gate's decision for one (gap, currentCredible) case. Uses fresh
+    ///      instances so each case starts from a clean slate, exactly as a fuzz run would.
+    function _assertDecision(uint256 gap, bool currentCredible) internal {
+        MockCredibleRegistry reg = new MockCredibleRegistry();
+        GuardedVault v = new GuardedVault(reg, THRESHOLD);
+
+        // BASE_BLOCK is large enough that block.number - gap never underflows.
+        reg.setLastCredibleBlock(block.number - gap);
+        if (currentCredible) reg.setCredibleBlock(block.number, true);
 
         bool failOpen = gap > THRESHOLD; // block.number > last is guaranteed for gap > 0
         bool expectedAllowed = failOpen || currentCredible;
 
-        assertEq(vault.failOpenActive(), failOpen);
-        assertEq(vault.isCurrentBlockAllowed(), expectedAllowed);
+        assertEq(v.failOpenActive(), failOpen);
+        assertEq(v.isCurrentBlockAllowed(), expectedAllowed);
 
         if (expectedAllowed) {
-            vault.doProtectedAction();
-            assertEq(vault.actions(), 1);
+            v.doProtectedAction();
+            assertEq(v.actions(), 1);
         } else {
             vm.expectRevert(CredibleBlockGuard.NonCredibleBlock.selector);
-            vault.doProtectedAction();
-            assertEq(vault.actions(), 0);
+            v.doProtectedAction();
+            assertEq(v.actions(), 0);
         }
     }
 }
