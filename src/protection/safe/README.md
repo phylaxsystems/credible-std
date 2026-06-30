@@ -1,9 +1,49 @@
-# Safe Assertions
+# Safe Protections
 
-This package contains Safe-native assertion packs. They are intentionally separate because they protect different surfaces:
+This package contains Safe-native protections. They cover different surfaces and run in different places:
 
-- `SafeConfigLockAssertion` checks the Safe configuration envelope after a transaction.
-- `SafeTxShapeAssertion` checks the direct actions a Safe is about to execute through owner or module entrypoints.
+- `SafeConfigLockAssertion` (Credible Layer assertion) checks the Safe configuration envelope after a transaction.
+- `SafeTxShapeAssertion` (Credible Layer assertion) checks the direct actions a Safe is about to execute through owner or module entrypoints.
+- `CredibleSafeGuard` (Safe transaction guard) allows Safe executions only while the current block is credible, and fails open when the credible builder set is offline.
+
+The two `*Assertion` contracts run inside the PhEvm. `CredibleSafeGuard` is a plain on-chain Gnosis Safe transaction guard installed on the Safe via `setGuard`.
+
+## Credible Safe Guard
+
+`CredibleSafeGuard` is a Gnosis Safe transaction guard that gates every owner-path Safe execution on block credibility, as reported by the on-chain [Credible Registry](https://github.com/phylaxsystems/credible-registry).
+
+Install it on a Safe with `setGuard(address(guard))`. Safe then calls `checkTransaction` before each `execTransaction`, and the guard reverts to block the execution.
+
+### What It Checks
+
+On every Safe transaction the guard reads the Credible Registry and decides:
+
+1. If the most recent credible block lags the current block by more than `failOpenBlockThreshold` blocks, the credible builder set is treated as offline, so the guard fails open and allows the transaction. This keeps a stalled builder set from locking the Safe.
+2. Otherwise the builder set is live, so the current block must be credible. If it is not, the transaction reverts with `NonCredibleBlock`.
+3. If the current block is credible, the transaction is allowed.
+
+### Config Options
+
+Both values are immutable constructor arguments:
+
+- `credibleRegistry`: address of the on-chain Credible Registry to query (`ICredibleRegistry`). Configurable per deployment; re-pointing means deploying a new guard and calling `setGuard` again.
+- `failOpenBlockThreshold`: number of blocks of builder silence tolerated before failing open.
+
+#### Choosing the fail-open threshold
+
+The target is to fail open after roughly 15 minutes with no credible blocks. The Credible Registry records credibility by block number and does not expose timestamps, so the window is expressed as the number of blocks the builder set produces in about 15 minutes on the target chain:
+
+| Block time | ~15 minutes |
+| ---------- | ----------- |
+| ~12s (Ethereum mainnet) | 75 blocks |
+| ~2s (typical L2) | 450 blocks |
+| ~1s | 900 blocks |
+
+### Material Effect
+
+- While the credible builder set is live, a Safe transaction cannot land in a non-credible block, such as one built by a builder that does not enforce assertions.
+- If the credible builder set goes offline for longer than the configured window, the Safe keeps working.
+- The guard gates only on block credibility and does not inspect the transaction target, value, calldata, or signatures. Pair it with `SafeConfigLockAssertion`, `SafeTxShapeAssertion`, or other assertions to constrain what the Safe may do within a credible block.
 
 ## Safe Tx Shape Assertion
 

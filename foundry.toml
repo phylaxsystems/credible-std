@@ -171,6 +171,19 @@ cache_path = "examples/safe/cache"
 libs = ["lib"]
 remappings = ["credible-std/=src/"]
 
+# Real Gnosis Safe end-to-end tests for src/protection/safe/CredibleSafeGuard.sol.
+# Separate profile because the Safe contracts compile with the legacy pipeline
+# (optimizer, no via_ir), unlike the via_ir root profiles.
+[profile.safe-guard]
+src = "examples/safe-guard/src"
+test = "examples/safe-guard/test"
+out = "examples/safe-guard/out"
+cache_path = "examples/safe-guard/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+optimizer = true
+via_ir = false
+
 [profile.spark]
 src = "examples/spark/src"
 test = "examples/spark/test"
