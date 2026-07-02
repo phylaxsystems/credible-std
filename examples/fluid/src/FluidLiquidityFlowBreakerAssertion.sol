@@ -44,7 +44,9 @@ contract FluidLiquidityFlowBreakerAssertion is FluidLiquidityBase {
     }
 
     /// @notice Registers the warning and critical outflow watchers for each monitored token.
-    function triggers() external view override {
+    /// @dev Virtual so tests can subclass with a call trigger and arm the matchingCalls scan
+    ///      through `cl.assertion` (the outflow trigger itself is executor-driven).
+    function triggers() external view virtual override {
         uint256 length = tokens.length;
         for (uint256 i; i < length; ++i) {
             address token = tokens[i];

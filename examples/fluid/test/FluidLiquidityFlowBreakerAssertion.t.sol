@@ -3,18 +3,20 @@ pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
 
+import {CredibleTest} from "../../../src/CredibleTest.sol";
 import {PhEvm} from "../../../src/PhEvm.sol";
 import {FluidLiquidityFlowBreakerAssertion} from "../src/FluidLiquidityFlowBreakerAssertion.sol";
 import {IFluidLiquidityLike} from "../src/FluidInterfaces.sol";
 
-/// @notice Exposes the breaker's pure borrow-detection policy so it can be exercised directly.
-/// @dev The `watchCumulativeOutflow` trigger that fires the live assertion, and the `ph.matchingCalls`
-///      query it feeds on, are driven by the executor's rolling-window accounting and are not
-///      simulated by local `pcl test`, so the warning-tier policy is validated through
-///      `operateBorrowsToken` rather than an armed `cl.assertion` call (mirroring the Lighter
-///      circuit-breaker example). Critically, the policy is exercised against the exact
-///      selector-stripped argument tail that `ph.matchingCalls(...).input` returns in production — see
-///      `_matchingCallsInput` — so the selector-offset regression this fix addresses is caught here.
+/// @notice Exposes the breaker's pure borrow-detection policy so edge cases can be exercised directly.
+/// @dev The `watchCumulativeOutflow` trigger that fires the live assertion is driven by the
+///      executor's rolling-window accounting and is not simulated by local `pcl test`, so the
+///      trigger side still uses this harness. The `ph.matchingCalls` scan itself, however, IS
+///      executed for real: `FluidFlowBreakerArmedTest` below arms the scan + policy through
+///      `cl.assertion`, so a pcl/executor without the precompile fails loudly instead of leaving
+///      this suite green (which is how the unimplemented cheatcode went unnoticed). The harness
+///      remains for pure-policy edge cases against the exact selector-stripped argument tail that
+///      `ph.matchingCalls(...).input` returns — see `_matchingCallsInput`.
 contract BreakerHarness is FluidLiquidityFlowBreakerAssertion {
     constructor(address[] memory tokens_) FluidLiquidityFlowBreakerAssertion(tokens_) {}
 
@@ -142,5 +144,88 @@ contract FluidLiquidityFlowBreakerAssertionTest is Test {
 
         vm.expectRevert(bytes("Fluid: external custody breaker unsupported"));
         new FluidLiquidityFlowBreakerAssertion(tokens);
+    }
+}
+
+/// @notice Armed variant: fires the real `ph.matchingCalls` scan + borrow policy on a call trigger.
+/// @dev Replicates `assertNoBorrowAfterLargeOutflow` minus `ph.outflowContext()` (the outflow
+///      trigger context is executor-driven and cannot be armed locally). Everything downstream of
+///      the context read — the filter, the precompile query, and the selector-stripped decode —
+///      is the production path, executed against real recorded calldata.
+contract ArmedBreakerAssertion is FluidLiquidityFlowBreakerAssertion {
+    constructor(address[] memory tokens_) FluidLiquidityFlowBreakerAssertion(tokens_) {}
+
+    function triggers() external view virtual override {
+        registerCallTrigger(this.assertNoBorrowOfWatchedToken.selector);
+    }
+
+    function assertNoBorrowOfWatchedToken() external view {
+        PhEvm.TriggerCall[] memory calls = ph.matchingCalls(
+            _liquidity(), IFluidLiquidityLike.operate.selector, _successfulOperateCalls(), MAX_SUCCESSFUL_OPERATE_CALLS
+        );
+        // Fail closed: the armed tests always route one operate() through the adopter, so an empty
+        // scan means the precompile lost the trace, not that the market is safe.
+        require(calls.length != 0, "Fluid: expected operate calls in trace");
+        for (uint256 i; i < calls.length; ++i) {
+            if (_operateBorrowsToken(calls[i].input, tokens[0])) {
+                revert("Fluid: borrow disabled after large outflow");
+            }
+        }
+    }
+}
+
+/// @notice Minimal Liquidity Layer standing in as the assertion adopter for the armed scan.
+contract MockFluidLiquidity {
+    uint256 public ops;
+
+    function operate(address, int256, int256, address, address, bytes calldata)
+        external
+        payable
+        returns (uint256 supplyExchangePrice_, uint256 borrowExchangePrice_)
+    {
+        ops++;
+        return (0, 0);
+    }
+}
+
+/// @notice Executes the breaker's matchingCalls scan through a real `cl.assertion` arming.
+contract FluidFlowBreakerArmedTest is Test, CredibleTest {
+    address internal constant TOKEN = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48; // USDC
+    address internal constant OTHER = 0xdAC17F958D2ee523a2206206994597C13D831ec7; // USDT
+
+    MockFluidLiquidity internal liquidity;
+
+    function setUp() public {
+        liquidity = new MockFluidLiquidity();
+    }
+
+    function _arm() internal {
+        address[] memory tokens = new address[](1);
+        tokens[0] = TOKEN;
+        bytes memory createData = abi.encodePacked(type(ArmedBreakerAssertion).creationCode, abi.encode(tokens));
+        cl.assertion(address(liquidity), createData, ArmedBreakerAssertion.assertNoBorrowOfWatchedToken.selector);
+    }
+
+    function testArmedBorrowOfWatchedTokenReverts() public {
+        _arm();
+        // Expecting the policy's exact message: a pcl without the precompile also reverts here, but
+        // with 'Precompile selector not found: 0x0dc1cc5d', which fails the expectation loudly.
+        vm.expectRevert(bytes("Fluid: borrow disabled after large outflow"));
+        liquidity.operate(TOKEN, int256(0), int256(100e6), address(0), address(0), bytes(""));
+    }
+
+    function testArmedRepayOfWatchedTokenPasses() public {
+        _arm();
+        liquidity.operate(TOKEN, int256(0), -int256(100e6), address(0), address(0), bytes(""));
+    }
+
+    function testArmedSupplyOnlyPasses() public {
+        _arm();
+        liquidity.operate(TOKEN, int256(100e6), int256(0), address(0), address(0), bytes(""));
+    }
+
+    function testArmedBorrowOfOtherTokenPasses() public {
+        _arm();
+        liquidity.operate(OTHER, int256(0), int256(100e6), address(0), address(0), bytes(""));
     }
 }
