@@ -59,11 +59,7 @@ contract MatchingCallsBatteryAssertion is Assertion {
 
     function _anyFilter() internal pure returns (PhEvm.CallFilter memory filter) {
         filter = PhEvm.CallFilter({
-            callType: 0,
-            minDepth: 0,
-            maxDepth: type(uint32).max,
-            topLevelOnly: false,
-            successOnly: true
+            callType: 0, minDepth: 0, maxDepth: type(uint32).max, topLevelOnly: false, successOnly: true
         });
     }
 
