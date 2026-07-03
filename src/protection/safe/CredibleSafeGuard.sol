@@ -60,12 +60,13 @@ interface ITransactionGuard is IERC165 {
 ///      Credible Layer assertion such as {SafeTxShapeAssertion}.
 ///
 ///      Decision in {checkTransaction}:
-///      1. If the credible builder set looks offline (the most recent credible block is more
-///         than `failOpenBlockThreshold` blocks behind the current block), FAIL OPEN and allow
-///         the transaction. This prevents a stalled builder set from permanently locking the Safe.
-///      2. Otherwise the builder set is live, so the current block MUST be credible; if it is
-///         not, the transaction is blocked with {NonCredibleBlock}.
-///      3. If the current block is itself credible, the transaction is always allowed.
+///      1. If the current block is credible, the transaction is always allowed.
+///      2. Otherwise, if the credible builder set looks offline (the most recent credible block
+///         is more than `failOpenBlockThreshold` blocks behind the current block), FAIL OPEN and
+///         allow the transaction. This prevents a stalled builder set from permanently locking
+///         the Safe.
+///      3. Otherwise the builder set is live and the current block is not credible, so the
+///         transaction is blocked with {NonCredibleBlock}.
 ///
 ///      Fail-open window. The product requirement is "fail open after ~15 minutes with no
 ///      credible blocks". The {ICredibleRegistry} records credibility by block number and does
@@ -133,7 +134,7 @@ contract CredibleSafeGuard is ITransactionGuard {
     /// @dev View helper mirroring {checkTransaction}'s decision for off-chain inspection.
     /// @return True if the current block is credible or the guard is failing open.
     function isCurrentBlockAllowed() external view returns (bool) {
-        return _failOpenActive() || credibleRegistry.isCredibleBlock(block.number);
+        return credibleRegistry.isCredibleBlock(block.number) || _failOpenActive();
     }
 
     /// @notice Whether the guard is currently failing open because the builder set looks offline.
@@ -142,10 +143,12 @@ contract CredibleSafeGuard is ITransactionGuard {
         return _failOpenActive();
     }
 
-    /// @dev Core gate: fail open when the builder set is offline, otherwise require credibility.
+    /// @dev Core gate: allow credible blocks, otherwise fail open only when the builder set is
+    ///      offline. The credible-block check runs first so the expected hot path (credible block,
+    ///      live builder set) costs a single registry call.
     function _checkCredibleBlock() internal view {
-        if (_failOpenActive()) return;
-        if (!credibleRegistry.isCredibleBlock(block.number)) revert NonCredibleBlock();
+        if (credibleRegistry.isCredibleBlock(block.number)) return;
+        if (!_failOpenActive()) revert NonCredibleBlock();
     }
 
     /// @dev Fail-open is active when the current block is strictly more than

@@ -18,9 +18,9 @@ Install it on a Safe with `setGuard(address(guard))`. Safe then calls `checkTran
 
 On every Safe transaction the guard reads the Credible Registry and decides:
 
-1. If the most recent credible block lags the current block by more than `failOpenBlockThreshold` blocks, the credible builder set is treated as offline, so the guard fails open and allows the transaction. This keeps a stalled builder set from locking the Safe.
-2. Otherwise the builder set is live, so the current block must be credible. If it is not, the transaction reverts with `NonCredibleBlock`.
-3. If the current block is credible, the transaction is allowed.
+1. If the current block is credible, the transaction is allowed.
+2. Otherwise, if the most recent credible block lags the current block by more than `failOpenBlockThreshold` blocks, the credible builder set is treated as offline, so the guard fails open and allows the transaction. This keeps a stalled builder set from locking the Safe.
+3. Otherwise the builder set is live and the current block is not credible, so the transaction reverts with `NonCredibleBlock`.
 
 ### Config Options
 
