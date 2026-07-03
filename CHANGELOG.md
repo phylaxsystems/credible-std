@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Credible Block Guard**: `CredibleBlockGuard` reusable mixin (`src/protection/credible_block/`) exposing an `onlyCredibleBlock` modifier that gates functions on block credibility via the on-chain Credible Registry, failing open when the credible builder set goes offline so protected contracts are never bricked. Ships with an ABI-compatible `ICredibleRegistry` interface (matching `phylaxsystems/credible-registry`) and a full test suite.
+
 ## [0.4.0] - 2025-01-22
 
 ### Added
