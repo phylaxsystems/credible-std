@@ -34,12 +34,14 @@ jobs:
   # Example assertion suites live under their own foundry profiles (examples/<name>) and also use the
   # Phorge-only `cl.assertion` cheatcode, so they run under `pcl test` here. Add a profile to the
   # matrix when its example is ready to be gated on every PR.
+  # `safe-guard` is a plain-forge integration suite (real Gnosis Safe + CredibleSafeGuard) on its own
+  # profile because the Safe contracts need the legacy pipeline; pcl runs plain forge tests too.
   examples-pcl:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        profile: [fluid, lido, mellow]
+        profile: [fluid, lido, mellow, safe-guard]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
