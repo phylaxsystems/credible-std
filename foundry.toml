@@ -192,6 +192,14 @@ cache_path = "examples/spark/cache"
 libs = ["lib"]
 remappings = ["credible-std/=src/"]
 
+[profile.summer]
+src = "examples/summer/src"
+test = "examples/summer/test"
+out = "examples/summer/out"
+cache_path = "examples/summer/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+
 [profile.symbiotic]
 src = "examples/symbiotic/src"
 test = "examples/symbiotic/test"
