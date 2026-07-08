@@ -75,6 +75,14 @@ cache_path = "examples/aerodrome/cache"
 libs = ["lib"]
 remappings = ["credible-std/=src/"]
 
+[profile.balancer]
+src = "examples/balancer/src"
+test = "examples/balancer/test"
+out = "examples/balancer/out"
+cache_path = "examples/balancer/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+
 [profile.cap]
 src = "examples/cap/src"
 test = "examples/cap/test"
