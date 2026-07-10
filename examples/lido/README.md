@@ -139,7 +139,7 @@ Everything protocol-specific is constructor configuration:
 - `collateralAsset` / `collateralAssetReserve` / `collateralAssetSupplyToken` — the supplied leg
   for the withdrawability guard (e.g. wstETH / awstETH / awstETH; on Aave the reserve custody and
   the receipt token are the same contract)
-- `stEthEthFeed` — a Chainlink-style stETH/ETH feed (mainnet: `0x86392dC19c0b719886221c68AC0C1F0e8DB4eF14`, 18 decimals)
+- `stEthEthFeed` — a Chainlink-style stETH/ETH feed (mainnet: `0x86392dc19c0b719886221c78ab11eb8cf5c52812`, 18 decimals)
 - `maxFeedStalenessSecs` — how old the feed answer may be before the depeg gate fails closed and
   treats the price as off peg. Set it to the feed's heartbeat plus a margin (the mainnet stETH/ETH
   feed heartbeat is ~24h). Independent of this bound, an incomplete round (`updatedAt == 0`) or a
