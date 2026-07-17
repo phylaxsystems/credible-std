@@ -7,10 +7,10 @@ import {ERC20Mock} from "../../../lib/openzeppelin-contracts/contracts/mocks/tok
 import {CredibleTest} from "../../../src/CredibleTest.sol";
 import {BalancerV3VaultAssertion} from "../src/BalancerV3VaultAssertion.sol";
 import {SwapKind, VaultSwapParams} from "../src/BalancerV3VaultInterfaces.sol";
-import {MockBalancerV3Pool, MockBalancerV3Vault, MockRateProvider} from "./BalancerV3Mocks.sol";
+import {MockBalancerV3Pool, MockBalancerV3Vault, MockRateProvider, RateManipulatingRouter} from "./BalancerV3Mocks.sol";
 
 contract BalancerV3VaultAssertionTest is Test, CredibleTest {
-    uint256 internal constant INVARIANT_DUST_TOLERANCE_BPS = 0;
+    uint256 internal constant INVARIANT_DUST_TOLERANCE = 0; // absolute invariant units
     uint256 internal constant RATE_DRIFT_TOLERANCE_BPS = 100; // 1%
 
     ERC20Mock internal token0;
@@ -42,23 +42,25 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
     function _arm(bytes4 fnSelector) internal {
         bytes memory createData = abi.encodePacked(
             type(BalancerV3VaultAssertion).creationCode,
-            abi.encode(address(vault), address(pool), INVARIANT_DUST_TOLERANCE_BPS, RATE_DRIFT_TOLERANCE_BPS)
+            abi.encode(address(vault), address(pool), INVARIANT_DUST_TOLERANCE, RATE_DRIFT_TOLERANCE_BPS)
         );
         cl.assertion(address(vault), createData, fnSelector);
     }
 
+    function _swapParams(address targetPool) internal view returns (VaultSwapParams memory) {
+        return VaultSwapParams({
+            kind: SwapKind.EXACT_IN,
+            pool: targetPool,
+            tokenIn: address(token0),
+            tokenOut: address(token1),
+            amountGivenRaw: 10e18,
+            limitRaw: 0,
+            userData: ""
+        });
+    }
+
     function _swap(address targetPool) internal {
-        vault.swap(
-            VaultSwapParams({
-                kind: SwapKind.EXACT_IN,
-                pool: targetPool,
-                tokenIn: address(token0),
-                tokenOut: address(token1),
-                amountGivenRaw: 10e18,
-                limitRaw: 0,
-                userData: ""
-            })
-        );
+        vault.swap(_swapParams(targetPool));
     }
 
     // --- assertSwapPreservesPoolInvariant ------------------------------------
@@ -99,17 +101,66 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
         _swap(address(pool));
     }
 
-    // --- assertVaultCustodyCoversPoolAccounting -------------------------------
+    /// @notice A rate that moves inside the swap call trips the equality pin: for supported
+    ///         hookless pools no user code can run within the call, so any in-call rate movement
+    ///         is Vault- or pool-driven manipulation.
+    function testRateShiftWithinSwapCallTrips() public {
+        vault.setMode(MockBalancerV3Vault.Mode.RateShift);
+
+        _arm(BalancerV3VaultAssertion.assertSwapPreservesPoolInvariant.selector);
+        vm.expectRevert(bytes("BalancerV3: rate moved within swap call"));
+        _swap(address(pool));
+    }
+
+    /// @notice Pools with before/after-swap hooks are outside the swap check's scope: those hooks
+    ///         may legitimately reenter the Vault mid-swap, so call-boundary snapshots cannot
+    ///         attribute deltas to the core swap. A failure knob that would otherwise trip must
+    ///         pass once the pool reports swap hooks.
+    function testHookedPoolSwapChecksAreSkipped() public {
+        vault.setSwapHooks(true);
+        vault.setMode(MockBalancerV3Vault.Mode.InvariantLoss);
+
+        _arm(BalancerV3VaultAssertion.assertSwapPreservesPoolInvariant.selector);
+        _swap(address(pool));
+    }
+
+    /// @notice Transient manipulation around the swap: rate doubled before the swap call and
+    ///         restored after it, inside one transaction. Both transaction endpoints agree, but
+    ///         the swap priced against the shifted rate — the per-operation baseline observation
+    ///         catches what endpoint comparison cannot.
+    function testTransientRateManipulationAroundSwapTrips() public {
+        RateManipulatingRouter router = new RateManipulatingRouter(vault, rateProvider);
+        token0.mint(address(router), 100e18);
+        router.approveVault(address(token0));
+
+        _arm(BalancerV3VaultAssertion.assertSwapPreservesPoolInvariant.selector);
+        vm.expectRevert(bytes("BalancerV3: swap priced against rate beyond drift bound"));
+        router.manipulateSwapRestore(_swapParams(address(pool)));
+    }
+
+    /// @notice Documents the endpoint-comparison gap the per-operation check exists for: the same
+    ///         manipulate-swap-restore transaction passes the tx-end drift assertion because the
+    ///         pre-tx and post-tx rates are equal.
+    function testTransientRateManipulationPassesEndpointDrift() public {
+        RateManipulatingRouter router = new RateManipulatingRouter(vault, rateProvider);
+        token0.mint(address(router), 100e18);
+        router.approveVault(address(token0));
+
+        _arm(BalancerV3VaultAssertion.assertTokenRatesWithinDriftBound.selector);
+        router.manipulateSwapRestore(_swapParams(address(pool)));
+    }
+
+    // --- assertPoolAccountingWithinVaultCustody -------------------------------
 
     function testHonestSwapPassesCustodyAssertion() public {
-        _arm(BalancerV3VaultAssertion.assertVaultCustodyCoversPoolAccounting.selector);
+        _arm(BalancerV3VaultAssertion.assertPoolAccountingWithinVaultCustody.selector);
         _swap(address(pool));
     }
 
     function testReserveSkimTripsCustody() public {
         vault.setMode(MockBalancerV3Vault.Mode.ReserveSkim);
 
-        _arm(BalancerV3VaultAssertion.assertVaultCustodyCoversPoolAccounting.selector);
+        _arm(BalancerV3VaultAssertion.assertPoolAccountingWithinVaultCustody.selector);
         vm.expectRevert(bytes("BalancerV3: vault reserves exceed real token custody"));
         _swap(address(pool));
     }
@@ -117,7 +168,7 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
     function testPhantomPoolBalanceTripsCustody() public {
         vault.setMode(MockBalancerV3Vault.Mode.PhantomBalance);
 
-        _arm(BalancerV3VaultAssertion.assertVaultCustodyCoversPoolAccounting.selector);
+        _arm(BalancerV3VaultAssertion.assertPoolAccountingWithinVaultCustody.selector);
         vm.expectRevert(bytes("BalancerV3: pool accounting exceeds vault reserves"));
         _swap(address(pool));
     }
@@ -137,11 +188,51 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
         _swap(address(pool));
     }
 
+    /// @notice A provider already registered for the pool pre-tx that answered ZERO pre-tx is a
+    ///         broken baseline, not a deployment lifecycle: it must fail instead of granting the
+    ///         registration exemption and legitimizing an arbitrary post-tx rate.
+    function testZeroBaselineForRegisteredProviderTrips() public {
+        rateProvider.setRate(0);
+        vault.setMode(MockBalancerV3Vault.Mode.RateShift); // 0 -> 1e18 during the swap
+
+        _arm(BalancerV3VaultAssertion.assertTokenRatesWithinDriftBound.selector);
+        vm.expectRevert(bytes("BalancerV3: zero rate baseline"));
+        _swap(address(pool));
+    }
+
+    /// @notice A provider deployed and registered within the transaction has no pre-tx baseline by
+    ///         construction: the deployment lifecycle is exempt from the drift comparison (only the
+    ///         nonzero post-state is enforced) instead of reverting on the missing baseline read.
+    function testProviderRegisteredDuringTxIsExempt() public {
+        _arm(BalancerV3VaultAssertion.assertTokenRatesWithinDriftBound.selector);
+        vault.registerNewRateProviderAndTouchPool();
+    }
+
+    /// @notice Recovery mode disables the rate assertion entirely: Balancer's recovery exit uses
+    ///         raw balances precisely because providers may be broken, and a broken or moved
+    ///         provider must never block that path.
+    function testRecoveryModeSkipsRateAssertion() public {
+        vault.setRecoveryMode(true);
+        vault.setMode(MockBalancerV3Vault.Mode.RateShift);
+
+        _arm(BalancerV3VaultAssertion.assertTokenRatesWithinDriftBound.selector);
+        _swap(address(pool));
+    }
+
+    /// @notice A transaction that moves the rate without touching the watched pool's accounting is
+    ///         out of the drift assertion's scope, so the watched provider never becomes a
+    ///         dependency of unrelated Vault traffic. The residual is documented on the assertion:
+    ///         a later transaction consuming the moved rate touches the pool and is examined.
+    function testRateOnlyTransactionIsOutOfScope() public {
+        _arm(BalancerV3VaultAssertion.assertTokenRatesWithinDriftBound.selector);
+        vault.shiftRateOnly();
+    }
+
     // --- wiring ----------------------------------------------------------------
 
     function testDeploys() public {
         BalancerV3VaultAssertion assertion = new BalancerV3VaultAssertion(
-            address(vault), address(pool), INVARIANT_DUST_TOLERANCE_BPS, RATE_DRIFT_TOLERANCE_BPS
+            address(vault), address(pool), INVARIANT_DUST_TOLERANCE, RATE_DRIFT_TOLERANCE_BPS
         );
         assertTrue(address(assertion) != address(0));
     }

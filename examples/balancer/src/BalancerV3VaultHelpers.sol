@@ -5,6 +5,7 @@ import {Assertion} from "credible-std/Assertion.sol";
 import {PhEvm} from "credible-std/PhEvm.sol";
 
 import {
+    HooksConfig,
     IBalancerV3BasePoolLike,
     IBalancerV3VaultLike,
     IRateProviderLike,
@@ -27,9 +28,14 @@ abstract contract BalancerV3VaultHelpers is Assertion {
     /// @notice Watched pool registered with the Vault.
     address internal immutable POOL;
 
-    /// @notice Allowed downward invariant movement across one swap, in bps, to absorb pool-math
-    ///         rounding dust. Zero enforces strict non-decrease.
-    uint256 internal immutable INVARIANT_DUST_TOLERANCE_BPS;
+    /// @notice Allowed downward invariant movement across one swap, in absolute invariant units
+    ///         (the pool's 18-decimal invariant scale), to absorb pool-math rounding dust. Zero
+    ///         enforces strict non-decrease.
+    ///         CALIBRATE: derive from the supported pool implementation's rounding behavior (a few
+    ///         units per token is typical). A relative (bps-of-invariant) tolerance cannot express
+    ///         rounding dust: one bp of a 1e24 invariant already allows 1e20 of repeatable loss
+    ///         per swap.
+    uint256 internal immutable INVARIANT_DUST_TOLERANCE;
 
     /// @notice Allowed movement of a token's rate-provider rate within one transaction, in bps.
     uint256 internal immutable RATE_DRIFT_TOLERANCE_BPS;
@@ -44,15 +50,14 @@ abstract contract BalancerV3VaultHelpers is Assertion {
 
     /// @dev All addresses and thresholds are supplied explicitly; the constructor never reads the
     ///      adopter because the assertion-deploy runtime is isolated from live chain state.
-    constructor(address vault_, address pool_, uint256 invariantDustToleranceBps_, uint256 rateDriftToleranceBps_) {
+    constructor(address vault_, address pool_, uint256 invariantDustTolerance_, uint256 rateDriftToleranceBps_) {
         require(vault_ != address(0), "BalancerV3: zero vault");
         require(pool_ != address(0), "BalancerV3: zero pool");
-        require(invariantDustToleranceBps_ < BPS_DENOMINATOR, "BalancerV3: bad invariant tolerance");
         require(rateDriftToleranceBps_ < BPS_DENOMINATOR, "BalancerV3: bad rate tolerance");
 
         VAULT = vault_;
         POOL = pool_;
-        INVARIANT_DUST_TOLERANCE_BPS = invariantDustToleranceBps_;
+        INVARIANT_DUST_TOLERANCE = invariantDustTolerance_;
         RATE_DRIFT_TOLERANCE_BPS = rateDriftToleranceBps_;
     }
 
@@ -123,19 +128,16 @@ abstract contract BalancerV3VaultHelpers is Assertion {
         );
     }
 
-    /// @dev Registration-order indexes of the swap legs, from one lean `getPoolTokens` read.
+    /// @dev Registration-order indexes of the swap legs within an already-read token snapshot.
     ///      Both legs are matched independently so `tokenIn == tokenOut` resolves to one shared
     ///      index instead of reverting: the Vault rejects same-token swaps, so such a trigger can
     ///      only be observed for a call that left no state change, and the direction checks then
     ///      pin that single balance in place rather than falsely blocking the transaction.
-    function _tokenIndexesAt(PhEvm.ForkId memory fork, address tokenIn, address tokenOut)
+    function _tokenIndexes(address[] memory tokens, address tokenIn, address tokenOut)
         internal
-        view
+        pure
         returns (uint256 indexIn, uint256 indexOut)
     {
-        bytes memory ret = _viewAt(VAULT, abi.encodeCall(IBalancerV3VaultLike.getPoolTokens, (POOL)), fork);
-        address[] memory tokens = abi.decode(ret, (address[]));
-
         indexIn = type(uint256).max;
         indexOut = type(uint256).max;
         for (uint256 i; i < tokens.length; ++i) {
@@ -167,22 +169,55 @@ abstract contract BalancerV3VaultHelpers is Assertion {
         return _readBoolAt(VAULT, abi.encodeCall(IBalancerV3VaultLike.isPoolInitialized, (POOL)), fork);
     }
 
+    function _isPoolInRecoveryModeAt(PhEvm.ForkId memory fork) internal view returns (bool) {
+        return _readBoolAt(VAULT, abi.encodeCall(IBalancerV3VaultLike.isPoolInRecoveryMode, (POOL)), fork);
+    }
+
+    /// @dev Whether the watched pool runs a before- or after-swap hook. Those two hooks execute
+    ///      inside the `Vault.swap` call scope and outside the internal `_swap` reentrancy guard,
+    ///      so they may legitimately reenter the Vault (nested liquidity, donations, nested swaps)
+    ///      and change BPT supply, balances, and rates between the swap call's boundary snapshots.
+    ///      The dynamic-swap-fee hook is declared `view` and cannot mutate state, and the
+    ///      liquidity hooks do not run within a swap, so neither disqualifies the pool here.
+    function _hasSwapHooksAt(PhEvm.ForkId memory fork) internal view returns (bool) {
+        bytes memory ret = _viewAt(VAULT, abi.encodeCall(IBalancerV3VaultLike.getHooksConfig, (POOL)), fork);
+        HooksConfig memory config = abi.decode(ret, (HooksConfig));
+        return config.shouldCallBeforeSwap || config.shouldCallAfterSwap;
+    }
+
+    /// @notice Strict rate read: reverts if the provider does not answer.
     function _rateAt(address rateProvider, PhEvm.ForkId memory fork) internal view returns (uint256) {
         return _readUintAt(rateProvider, abi.encodeCall(IRateProviderLike.getRate, ()), fork);
     }
 
-    /// @dev Tolerant rate read for baseline forks: a provider that did not exist or did not
-    ///      answer at the fork reads as zero instead of reverting. A staticcall to an address
-    ///      without code succeeds with empty returndata, so the strict `_rateAt` would revert in
-    ///      `abi.decode` and falsely block a transaction that deploys the provider itself (e.g.
-    ///      pool registration bundled with provider deployment).
-    function _rateOrZeroAt(address rateProvider, PhEvm.ForkId memory fork) internal view returns (uint256) {
+    /// @notice Status-preserving rate read for baseline forks.
+    /// @dev Distinguishes "the provider did not answer" from "the provider answered zero": a
+    ///      staticcall to an address without code succeeds with empty returndata, so `answered`
+    ///      is false only when the call reverted or returned no word — the provider did not exist
+    ///      or could not respond at that fork. A successful ABI-encoded zero keeps
+    ///      `answered = true` so callers can treat it as a broken baseline instead of silently
+    ///      granting the deployment-lifecycle exemption.
+    function _rateStatusAt(address rateProvider, PhEvm.ForkId memory fork)
+        internal
+        view
+        returns (bool answered, uint256 rate)
+    {
         PhEvm.StaticCallResult memory result =
             ph.staticcallAt(rateProvider, abi.encodeCall(IRateProviderLike.getRate, ()), FORK_VIEW_GAS, fork);
         if (!result.ok || result.data.length < 32) {
-            return 0;
+            return (false, 0);
         }
-        return abi.decode(result.data, (uint256));
+        return (true, abi.decode(result.data, (uint256)));
+    }
+
+    /// @dev Whether `rateProvider` was already registered for the watched pool in `snap`.
+    function _providerRegisteredIn(PoolTokenSnapshot memory snap, address rateProvider) internal pure returns (bool) {
+        for (uint256 i; i < snap.tokenInfo.length; ++i) {
+            if (snap.tokenInfo[i].rateProvider == rateProvider) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // --- small math ---------------------------------------------------------

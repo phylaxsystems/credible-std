@@ -1,12 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Rounding, SwapKind, TokenInfo, TokenType, VaultSwapParams} from "../src/BalancerV3VaultInterfaces.sol";
+import {
+    HooksConfig,
+    Rounding,
+    SwapKind,
+    TokenInfo,
+    TokenType,
+    VaultSwapParams
+} from "../src/BalancerV3VaultInterfaces.sol";
 
 interface IMockERC20 {
     function transfer(address to, uint256 amount) external returns (bool);
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
     function balanceOf(address account) external view returns (uint256);
+    function approve(address spender, uint256 amount) external returns (bool);
 }
 
 /// @notice Rate provider mock with a settable rate for drift tests.
@@ -50,7 +58,7 @@ contract MockBalancerV3Vault {
     uint256 internal constant FEE_DIVISOR = 100; // 1% mock swap fee
 
     address public immutable pool;
-    MockRateProvider public immutable rateProvider0;
+    MockRateProvider public rateProvider0;
 
     address[] internal _tokens;
     uint256[] internal _balancesRaw;
@@ -59,6 +67,8 @@ contract MockBalancerV3Vault {
     uint256 internal _bptSupply = 100e18;
     Mode public mode;
     address public skimReceiver;
+    bool public swapHooks;
+    bool public recoveryMode;
 
     constructor(address pool_, address token0_, address token1_, MockRateProvider rateProvider0_) {
         pool = pool_;
@@ -79,6 +89,14 @@ contract MockBalancerV3Vault {
         skimReceiver = receiver;
     }
 
+    function setSwapHooks(bool enabled) external {
+        swapHooks = enabled;
+    }
+
+    function setRecoveryMode(bool enabled) external {
+        recoveryMode = enabled;
+    }
+
     function seedPoolBalance(uint256 index, uint256 amount) external {
         _balancesRaw[index] = amount;
     }
@@ -89,6 +107,21 @@ contract MockBalancerV3Vault {
 
     function seedAggregateSwapFee(address token, uint256 amount) external {
         _aggregateSwapFees[token] = amount;
+    }
+
+    /// @notice Moves the watched rate provider without touching any pool accounting: models a
+    ///         transaction that interacts with the Vault singleton but never the watched pool.
+    function shiftRateOnly() external {
+        rateProvider0.setRate(rateProvider0.rate() + 1e18);
+    }
+
+    /// @notice Deploys a fresh rate provider inside the current transaction and registers it for
+    ///         token0, bumping pool accounting so the transaction counts as touching the pool.
+    ///         Models the pool-deployment lifecycle where a provider has no pre-tx code and no
+    ///         pre-tx registration.
+    function registerNewRateProviderAndTouchPool() external {
+        rateProvider0 = new MockRateProvider();
+        _balancesRaw[0] += 1;
     }
 
     // --- swap ----------------------------------------------------------------
@@ -131,7 +164,8 @@ contract MockBalancerV3Vault {
         } else if (mode == Mode.PhantomBalance) {
             _balancesRaw[indexOut] += 600e18;
         } else if (mode == Mode.RateShift) {
-            rateProvider0.setRate(rateProvider0.rate() * 2);
+            // Additive so the shift also works from a zero baseline (zero-baseline drift test).
+            rateProvider0.setRate(rateProvider0.rate() + 1e18);
         }
     }
 
@@ -184,6 +218,18 @@ contract MockBalancerV3Vault {
         return true;
     }
 
+    function isPoolInRecoveryMode(address) external view returns (bool) {
+        return recoveryMode;
+    }
+
+    function getHooksConfig(address) external view returns (HooksConfig memory config) {
+        config.shouldCallBeforeSwap = swapHooks;
+        config.shouldCallAfterSwap = swapHooks;
+        if (swapHooks) {
+            config.hooksContract = address(0xDEAD);
+        }
+    }
+
     function _indexOf(address token) internal view returns (uint256) {
         for (uint256 i; i < _tokens.length; ++i) {
             if (_tokens[i] == token) {
@@ -191,5 +237,29 @@ contract MockBalancerV3Vault {
             }
         }
         revert("MockVault: unknown token");
+    }
+}
+
+/// @notice Attacker-shaped router: moves a rate provider, swaps against the pool at the shifted
+///         rate, and restores the rate — all inside one transaction, so both transaction-endpoint
+///         snapshots agree while the swap itself priced against the manipulated value.
+contract RateManipulatingRouter {
+    MockBalancerV3Vault internal immutable vault;
+    MockRateProvider internal immutable provider;
+
+    constructor(MockBalancerV3Vault vault_, MockRateProvider provider_) {
+        vault = vault_;
+        provider = provider_;
+    }
+
+    function approveVault(address token) external {
+        IMockERC20(token).approve(address(vault), type(uint256).max);
+    }
+
+    function manipulateSwapRestore(VaultSwapParams memory params) external {
+        uint256 original = provider.rate();
+        provider.setRate(original * 2);
+        vault.swap(params);
+        provider.setRate(original);
     }
 }
