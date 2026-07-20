@@ -94,7 +94,10 @@ contract TydroProtectionSuite is AaveV3LikeProtectionSuite {
             operation.kind = OperationKind.Borrow;
             operation.account = triggered.caller;
             operation.asset = _assetByL2Id(args);
-            operation.amount = _decodeL2Amount(args, false);
+            // Borrow shares the compact uint128 max sentinel: the Pool reads type(uint128).max as a
+            // full type(uint256).max borrow, so the operation context must expand it the same way
+            // withdraw does, or downstream amount checks see a shortened value.
+            operation.amount = _decodeL2Amount(args, true);
             operation.increasesDebt = operation.amount != 0;
             return operation;
         }

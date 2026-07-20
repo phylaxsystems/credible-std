@@ -107,6 +107,23 @@ contract TydroOperationSafetyTest is Test, CredibleTest {
         assertTrue(suite.shouldCheckPostOperationSolvency(op));
     }
 
+    function testL2BorrowDecodesMaxAmountSentinel() public view {
+        // The compact uint128 max sentinel must expand to a full uint256 max borrow, matching how
+        // the Pool interprets it; a shortened value would misreport the operation amount.
+        bytes32 args = _packL2Amount(0, type(uint128).max);
+
+        ILendingProtectionSuite.OperationContext memory op = suite.decodeOperation(
+            _triggered(ITydroL2Pool.borrow.selector, abi.encodeCall(ITydroL2Pool.borrow, (args)))
+        );
+
+        assertEq(uint256(op.kind), uint256(ILendingProtectionSuite.OperationKind.Borrow));
+        assertEq(op.account, caller);
+        assertEq(op.asset, reserve);
+        assertEq(op.amount, type(uint256).max);
+        assertTrue(op.increasesDebt);
+        assertTrue(suite.shouldCheckPostOperationSolvency(op));
+    }
+
     function testL2WithdrawDecodesMaxAmountSentinel() public view {
         // The compact uint128 max sentinel must expand to a full uint256 max withdrawal.
         bytes32 args = _packL2Amount(0, type(uint128).max);
