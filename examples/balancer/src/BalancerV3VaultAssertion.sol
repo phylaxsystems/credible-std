@@ -55,8 +55,9 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
         registerTxEndTrigger(this.assertTokenRatesWithinDriftBound.selector);
     }
 
-    /// @notice A swap on a hookless pool must grow (or at worst preserve) the pool invariant and
-    ///         move its live tokenOut balance in the swap's direction.
+    /// @notice A swap on a hookless pool must grow (or at worst preserve) the pool invariant,
+    ///         leave BPT supply unchanged, and move its live tokenOut balance in the swap's
+    ///         direction.
     /// @dev The Vault takes `onSwap`'s output on trust: no `require` recomputes the curve. This
     ///      check recomputes the pool's invariant from live balances through the pool's own math at
     ///      the pre-call and post-call forks. With any nonzero swap fee the invariant must grow, so
@@ -107,6 +108,8 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
         uint256 preInvariant = _invariantOf(preLiveBalances, pre);
         uint256 postInvariant = _invariantOf(postLiveBalances, post);
         require(postInvariant + INVARIANT_DUST_TOLERANCE >= preInvariant, "BalancerV3: swap decreased pool invariant");
+
+        require(_bptTotalSupplyAt(post) == _bptTotalSupplyAt(pre), "BalancerV3: swap changed BPT supply");
 
         uint256 indexOut = _tokenIndex(preSnap.tokens, tokenOut);
         require(

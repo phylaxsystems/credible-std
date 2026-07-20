@@ -41,6 +41,7 @@ contract MockBalancerV3Vault {
     enum Mode {
         Honest,
         InvariantLoss, // pays out more tokenOut than the curve allows
+        SupplyDrift, // mints BPT during a swap
         BalanceSwapEnds, // recorded balances move against the swap direction, invariant preserved
         ReserveSkim, // real tokens leave the Vault without the reserve ledger noticing
         PhantomBalance, // inflates the pool's recorded balance with no reserve backing
@@ -165,7 +166,9 @@ contract MockBalancerV3Vault {
         _aggregateSwapFees[params.tokenIn] += fee;
         _balancesRaw[indexOut] -= amountOut;
 
-        if (mode == Mode.ReserveSkim) {
+        if (mode == Mode.SupplyDrift) {
+            _bptSupply += 1e18;
+        } else if (mode == Mode.ReserveSkim) {
             IMockERC20(params.tokenOut).transfer(skimReceiver, 10e18);
         } else if (mode == Mode.PhantomBalance) {
             _balancesRaw[indexOut] += 600e18;

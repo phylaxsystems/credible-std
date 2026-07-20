@@ -97,6 +97,14 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
         _swap(address(pool));
     }
 
+    function testSupplyDriftTrips() public {
+        vault.setMode(MockBalancerV3Vault.Mode.SupplyDrift);
+
+        _arm(BalancerV3VaultAssertion.assertSwapPreservesPoolInvariant.selector);
+        vm.expectRevert(bytes("BalancerV3: swap changed BPT supply"));
+        _swap(address(pool));
+    }
+
     function testBalancesAgainstSwapDirectionTrip() public {
         vault.setMode(MockBalancerV3Vault.Mode.BalanceSwapEnds);
 
