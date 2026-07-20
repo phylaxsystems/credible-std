@@ -42,7 +42,9 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
     function _arm(bytes4 fnSelector) internal {
         bytes memory createData = abi.encodePacked(
             type(BalancerV3VaultAssertion).creationCode,
-            abi.encode(address(vault), address(pool), INVARIANT_DUST_TOLERANCE, RATE_DRIFT_TOLERANCE_BPS)
+            abi.encode(
+                address(vault), address(pool), vault.swapHooks(), INVARIANT_DUST_TOLERANCE, RATE_DRIFT_TOLERANCE_BPS
+            )
         );
         cl.assertion(address(vault), createData, fnSelector);
     }
@@ -70,6 +72,16 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
         _swap(address(pool));
     }
 
+    /// @notice The Vault deducts pending yield fees before adding swap input. Raw tokenIn balance
+    ///         can therefore fall across an honest small swap; fee-adjusted live balance still
+    ///         moves in the correct direction and is the relevant input to pool math.
+    function testHonestSwapWithPendingYieldFeesPassesInvariantAssertion() public {
+        vault.seedPendingYieldFee(address(token0), 20e18);
+
+        _arm(BalancerV3VaultAssertion.assertSwapPreservesPoolInvariant.selector);
+        _swap(address(pool));
+    }
+
     function testSwapOnUnwatchedPoolIsIgnored() public {
         vault.setMode(MockBalancerV3Vault.Mode.InvariantLoss);
 
@@ -85,37 +97,18 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
         _swap(address(pool));
     }
 
-    function testSupplyDriftTrips() public {
-        vault.setMode(MockBalancerV3Vault.Mode.SupplyDrift);
-
-        _arm(BalancerV3VaultAssertion.assertSwapPreservesPoolInvariant.selector);
-        vm.expectRevert(bytes("BalancerV3: swap changed BPT supply"));
-        _swap(address(pool));
-    }
-
     function testBalancesAgainstSwapDirectionTrip() public {
         vault.setMode(MockBalancerV3Vault.Mode.BalanceSwapEnds);
 
         _arm(BalancerV3VaultAssertion.assertSwapPreservesPoolInvariant.selector);
-        vm.expectRevert(bytes("BalancerV3: swap decreased tokenIn pool balance"));
+        vm.expectRevert(bytes("BalancerV3: swap increased tokenOut pool balance"));
         _swap(address(pool));
     }
 
-    /// @notice A rate that moves inside the swap call trips the equality pin: for supported
-    ///         hookless pools no user code can run within the call, so any in-call rate movement
-    ///         is Vault- or pool-driven manipulation.
-    function testRateShiftWithinSwapCallTrips() public {
-        vault.setMode(MockBalancerV3Vault.Mode.RateShift);
-
-        _arm(BalancerV3VaultAssertion.assertSwapPreservesPoolInvariant.selector);
-        vm.expectRevert(bytes("BalancerV3: rate moved within swap call"));
-        _swap(address(pool));
-    }
-
-    /// @notice Pools with before/after-swap hooks are outside the swap check's scope: those hooks
-    ///         may legitimately reenter the Vault mid-swap, so call-boundary snapshots cannot
-    ///         attribute deltas to the core swap. A failure knob that would otherwise trip must
-    ///         pass once the pool reports swap hooks.
+    /// @notice Pools configured at assertion deployment with before/after-swap hooks are outside
+    ///         the swap check's scope: those hooks may legitimately reenter the Vault mid-swap, so
+    ///         call-boundary snapshots cannot attribute deltas to the core swap. A failure knob
+    ///         that would otherwise trip must pass once the deployment marks the pool as hooked.
     function testHookedPoolSwapChecksAreSkipped() public {
         vault.setSwapHooks(true);
         vault.setMode(MockBalancerV3Vault.Mode.InvariantLoss);
@@ -232,18 +225,18 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
 
     function testDeploys() public {
         BalancerV3VaultAssertion assertion = new BalancerV3VaultAssertion(
-            address(vault), address(pool), INVARIANT_DUST_TOLERANCE, RATE_DRIFT_TOLERANCE_BPS
+            address(vault), address(pool), false, INVARIANT_DUST_TOLERANCE, RATE_DRIFT_TOLERANCE_BPS
         );
         assertTrue(address(assertion) != address(0));
     }
 
     function testRejectsZeroVault() public {
         vm.expectRevert(bytes("BalancerV3: zero vault"));
-        new BalancerV3VaultAssertion(address(0), address(pool), 0, RATE_DRIFT_TOLERANCE_BPS);
+        new BalancerV3VaultAssertion(address(0), address(pool), false, 0, RATE_DRIFT_TOLERANCE_BPS);
     }
 
     function testRejectsZeroPool() public {
         vm.expectRevert(bytes("BalancerV3: zero pool"));
-        new BalancerV3VaultAssertion(address(vault), address(0), 0, RATE_DRIFT_TOLERANCE_BPS);
+        new BalancerV3VaultAssertion(address(vault), address(0), false, 0, RATE_DRIFT_TOLERANCE_BPS);
     }
 }

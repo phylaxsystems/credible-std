@@ -21,14 +21,15 @@ This profile is part of the Solidity Test CI examples matrix, so the suite is ga
 - `BalancerV3VaultAssertion.sol` — per-pool protections inside the singleton Vault:
   - `assertSwapPreservesPoolInvariant` (call-scoped on `Vault.swap`, hookless pools only): the
     pool's own `computeInvariant` over live balances may not decrease across a swap beyond an
-    absolute rounding-dust allowance, BPT supply is frozen, raw balances move in the swap's
-    direction, and every registered rate is identical at both call boundaries and within the
-    drift bound of its pre-transaction baseline (so a rate transiently moved between calls and
-    restored before tx-end is caught at the operation that consumed it). Pools with
-    before/after-swap hooks are skipped: those hooks are intentionally reentrant in V3 and
-    call-boundary snapshots cannot isolate the core swap, so hooked pools need a pool-specific
-    variant. Because the invariant is recomputed by the pool's own math, this detects
-    inconsistency between `onSwap` and `computeInvariant` (an honest-but-buggy pool), not a
+    absolute rounding-dust allowance, the fee-adjusted live tokenOut balance may not increase,
+    and every registered rate observed at swap start remains within the drift bound of its
+    pre-transaction baseline (so a rate transiently moved between calls and restored before
+    tx-end is caught at the operation that consumed it). Pools with
+    before/after-swap hooks are skipped through immutable deployment configuration: those hooks
+    are intentionally reentrant in V3 and call-boundary snapshots cannot isolate the core swap,
+    so hooked pools need a pool-specific variant. Because the invariant is recomputed by the
+    pool's own math, this detects inconsistency between `onSwap` and `computeInvariant` (an
+    honest-but-buggy pool), not a
     deliberately malicious pool that keeps both consistent — that class needs pinned
     factory/codehash combinations plus independent invariant math per pool type.
   - `assertPoolAccountingWithinVaultCustody` (tx-end): real ERC20 custody ≥ global Vault
@@ -54,10 +55,12 @@ This profile is part of the Solidity Test CI examples matrix, so the suite is ga
 - The Vault is the assertion adopter for every contract in this bundle; swaps in pools other
   than the watched pool are filtered out by decoding the swap calldata, and the outflow breaker
   verifies the configured Vault against the actual adopter before tripping.
-- Thresholds (absolute invariant rounding dust, rate drift bps, outflow cap/window) are
-  constructor parameters that need per-deployment calibration. The invariant dust tolerance is
-  absolute (18-decimal invariant units) because a bps-of-invariant tolerance cannot express
-  rounding dust without also allowing material repeatable loss. The outflow constructor mirrors
+- Hook classification and thresholds (absolute invariant rounding dust, rate drift bps, outflow
+  cap/window) are constructor parameters that need per-deployment calibration. Balancer fixes
+  hook wiring at pool registration, so the assertion records whether before/after-swap hooks are
+  enabled once instead of paying for a full hook-config read on every swap. The invariant dust
+  tolerance is absolute (18-decimal invariant units) because a bps-of-invariant tolerance cannot
+  express rounding dust without also allowing material repeatable loss. The outflow constructor mirrors
   the executor's trigger constraints (threshold strictly below 100%, window between the
   10-second bucket and `uint64` max) so misconfigurations surface at deploy time instead of at
   trigger registration.

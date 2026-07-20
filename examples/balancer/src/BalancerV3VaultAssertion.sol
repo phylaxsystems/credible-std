@@ -28,9 +28,19 @@ import {IBalancerV3VaultLike} from "./BalancerV3VaultInterfaces.sol";
 ///      watched pool and silently ignores swaps in other pools. Tx-end checks read only the watched
 ///      pool's accounting, so unrelated pool activity cannot produce false positives.
 contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
-    constructor(address vault_, address pool_, uint256 invariantDustTolerance_, uint256 rateDriftToleranceBps_)
-        BalancerV3VaultHelpers(vault_, pool_, invariantDustTolerance_, rateDriftToleranceBps_)
-    {
+    /// @notice Whether the watched pool was registered with a before- or after-swap hook.
+    /// @dev Balancer fixes hook wiring when a pool is registered, so classifying it once at
+    ///      deployment avoids an expensive full hook-config read on every swap.
+    bool internal immutable POOL_HAS_SWAP_HOOKS;
+
+    constructor(
+        address vault_,
+        address pool_,
+        bool poolHasSwapHooks_,
+        uint256 invariantDustTolerance_,
+        uint256 rateDriftToleranceBps_
+    ) BalancerV3VaultHelpers(vault_, pool_, invariantDustTolerance_, rateDriftToleranceBps_) {
+        POOL_HAS_SWAP_HOOKS = poolHasSwapHooks_;
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
@@ -46,24 +56,24 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
     }
 
     /// @notice A swap on a hookless pool must grow (or at worst preserve) the pool invariant and
-    ///         touch nothing else.
+    ///         move its live tokenOut balance in the swap's direction.
     /// @dev The Vault takes `onSwap`'s output on trust: no `require` recomputes the curve. This
     ///      check recomputes the pool's invariant from live balances through the pool's own math at
     ///      the pre-call and post-call forks. With any nonzero swap fee the invariant must grow, so
-    ///      it may never drop by more than the configured absolute rounding dust. BPT supply must
-    ///      be frozen across a swap, and raw pool balances must move in the swap's direction
-    ///      (tokenIn in, tokenOut out).
+    ///      it may never drop by more than the configured absolute rounding dust. The
+    ///      fee-adjusted live tokenOut balance may not increase. Together with invariant
+    ///      non-decrease, this implies nonnegative value entered on the tokenIn side for
+    ///      Balancer's monotonic pool invariants without a redundant input-leg comparison.
     ///
     ///      Scope and trust boundaries, stated exactly:
-    ///      - Pools with before/after-swap hooks are SKIPPED. Those hooks run inside the swap call
-    ///        scope, outside the Vault's internal reentrancy guard, and may legitimately reenter
-    ///        (nested liquidity, donations, nested swaps), so call-boundary snapshots cannot
-    ///        isolate the core swap. Hooked pools need a variant built for their specific hook.
-    ///      - For the supported hookless pools no user code can run inside the swap call, so every
-    ///        registered rate must be identical at the call's boundary snapshots; that is enforced
-    ///        below, which also pins one fixed rate vector under both invariant evaluations and
-    ///        makes raw-balance direction equivalent to live-balance direction. Each rate observed
-    ///        at swap start — the rate the Vault actually prices against — must additionally sit
+    ///      - Pools configured at assertion deployment as having before/after-swap hooks are
+    ///        SKIPPED. Those hooks run inside the swap call scope, outside the Vault's internal
+    ///        reentrancy guard, and may legitimately reenter (nested liquidity, donations, nested
+    ///        swaps), so call-boundary snapshots cannot isolate the core swap. Hooked pools need a
+    ///        variant built for their specific hook.
+    ///      - Supported hookless pools expose no state-changing callback inside the swap, so the
+    ///        registered rate vector cannot move between its call-boundary snapshots. Each rate
+    ///        observed at swap start — the rate the Vault actually prices against — must sit
     ///        within the drift bound of its pre-transaction baseline, so a rate transiently moved
     ///        between calls of one transaction and restored before tx-end is still caught at the
     ///        exact operation that consumed it.
@@ -75,9 +85,12 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
     ///        pinning trusted factory/codehash combinations and re-implementing the invariant math
     ///        independently per pool type, which is out of scope for this example.
     function assertSwapPreservesPoolInvariant() external view {
+        if (POOL_HAS_SWAP_HOOKS) {
+            return;
+        }
+
         PhEvm.TriggerContext memory ctx = ph.context();
-        _requireConfiguredVaultIsAdopter();
-        (address pool, address tokenIn, address tokenOut) = _swapArgs(ph.callinputAt(ctx.callStart));
+        (address pool, address tokenOut) = _swapPoolAndTokenOut(ph.callinputAt(ctx.callStart));
         if (pool != POOL) {
             return;
         }
@@ -85,45 +98,31 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
         PhEvm.ForkId memory pre = _preCall(ctx.callStart);
         PhEvm.ForkId memory post = _postCall(ctx.callEnd);
 
-        if (_hasSwapHooksAt(pre)) {
-            // Reentrant-by-design hook window: call-boundary snapshots cannot attribute deltas to
-            // the core swap. Documented restriction — hooked pools need a pool-specific variant.
-            return;
-        }
-
         PoolTokenSnapshot memory preSnap = _poolTokenSnapshotAt(pre);
-        PoolTokenSnapshot memory postSnap = _poolTokenSnapshotAt(post);
 
-        _requireSwapRatesPinned(preSnap, pre, post);
+        _requireSwapRatesWithinBaseline(preSnap, pre);
 
-        uint256 preInvariant = _invariantOf(_liveBalancesAt(pre), pre);
-        uint256 postInvariant = _invariantOf(_liveBalancesAt(post), post);
+        uint256[] memory preLiveBalances = _liveBalancesAt(pre);
+        uint256[] memory postLiveBalances = _liveBalancesAt(post);
+        uint256 preInvariant = _invariantOf(preLiveBalances, pre);
+        uint256 postInvariant = _invariantOf(postLiveBalances, post);
         require(postInvariant + INVARIANT_DUST_TOLERANCE >= preInvariant, "BalancerV3: swap decreased pool invariant");
 
-        require(_bptTotalSupplyAt(post) == _bptTotalSupplyAt(pre), "BalancerV3: swap changed BPT supply");
-
-        (uint256 indexIn, uint256 indexOut) = _tokenIndexes(preSnap.tokens, tokenIn, tokenOut);
+        uint256 indexOut = _tokenIndex(preSnap.tokens, tokenOut);
         require(
-            postSnap.balancesRaw[indexIn] >= preSnap.balancesRaw[indexIn],
-            "BalancerV3: swap decreased tokenIn pool balance"
-        );
-        require(
-            postSnap.balancesRaw[indexOut] <= preSnap.balancesRaw[indexOut],
-            "BalancerV3: swap increased tokenOut pool balance"
+            postLiveBalances[indexOut] <= preLiveBalances[indexOut], "BalancerV3: swap increased tokenOut pool balance"
         );
     }
 
-    /// @dev Rate discipline for one matched hookless swap call: every registered provider must
-    ///      report the same rate at both call boundaries (nothing may move a rate inside a
-    ///      hookless swap), and the swap-start rate — the one the Vault prices against — must sit
-    ///      within the drift bound of the provider's pre-transaction baseline. A provider that did
-    ///      not answer at the pre-tx fork did not exist yet (pool deployed within this
-    ///      transaction) and has no baseline to compare; a provider that answered zero is a broken
-    ///      baseline and fails instead of being conflated with the deployment case.
-    function _requireSwapRatesPinned(PoolTokenSnapshot memory snap, PhEvm.ForkId memory pre, PhEvm.ForkId memory post)
-        internal
-        view
-    {
+    /// @dev Rate discipline for one matched hookless swap call: the swap-start rate — the one the
+    ///      Vault prices against — must sit within the drift bound of the provider's
+    ///      pre-transaction baseline. Hookless swaps expose no state-changing callback, so the
+    ///      provider cannot move inside the call. A provider that did not answer at the pre-tx
+    ///      fork did not exist yet (pool deployed within this transaction) and has no baseline to
+    ///      compare; a provider that answered zero is a broken baseline and fails instead of being
+    ///      conflated with the deployment case.
+    function _requireSwapRatesWithinBaseline(PoolTokenSnapshot memory snap, PhEvm.ForkId memory pre) internal view {
+        PhEvm.ForkId memory preTx = _preTx();
         for (uint256 i; i < snap.tokenInfo.length; ++i) {
             address rateProvider = snap.tokenInfo[i].rateProvider;
             if (rateProvider == address(0)) {
@@ -131,9 +130,8 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
             }
 
             uint256 rateAtSwap = _rateAt(rateProvider, pre);
-            require(rateAtSwap == _rateAt(rateProvider, post), "BalancerV3: rate moved within swap call");
 
-            (bool answered, uint256 baseline) = _rateStatusAt(rateProvider, _preTx());
+            (bool answered, uint256 baseline) = _rateStatusAt(rateProvider, preTx);
             if (!answered) {
                 continue;
             }

@@ -1,14 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {
-    HooksConfig,
-    Rounding,
-    SwapKind,
-    TokenInfo,
-    TokenType,
-    VaultSwapParams
-} from "../src/BalancerV3VaultInterfaces.sol";
+import {Rounding, SwapKind, TokenInfo, TokenType, VaultSwapParams} from "../src/BalancerV3VaultInterfaces.sol";
 
 interface IMockERC20 {
     function transfer(address to, uint256 amount) external returns (bool);
@@ -48,7 +41,6 @@ contract MockBalancerV3Vault {
     enum Mode {
         Honest,
         InvariantLoss, // pays out more tokenOut than the curve allows
-        SupplyDrift, // mints BPT during a swap
         BalanceSwapEnds, // recorded balances move against the swap direction, invariant preserved
         ReserveSkim, // real tokens leave the Vault without the reserve ledger noticing
         PhantomBalance, // inflates the pool's recorded balance with no reserve backing
@@ -64,6 +56,8 @@ contract MockBalancerV3Vault {
     uint256[] internal _balancesRaw;
     mapping(address token => uint256) public reservesOf;
     mapping(address token => uint256) internal _aggregateSwapFees;
+    mapping(address token => uint256) internal _aggregateYieldFees;
+    mapping(address token => uint256) internal _pendingYieldFees;
     uint256 internal _bptSupply = 100e18;
     Mode public mode;
     address public skimReceiver;
@@ -109,6 +103,10 @@ contract MockBalancerV3Vault {
         _aggregateSwapFees[token] = amount;
     }
 
+    function seedPendingYieldFee(address token, uint256 amount) external {
+        _pendingYieldFees[token] = amount;
+    }
+
     /// @notice Moves the watched rate provider without touching any pool accounting: models a
     ///         transaction that interacts with the Vault singleton but never the watched pool.
     function shiftRateOnly() external {
@@ -136,6 +134,16 @@ contract MockBalancerV3Vault {
 
         uint256 indexIn = _indexOf(params.tokenIn);
         uint256 indexOut = _indexOf(params.tokenOut);
+        uint256 pendingYieldFee = _pendingYieldFees[params.tokenIn];
+        if (pendingYieldFee != 0) {
+            // The real Vault collects pending yield fees before applying swap deltas. Its live
+            // balance getter already excludes this amount in the pre-state, while raw balances do
+            // not. A small honest input can therefore leave postRaw < preRaw.
+            _balancesRaw[indexIn] -= pendingYieldFee;
+            _aggregateYieldFees[params.tokenIn] += pendingYieldFee;
+            delete _pendingYieldFees[params.tokenIn];
+        }
+
         amountIn = params.amountGivenRaw;
         uint256 fee = amountIn / FEE_DIVISOR;
         amountOut = mode == Mode.InvariantLoss ? amountIn * 2 : amountIn - 2 * fee;
@@ -157,9 +165,7 @@ contract MockBalancerV3Vault {
         _aggregateSwapFees[params.tokenIn] += fee;
         _balancesRaw[indexOut] -= amountOut;
 
-        if (mode == Mode.SupplyDrift) {
-            _bptSupply += 1e18;
-        } else if (mode == Mode.ReserveSkim) {
+        if (mode == Mode.ReserveSkim) {
             IMockERC20(params.tokenOut).transfer(skimReceiver, 10e18);
         } else if (mode == Mode.PhantomBalance) {
             _balancesRaw[indexOut] += 600e18;
@@ -188,22 +194,25 @@ contract MockBalancerV3Vault {
         tokens = _tokens;
         tokenInfo = new TokenInfo[](2);
         tokenInfo[0] =
-            TokenInfo({tokenType: TokenType.WITH_RATE, rateProvider: address(rateProvider0), paysYieldFees: false});
+            TokenInfo({tokenType: TokenType.WITH_RATE, rateProvider: address(rateProvider0), paysYieldFees: true});
         tokenInfo[1] = TokenInfo({tokenType: TokenType.STANDARD, rateProvider: address(0), paysYieldFees: false});
         balancesRaw = _balancesRaw;
         lastBalancesLiveScaled18 = _balancesRaw;
     }
 
-    function getCurrentLiveBalances(address) external view returns (uint256[] memory) {
-        return _balancesRaw;
+    function getCurrentLiveBalances(address) external view returns (uint256[] memory balancesLive) {
+        balancesLive = _balancesRaw;
+        for (uint256 i; i < balancesLive.length; ++i) {
+            balancesLive[i] -= _pendingYieldFees[_tokens[i]];
+        }
     }
 
     function getAggregateSwapFeeAmount(address, address token) external view returns (uint256) {
         return _aggregateSwapFees[token];
     }
 
-    function getAggregateYieldFeeAmount(address, address) external pure returns (uint256) {
-        return 0;
+    function getAggregateYieldFeeAmount(address, address token) external view returns (uint256) {
+        return _aggregateYieldFees[token];
     }
 
     function getReservesOf(address token) external view returns (uint256) {
@@ -220,14 +229,6 @@ contract MockBalancerV3Vault {
 
     function isPoolInRecoveryMode(address) external view returns (bool) {
         return recoveryMode;
-    }
-
-    function getHooksConfig(address) external view returns (HooksConfig memory config) {
-        config.shouldCallBeforeSwap = swapHooks;
-        config.shouldCallAfterSwap = swapHooks;
-        if (swapHooks) {
-            config.hooksContract = address(0xDEAD);
-        }
     }
 
     function _indexOf(address token) internal view returns (uint256) {

@@ -38,24 +38,6 @@ struct TokenInfo {
     bool paysYieldFees;
 }
 
-/// @notice Pool hook wiring, mirrored from Balancer's `HooksConfig`. The swap-scoped assertion
-///         reads only the before/after-swap flags: those hooks execute inside the `Vault.swap`
-///         call scope and may legitimately reenter the Vault, so pools that enable them cannot
-///         be checked with call-boundary snapshots.
-struct HooksConfig {
-    bool enableHookAdjustedAmounts;
-    bool shouldCallBeforeInitialize;
-    bool shouldCallAfterInitialize;
-    bool shouldCallComputeDynamicSwapFee;
-    bool shouldCallBeforeSwap;
-    bool shouldCallAfterSwap;
-    bool shouldCallBeforeAddLiquidity;
-    bool shouldCallAfterAddLiquidity;
-    bool shouldCallBeforeRemoveLiquidity;
-    bool shouldCallAfterRemoveLiquidity;
-    address hooksContract;
-}
-
 /// @notice The Vault surface used by the assertions. Getters live on VaultExtension in
 ///         production but are reachable through the Vault address via its fallback delegation.
 interface IBalancerV3VaultLike {
@@ -86,8 +68,6 @@ interface IBalancerV3VaultLike {
     function totalSupply(address token) external view returns (uint256 tokenTotalSupply);
 
     function isPoolInitialized(address pool) external view returns (bool initialized);
-
-    function getHooksConfig(address pool) external view returns (HooksConfig memory hooksConfig);
 
     function isPoolInRecoveryMode(address pool) external view returns (bool inRecoveryMode);
 }

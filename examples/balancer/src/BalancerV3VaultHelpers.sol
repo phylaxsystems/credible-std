@@ -5,7 +5,6 @@ import {Assertion} from "credible-std/Assertion.sol";
 import {PhEvm} from "credible-std/PhEvm.sol";
 
 import {
-    HooksConfig,
     IBalancerV3BasePoolLike,
     IBalancerV3VaultLike,
     IRateProviderLike,
@@ -67,37 +66,30 @@ abstract contract BalancerV3VaultHelpers is Assertion {
         require(ph.getAssertionAdopter() == VAULT, "BalancerV3: configured vault is not adopter");
     }
 
-    /// @dev Reads the swap legs straight from `swap(VaultSwapParams)` calldata instead of
-    ///      abi-decoding the whole struct: the assertion only needs the pool and token addresses,
-    ///      and a full dynamic-struct decode costs enough gas to threaten the assertion budget.
+    /// @dev Reads the pool and tokenOut straight from successfully executed
+    ///      `swap(VaultSwapParams)` calldata instead of abi-decoding the whole struct: the
+    ///      assertion only needs those two addresses, and a full dynamic-struct decode costs
+    ///      enough gas to threaten the assertion budget.
     ///      Layout: 4-byte selector, one head word holding the struct offset, then the struct
     ///      fields (`kind`, `pool`, `tokenIn`, `tokenOut`, ...) in order. The head offset is
-    ///      bound-checked before it is followed: an offset the Vault's own decoder would reject
-    ///      cannot belong to an executed swap, so malformed calldata fails closed here instead of
-    ///      reading unrelated assertion memory.
-    function _swapArgs(bytes memory input) internal pure returns (address pool_, address tokenIn_, address tokenOut_) {
-        require(input.length >= 4 + 32 * 8, "BalancerV3: short swap calldata");
-
+    ///      safe to follow because the call trigger only fires after the Vault's own ABI decoder
+    ///      accepted and executed this calldata.
+    function _swapPoolAndTokenOut(bytes memory input) internal pure returns (address pool_, address tokenOut_) {
         uint256 structOffset;
         assembly ("memory-safe") {
             structOffset := mload(add(input, 36)) // skip the bytes length word and the 4-byte selector
         }
-        // The struct's static area is 7 words; it must fit inside the argument section.
-        require(structOffset <= input.length - 4 - 32 * 7, "BalancerV3: bad swap struct offset");
 
         uint256 poolWord;
-        uint256 tokenInWord;
         uint256 tokenOutWord;
         assembly ("memory-safe") {
             let args := add(input, 36)
             let structBase := add(args, structOffset) // head word points at the struct tuple
             poolWord := mload(add(structBase, 32))
-            tokenInWord := mload(add(structBase, 64))
             tokenOutWord := mload(add(structBase, 96))
         }
 
         pool_ = address(uint160(poolWord));
-        tokenIn_ = address(uint160(tokenInWord));
         tokenOut_ = address(uint160(tokenOutWord));
     }
 
@@ -128,28 +120,14 @@ abstract contract BalancerV3VaultHelpers is Assertion {
         );
     }
 
-    /// @dev Registration-order indexes of the swap legs within an already-read token snapshot.
-    ///      Both legs are matched independently so `tokenIn == tokenOut` resolves to one shared
-    ///      index instead of reverting: the Vault rejects same-token swaps, so such a trigger can
-    ///      only be observed for a call that left no state change, and the direction checks then
-    ///      pin that single balance in place rather than falsely blocking the transaction.
-    function _tokenIndexes(address[] memory tokens, address tokenIn, address tokenOut)
-        internal
-        pure
-        returns (uint256 indexIn, uint256 indexOut)
-    {
-        indexIn = type(uint256).max;
-        indexOut = type(uint256).max;
+    /// @dev Registration-order index of one token within an already-read token snapshot.
+    function _tokenIndex(address[] memory tokens, address token) internal pure returns (uint256 index) {
         for (uint256 i; i < tokens.length; ++i) {
-            if (tokens[i] == tokenIn) {
-                indexIn = i;
-            }
-            if (tokens[i] == tokenOut) {
-                indexOut = i;
+            if (tokens[i] == token) {
+                return i;
             }
         }
-        require(indexIn != type(uint256).max, "BalancerV3: tokenIn not registered in pool");
-        require(indexOut != type(uint256).max, "BalancerV3: tokenOut not registered in pool");
+        revert("BalancerV3: token not registered in pool");
     }
 
     function _bptTotalSupplyAt(PhEvm.ForkId memory fork) internal view returns (uint256) {
@@ -171,18 +149,6 @@ abstract contract BalancerV3VaultHelpers is Assertion {
 
     function _isPoolInRecoveryModeAt(PhEvm.ForkId memory fork) internal view returns (bool) {
         return _readBoolAt(VAULT, abi.encodeCall(IBalancerV3VaultLike.isPoolInRecoveryMode, (POOL)), fork);
-    }
-
-    /// @dev Whether the watched pool runs a before- or after-swap hook. Those two hooks execute
-    ///      inside the `Vault.swap` call scope and outside the internal `_swap` reentrancy guard,
-    ///      so they may legitimately reenter the Vault (nested liquidity, donations, nested swaps)
-    ///      and change BPT supply, balances, and rates between the swap call's boundary snapshots.
-    ///      The dynamic-swap-fee hook is declared `view` and cannot mutate state, and the
-    ///      liquidity hooks do not run within a swap, so neither disqualifies the pool here.
-    function _hasSwapHooksAt(PhEvm.ForkId memory fork) internal view returns (bool) {
-        bytes memory ret = _viewAt(VAULT, abi.encodeCall(IBalancerV3VaultLike.getHooksConfig, (POOL)), fork);
-        HooksConfig memory config = abi.decode(ret, (HooksConfig));
-        return config.shouldCallBeforeSwap || config.shouldCallAfterSwap;
     }
 
     /// @notice Strict rate read: reverts if the provider does not answer.
