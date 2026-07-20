@@ -32,14 +32,19 @@ This profile is part of the Solidity Test CI examples matrix, so the suite is ga
     honest-but-buggy pool), not a
     deliberately malicious pool that keeps both consistent — that class needs pinned
     factory/codehash combinations plus independent invariant math per pool type.
+  - `assertOperationRatesWithinBaseline` (call-scoped on add/remove liquidity, initialization,
+    and recovery resync): each provider rate at operation entry must remain within the
+    transaction baseline. Liquidity hooks that move and restore a rate entirely inside the call
+    need a pool-specific assertion that observes the post-hook pricing point.
   - `assertPoolAccountingWithinVaultCustody` (tx-end): real ERC20 custody ≥ global Vault
     reserves ≥ watched pool balances + accrued aggregate protocol fees. A necessary but NOT
     sufficient bound: reserves are one global ledger shared by every pool and ERC-4626 buffer,
     so one pool's view cannot prove aggregate solvency.
   - `assertTokenRatesWithinDriftBound` (tx-end): rate-provider rates feeding pool math stay
     nonzero and within a configured bps bound across transactions that change the watched
-    pool's accounting. Scoped so the provider never becomes a liveness dependency of unrelated
-    Vault traffic, and skipped when the pool is in recovery mode (recovery exits deliberately
+    pool's accounting. A cheap calldata trace gate covers swap, liquidity, initialization,
+    recovery removal, and aggregate-fee collection before any pool snapshots are read. The rate
+    check is skipped when the pool is in recovery mode (recovery exits deliberately
     avoid rate calls, and a broken provider must not block them). Providers already registered
     pre-transaction must present a nonzero pre-tx baseline — a successful zero is a failure,
     not a registration exemption; only providers first registered within the transaction (pool

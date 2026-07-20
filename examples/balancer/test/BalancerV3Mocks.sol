@@ -1,7 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Rounding, SwapKind, TokenInfo, TokenType, VaultSwapParams} from "../src/BalancerV3VaultInterfaces.sol";
+import {
+    AddLiquidityParams,
+    RemoveLiquidityParams,
+    Rounding,
+    SwapKind,
+    TokenInfo,
+    TokenType,
+    VaultSwapParams
+} from "../src/BalancerV3VaultInterfaces.sol";
 
 interface IMockERC20 {
     function transfer(address to, uint256 amount) external returns (bool);
@@ -64,6 +72,7 @@ contract MockBalancerV3Vault {
     address public skimReceiver;
     bool public swapHooks;
     bool public recoveryMode;
+    bool public revertOnPoolReads;
 
     constructor(address pool_, address token0_, address token1_, MockRateProvider rateProvider0_) {
         pool = pool_;
@@ -92,6 +101,14 @@ contract MockBalancerV3Vault {
         recoveryMode = enabled;
     }
 
+    function setRevertOnPoolReads(bool enabled) external {
+        revertOnPoolReads = enabled;
+    }
+
+    function registerNewRateProvider() external {
+        rateProvider0 = new MockRateProvider();
+    }
+
     function seedPoolBalance(uint256 index, uint256 amount) external {
         _balancesRaw[index] = amount;
     }
@@ -114,14 +131,7 @@ contract MockBalancerV3Vault {
         rateProvider0.setRate(rateProvider0.rate() + 1e18);
     }
 
-    /// @notice Deploys a fresh rate provider inside the current transaction and registers it for
-    ///         token0, bumping pool accounting so the transaction counts as touching the pool.
-    ///         Models the pool-deployment lifecycle where a provider has no pre-tx code and no
-    ///         pre-tx registration.
-    function registerNewRateProviderAndTouchPool() external {
-        rateProvider0 = new MockRateProvider();
-        _balancesRaw[0] += 1;
-    }
+    function unrelatedVaultCall() external pure {}
 
     // --- swap ----------------------------------------------------------------
 
@@ -178,6 +188,40 @@ contract MockBalancerV3Vault {
         }
     }
 
+    function addLiquidity(AddLiquidityParams calldata params)
+        external
+        returns (uint256[] memory amountsIn, uint256 bptAmountOut, bytes memory returnData)
+    {
+        amountsIn = params.maxAmountsIn;
+        if (params.pool == pool) {
+            _balancesRaw[0] += 1;
+            _bptSupply += 1;
+        }
+        return (amountsIn, 1, "");
+    }
+
+    function removeLiquidity(RemoveLiquidityParams calldata params)
+        external
+        returns (uint256 bptAmountIn, uint256[] memory amountsOut, bytes memory returnData)
+    {
+        amountsOut = params.minAmountsOut;
+        if (params.pool == pool) {
+            _balancesRaw[0] -= 1;
+            _bptSupply -= 1;
+        }
+        return (1, amountsOut, "");
+    }
+
+    function initialize(address pool_, address, address[] calldata, uint256[] calldata, uint256, bytes calldata)
+        external
+        returns (uint256 bptAmountOut)
+    {
+        if (pool_ == pool) {
+            _balancesRaw[0] += 1;
+        }
+        return 1;
+    }
+
     // --- IBalancerV3VaultLike getter surface ----------------------------------
 
     function getPoolTokens(address) external view returns (address[] memory) {
@@ -194,6 +238,7 @@ contract MockBalancerV3Vault {
             uint256[] memory lastBalancesLiveScaled18
         )
     {
+        require(!revertOnPoolReads, "MockVault: unexpected pool read");
         tokens = _tokens;
         tokenInfo = new TokenInfo[](2);
         tokenInfo[0] =
@@ -264,6 +309,20 @@ contract RateManipulatingRouter {
         uint256 original = provider.rate();
         provider.setRate(original * 2);
         vault.swap(params);
+        provider.setRate(original);
+    }
+
+    function manipulateAddLiquidityRestore(AddLiquidityParams memory params) external {
+        uint256 original = provider.rate();
+        provider.setRate(original * 2);
+        vault.addLiquidity(params);
+        provider.setRate(original);
+    }
+
+    function manipulateRemoveLiquidityRestore(RemoveLiquidityParams memory params) external {
+        uint256 original = provider.rate();
+        provider.setRate(original * 2);
+        vault.removeLiquidity(params);
         provider.setRate(original);
     }
 }

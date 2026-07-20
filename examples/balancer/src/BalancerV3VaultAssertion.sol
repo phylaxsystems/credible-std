@@ -46,11 +46,23 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
 
     /// @notice Registers Vault selectors against their protection assertions.
     /// @dev The Vault is the assertion adopter. The swap check is call-scoped so it compares the
-    ///      exact pre-call and post-call snapshots of the matched swap; the custody and rate checks
-    ///      are transaction-wide envelopes because add/remove liquidity, buffer operations, and fee
-    ///      collection all move the same accounting.
+    ///      exact pre-call and post-call snapshots of the matched operation. The transaction-end
+    ///      checks first inspect calldata and return before reading snapshots unless swap or
+    ///      liquidity traffic touched the watched pool.
     function triggers() external view override {
         registerFnCallTrigger(this.assertSwapPreservesPoolInvariant.selector, IBalancerV3VaultLike.swap.selector);
+        registerFnCallTrigger(
+            this.assertOperationRatesWithinBaseline.selector, IBalancerV3VaultLike.addLiquidity.selector
+        );
+        registerFnCallTrigger(
+            this.assertOperationRatesWithinBaseline.selector, IBalancerV3VaultLike.removeLiquidity.selector
+        );
+        registerFnCallTrigger(
+            this.assertOperationRatesWithinBaseline.selector, IBalancerV3VaultLike.initialize.selector
+        );
+        registerFnCallTrigger(
+            this.assertOperationRatesWithinBaseline.selector, IBalancerV3VaultLike.disableRecoveryMode.selector
+        );
         registerTxEndTrigger(this.assertPoolAccountingWithinVaultCustody.selector);
         registerTxEndTrigger(this.assertTokenRatesWithinDriftBound.selector);
     }
@@ -125,6 +137,35 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
     ///      compare; a provider that answered zero is a broken baseline and fails instead of being
     ///      conflated with the deployment case.
     function _requireSwapRatesWithinBaseline(PoolTokenSnapshot memory snap, PhEvm.ForkId memory pre) internal view {
+        _requireRatesWithinBaseline(snap, pre, "BalancerV3: swap priced against rate beyond drift bound");
+    }
+
+    /// @notice Pins rates consumed by liquidity and recovery-resync operations to their transaction baseline.
+    /// @dev This closes the router-shaped manipulate-operation-restore gap for both liquidity
+    ///      selectors. A pool with state-changing liquidity hooks needs a pool-specific assertion
+    ///      that observes the rate after its before hook, since an outer call snapshot cannot see a
+    ///      rate moved and restored entirely inside that hook lifecycle.
+    function assertOperationRatesWithinBaseline() external view {
+        PhEvm.TriggerContext memory ctx = ph.context();
+        bytes memory input = ph.callinputAt(ctx.callStart);
+        address pool = ctx.selector == IBalancerV3VaultLike.addLiquidity.selector
+            || ctx.selector == IBalancerV3VaultLike.removeLiquidity.selector
+            ? _operationPool(input)
+            : _firstAddressArg(input);
+        if (pool != POOL) {
+            return;
+        }
+
+        PhEvm.ForkId memory pre = _preCall(ctx.callStart);
+        PoolTokenSnapshot memory preSnap = _poolTokenSnapshotAt(pre);
+        _requireRatesWithinBaseline(preSnap, pre, "BalancerV3: liquidity priced against rate beyond drift bound");
+    }
+
+    function _requireRatesWithinBaseline(
+        PoolTokenSnapshot memory snap,
+        PhEvm.ForkId memory pre,
+        string memory driftError
+    ) internal view {
         PhEvm.ForkId memory preTx = _preTx();
         for (uint256 i; i < snap.tokenInfo.length; ++i) {
             address rateProvider = snap.tokenInfo[i].rateProvider;
@@ -132,17 +173,14 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
                 continue;
             }
 
-            uint256 rateAtSwap = _rateAt(rateProvider, pre);
+            uint256 rateAtOperation = _rateAt(rateProvider, pre);
 
             (bool answered, uint256 baseline) = _rateStatusAt(rateProvider, preTx);
             if (!answered) {
                 continue;
             }
             require(baseline != 0, "BalancerV3: zero rate baseline");
-            require(
-                _absDiff(rateAtSwap, baseline) <= _bpsOf(baseline, RATE_DRIFT_TOLERANCE_BPS),
-                "BalancerV3: swap priced against rate beyond drift bound"
-            );
+            require(_absDiff(rateAtOperation, baseline) <= _bpsOf(baseline, RATE_DRIFT_TOLERANCE_BPS), driftError);
         }
     }
 
@@ -160,6 +198,9 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
     ///      accounting inflated beyond anything custody could pay out).
     function assertPoolAccountingWithinVaultCustody() external view {
         _requireConfiguredVaultIsAdopter();
+        if (!_transactionTouchesWatchedPool()) {
+            return;
+        }
         PhEvm.ForkId memory post = _postTx();
         if (!_isPoolInitializedAt(post)) {
             return;
@@ -205,6 +246,9 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
     ///        registration (pool registered within this transaction) skips the drift comparison.
     function assertTokenRatesWithinDriftBound() external view {
         _requireConfiguredVaultIsAdopter();
+        if (!_transactionTouchesWatchedPool()) {
+            return;
+        }
         PhEvm.ForkId memory preTx = _preTx();
         PhEvm.ForkId memory postTx = _postTx();
         if (!_isPoolInitializedAt(postTx)) {
@@ -272,6 +316,39 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
         }
         for (uint256 i; i < postSnap.tokens.length; ++i) {
             if (_aggregateFeesAt(postSnap.tokens[i], preTx) != _aggregateFeesAt(postSnap.tokens[i], postTx)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// @dev Cheap tx-end gate. `getCallInputs` reads the trace without any Vault snapshots, so
+    ///      unrelated singleton traffic returns before the per-token accounting and provider work.
+    function _transactionTouchesWatchedPool() internal view returns (bool) {
+        return _structSelectorTouchesWatchedPool(IBalancerV3VaultLike.swap.selector, 32)
+            || _structSelectorTouchesWatchedPool(IBalancerV3VaultLike.addLiquidity.selector, 0)
+            || _structSelectorTouchesWatchedPool(IBalancerV3VaultLike.removeLiquidity.selector, 0)
+            || _addressSelectorTouchesWatchedPool(IBalancerV3VaultLike.initialize.selector)
+            || _addressSelectorTouchesWatchedPool(IBalancerV3VaultLike.removeLiquidityRecovery.selector)
+            || _addressSelectorTouchesWatchedPool(IBalancerV3VaultLike.collectAggregateFees.selector)
+            || _addressSelectorTouchesWatchedPool(IBalancerV3VaultLike.disableRecoveryMode.selector);
+    }
+
+    function _structSelectorTouchesWatchedPool(bytes4 selector, uint256 poolFieldOffset) internal view returns (bool) {
+        PhEvm.CallInputs[] memory calls = ph.getCallInputs(VAULT, selector);
+        for (uint256 i; i < calls.length; ++i) {
+            if (_operationPoolFromArgs(calls[i].input, poolFieldOffset) == POOL) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function _addressSelectorTouchesWatchedPool(bytes4 selector) internal view returns (bool) {
+        PhEvm.CallInputs[] memory calls = ph.getCallInputs(VAULT, selector);
+        for (uint256 i; i < calls.length; ++i) {
+            (address pool) = abi.decode(calls[i].input, (address));
+            if (pool == POOL) {
                 return true;
             }
         }

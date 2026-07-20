@@ -93,6 +93,41 @@ abstract contract BalancerV3VaultHelpers is Assertion {
         tokenOut_ = address(uint160(tokenOutWord));
     }
 
+    /// @dev Reads the first field from a dynamic struct argument in selector-prefixed calldata.
+    ///      Balancer's add/remove liquidity parameter structs place `pool` first.
+    function _operationPool(bytes memory input) internal pure returns (address pool_) {
+        uint256 structOffset;
+        uint256 poolWord;
+        assembly ("memory-safe") {
+            let args := add(input, 36)
+            structOffset := mload(args)
+            poolWord := mload(add(args, structOffset))
+        }
+        pool_ = address(uint160(poolWord));
+    }
+
+    /// @dev Reads the first address argument from selector-prefixed calldata.
+    function _firstAddressArg(bytes memory input) internal pure returns (address value) {
+        uint256 word;
+        assembly ("memory-safe") {
+            word := mload(add(input, 36))
+        }
+        value = address(uint160(word));
+    }
+
+    /// @dev Reads a pool field from `getCallInputs` bytes, which omit the selector. `fieldOffset`
+    ///      is zero for add/remove liquidity and one word for swap, where `kind` comes first.
+    function _operationPoolFromArgs(bytes memory input, uint256 fieldOffset) internal pure returns (address pool_) {
+        uint256 structOffset;
+        uint256 poolWord;
+        assembly ("memory-safe") {
+            let args := add(input, 32)
+            structOffset := mload(args)
+            poolWord := mload(add(add(args, structOffset), fieldOffset))
+        }
+        pool_ = address(uint160(poolWord));
+    }
+
     // --- fork reads ---------------------------------------------------------
 
     function _poolTokenSnapshotAt(PhEvm.ForkId memory fork) internal view returns (PoolTokenSnapshot memory snap) {

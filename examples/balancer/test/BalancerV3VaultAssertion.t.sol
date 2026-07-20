@@ -6,7 +6,14 @@ import {ERC20Mock} from "../../../lib/openzeppelin-contracts/contracts/mocks/tok
 
 import {CredibleTest} from "../../../src/CredibleTest.sol";
 import {BalancerV3VaultAssertion} from "../src/BalancerV3VaultAssertion.sol";
-import {SwapKind, VaultSwapParams} from "../src/BalancerV3VaultInterfaces.sol";
+import {
+    AddLiquidityKind,
+    AddLiquidityParams,
+    RemoveLiquidityKind,
+    RemoveLiquidityParams,
+    SwapKind,
+    VaultSwapParams
+} from "../src/BalancerV3VaultInterfaces.sol";
 import {MockBalancerV3Pool, MockBalancerV3Vault, MockRateProvider, RateManipulatingRouter} from "./BalancerV3Mocks.sol";
 
 contract BalancerV3VaultAssertionTest is Test, CredibleTest {
@@ -63,6 +70,24 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
 
     function _swap(address targetPool) internal {
         vault.swap(_swapParams(targetPool));
+    }
+
+    function _addLiquidityParams(address targetPool) internal view returns (AddLiquidityParams memory params) {
+        params.pool = targetPool;
+        params.to = address(this);
+        params.maxAmountsIn = new uint256[](2);
+        params.minBptAmountOut = 0;
+        params.kind = AddLiquidityKind.UNBALANCED;
+        params.userData = "";
+    }
+
+    function _removeLiquidityParams(address targetPool) internal view returns (RemoveLiquidityParams memory params) {
+        params.pool = targetPool;
+        params.from = address(this);
+        params.maxBptAmountIn = 1;
+        params.minAmountsOut = new uint256[](2);
+        params.kind = RemoveLiquidityKind.SINGLE_TOKEN_EXACT_IN;
+        params.userData = "";
     }
 
     // --- assertSwapPreservesPoolInvariant ------------------------------------
@@ -151,6 +176,27 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
         router.manipulateSwapRestore(_swapParams(address(pool)));
     }
 
+    function testTransientRateManipulationAroundAddLiquidityTrips() public {
+        RateManipulatingRouter router = new RateManipulatingRouter(vault, rateProvider);
+
+        _arm(BalancerV3VaultAssertion.assertOperationRatesWithinBaseline.selector);
+        vm.expectRevert(bytes("BalancerV3: liquidity priced against rate beyond drift bound"));
+        router.manipulateAddLiquidityRestore(_addLiquidityParams(address(pool)));
+    }
+
+    function testHonestAddLiquidityPassesScopedRateAssertion() public {
+        _arm(BalancerV3VaultAssertion.assertOperationRatesWithinBaseline.selector);
+        vault.addLiquidity(_addLiquidityParams(address(pool)));
+    }
+
+    function testTransientRateManipulationAroundRemoveLiquidityTrips() public {
+        RateManipulatingRouter router = new RateManipulatingRouter(vault, rateProvider);
+
+        _arm(BalancerV3VaultAssertion.assertOperationRatesWithinBaseline.selector);
+        vm.expectRevert(bytes("BalancerV3: liquidity priced against rate beyond drift bound"));
+        router.manipulateRemoveLiquidityRestore(_removeLiquidityParams(address(pool)));
+    }
+
     // --- assertPoolAccountingWithinVaultCustody -------------------------------
 
     function testHonestSwapPassesCustodyAssertion() public {
@@ -205,8 +251,17 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
     ///         construction: the deployment lifecycle is exempt from the drift comparison (only the
     ///         nonzero post-state is enforced) instead of reverting on the missing baseline read.
     function testProviderRegisteredDuringTxIsExempt() public {
+        vault.registerNewRateProvider();
+
         _arm(BalancerV3VaultAssertion.assertTokenRatesWithinDriftBound.selector);
-        vault.registerNewRateProviderAndTouchPool();
+        vault.initialize(address(pool), address(this), new address[](0), new uint256[](0), 0, "");
+    }
+
+    function testProviderRegisteredDuringTxPassesScopedInitializationRateCheck() public {
+        vault.registerNewRateProvider();
+
+        _arm(BalancerV3VaultAssertion.assertOperationRatesWithinBaseline.selector);
+        vault.initialize(address(pool), address(this), new address[](0), new uint256[](0), 0, "");
     }
 
     /// @notice Recovery mode disables the rate assertion entirely: Balancer's recovery exit uses
@@ -227,6 +282,20 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
     function testRateOnlyTransactionIsOutOfScope() public {
         _arm(BalancerV3VaultAssertion.assertTokenRatesWithinDriftBound.selector);
         vault.shiftRateOnly();
+    }
+
+    function testUnrelatedVaultTrafficSkipsCustodySnapshots() public {
+        vault.setRevertOnPoolReads(true);
+
+        _arm(BalancerV3VaultAssertion.assertPoolAccountingWithinVaultCustody.selector);
+        vault.unrelatedVaultCall();
+    }
+
+    function testUnrelatedVaultTrafficSkipsRateSnapshots() public {
+        vault.setRevertOnPoolReads(true);
+
+        _arm(BalancerV3VaultAssertion.assertTokenRatesWithinDriftBound.selector);
+        vault.unrelatedVaultCall();
     }
 
     // --- wiring ----------------------------------------------------------------

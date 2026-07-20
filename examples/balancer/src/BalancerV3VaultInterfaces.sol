@@ -31,6 +31,39 @@ struct VaultSwapParams {
     bytes userData;
 }
 
+enum AddLiquidityKind {
+    PROPORTIONAL,
+    UNBALANCED,
+    SINGLE_TOKEN_EXACT_OUT,
+    DONATION,
+    CUSTOM
+}
+
+struct AddLiquidityParams {
+    address pool;
+    address to;
+    uint256[] maxAmountsIn;
+    uint256 minBptAmountOut;
+    AddLiquidityKind kind;
+    bytes userData;
+}
+
+enum RemoveLiquidityKind {
+    PROPORTIONAL,
+    SINGLE_TOKEN_EXACT_IN,
+    SINGLE_TOKEN_EXACT_OUT,
+    CUSTOM
+}
+
+struct RemoveLiquidityParams {
+    address pool;
+    address from;
+    uint256 maxBptAmountIn;
+    uint256[] minAmountsOut;
+    RemoveLiquidityKind kind;
+    bytes userData;
+}
+
 /// @notice Per-token registration data, mirrored from Balancer's `TokenInfo`.
 struct TokenInfo {
     TokenType tokenType;
@@ -44,6 +77,36 @@ interface IBalancerV3VaultLike {
     function swap(VaultSwapParams calldata vaultSwapParams)
         external
         returns (uint256 amountCalculated, uint256 amountIn, uint256 amountOut);
+
+    function addLiquidity(AddLiquidityParams calldata params)
+        external
+        returns (uint256[] memory amountsIn, uint256 bptAmountOut, bytes memory returnData);
+
+    function removeLiquidity(RemoveLiquidityParams calldata params)
+        external
+        returns (uint256 bptAmountIn, uint256[] memory amountsOut, bytes memory returnData);
+
+    function initialize(
+        address pool,
+        address to,
+        address[] calldata tokens,
+        uint256[] calldata exactAmountsIn,
+        uint256 minBptAmountOut,
+        bytes calldata userData
+    ) external returns (uint256 bptAmountOut);
+
+    function removeLiquidityRecovery(
+        address pool,
+        address from,
+        uint256 exactBptAmountIn,
+        uint256[] calldata minAmountsOut
+    ) external returns (uint256[] memory amountsOut);
+
+    function collectAggregateFees(address pool)
+        external
+        returns (uint256[] memory swapFeeAmounts, uint256[] memory yieldFeeAmounts);
+
+    function disableRecoveryMode(address pool) external;
 
     function getPoolTokens(address pool) external view returns (address[] memory tokens);
 
