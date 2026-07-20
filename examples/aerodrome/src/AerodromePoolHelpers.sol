@@ -41,7 +41,11 @@ abstract contract AerodromePoolHelpers is Assertion {
         require(ph.getAssertionAdopter() == POOL, "AerodromePool: configured pool is not adopter");
     }
 
-    function _poolSnapshotAt(PhEvm.ForkId memory fork) internal view returns (PoolSnapshot memory snapshot) {
+    function _poolSnapshotAt(PhEvm.ForkId memory fork, bool includeK)
+        internal
+        view
+        returns (PoolSnapshot memory snapshot)
+    {
         PhEvm.StaticCallResult memory metadataResult =
             ph.staticcallAt(POOL, abi.encodeCall(IAerodromePoolLike.metadata, ()), FORK_VIEW_GAS, fork);
         require(metadataResult.ok, "AerodromePool: metadata read failed");
@@ -65,7 +69,18 @@ abstract contract AerodromePoolHelpers is Assertion {
         snapshot.poolBalance1 = _balanceAt(snapshot.token1, POOL, fork);
         snapshot.feeBalance0 = _balanceAt(snapshot.token0, snapshot.poolFees, fork);
         snapshot.feeBalance1 = _balanceAt(snapshot.token1, snapshot.poolFees, fork);
-        snapshot.k = _poolK(snapshot.reserve0, snapshot.reserve1, snapshot.dec0, snapshot.dec1, snapshot.stable);
+        if (includeK) {
+            snapshot.k = _poolK(snapshot.reserve0, snapshot.reserve1, snapshot.dec0, snapshot.dec1, snapshot.stable);
+        }
+    }
+
+    function _triggeredCaller(PhEvm.TriggerContext memory ctx) internal view returns (address caller) {
+        PhEvm.TriggerCall[] memory calls =
+            ph.matchingCalls(POOL, ctx.selector, _successOnlyFilter(), type(uint256).max);
+        for (uint256 i; i < calls.length; ++i) {
+            if (calls[i].callId == ctx.callStart) return calls[i].caller;
+        }
+        revert("AerodromePool: triggering call not found");
     }
 
     function _balanceAt(address token, address account, PhEvm.ForkId memory fork) internal view returns (uint256) {

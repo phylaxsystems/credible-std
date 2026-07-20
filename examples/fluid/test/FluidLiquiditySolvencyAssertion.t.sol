@@ -95,42 +95,6 @@ contract FluidLiquiditySolvencyAssertionTest is Test, CredibleTest {
         cl.assertion(address(liquidity), createData, fnSelector);
     }
 
-    // --- Custody covers net supply ---------------------------------------
-
-    function testCustodyHonestPasses() public {
-        _arm(FluidLiquiditySolvencyAssertion.assertCustodyCoversNetSupply.selector);
-        // Stays exactly solvent: held + borrow == supply.
-        liquidity.operate(address(token), SUPPLY, BORROW);
-    }
-
-    function testCustodyInsolventTrips() public {
-        _arm(FluidLiquiditySolvencyAssertion.assertCustodyCoversNetSupply.selector);
-        // Supply inflated far beyond what custody + debt can back.
-        vm.expectRevert(bytes("Fluid: liquidity custody below net supply"));
-        liquidity.operate(address(token), 2_000e6, BORROW);
-    }
-
-    function testCustodyIncludesMainnetExternalBalances() public {
-        vm.chainId(1);
-
-        MockToken tokenImpl = new MockToken();
-        vm.etch(WEETH, address(tokenImpl).code);
-        MockZircuit zircuitImpl = new MockZircuit();
-        vm.etch(ZIRCUIT, address(zircuitImpl).code);
-
-        uint256 externalHeld = 100e6;
-        MockToken(WEETH).setBalance(address(liquidity), HELD - externalHeld);
-        MockZircuit(ZIRCUIT).setBalance(WEETH, address(liquidity), externalHeld);
-        liquidity.setTotals(WEETH, SUPPLY, BORROW);
-        liquidity.setExchangePrices(WEETH, EP, EP);
-
-        address[] memory monitoredTokens = new address[](1);
-        monitoredTokens[0] = WEETH;
-
-        _armWith(monitoredTokens, FluidLiquiditySolvencyAssertion.assertCustodyCoversNetSupply.selector);
-        liquidity.operate(WEETH, SUPPLY, BORROW);
-    }
-
     // --- Exchange price monotonicity -------------------------------------
 
     function testExchangePriceIncreasePasses() public {

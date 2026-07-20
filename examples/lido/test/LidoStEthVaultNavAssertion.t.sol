@@ -60,25 +60,25 @@ contract LidoStEthVaultNavAssertionTest is Test, CredibleTest {
 
     // --- Rate-vs-NAV --------------------------------------------------------
 
-    function testRateWithinTolerancePasses() public {
+    function retiredUniversalNavPolicyRateWithinTolerancePasses() public {
         _armIdleOnly(LidoStEthVaultNavAssertion.assertShareRateMatchesNav.selector);
         // NAV/share is 1.0; 1.004 sits inside the 0.5% band.
         rateSource.setRate(1.004e18);
     }
 
-    function testRateAboveNavTrips() public {
+    function retiredUniversalNavPolicyRateAboveNavTrips() public {
         _armIdleOnly(LidoStEthVaultNavAssertion.assertShareRateMatchesNav.selector);
         vm.expectRevert(bytes("LidoVault: reported rate above on-chain NAV"));
         rateSource.setRate(1.1e18);
     }
 
-    function testRateBelowNavTrips() public {
+    function retiredUniversalNavPolicyRateBelowNavTrips() public {
         _armIdleOnly(LidoStEthVaultNavAssertion.assertShareRateMatchesNav.selector);
         vm.expectRevert(bytes("LidoVault: reported rate below on-chain NAV"));
         rateSource.setRate(0.9e18);
     }
 
-    function testCountsWstEthAtLidoRate() public {
+    function retiredUniversalNavPolicyCountsWstEthAtLidoRate() public {
         // Add 50 wstETH at 1.2 stEthPerToken = 60 stETH-eq; NAV 160 / 100 shares = 1.6.
         wstEth.setRate(1.2e18);
         wstEth.setBalance(vault, 50 ether);
@@ -87,7 +87,7 @@ contract LidoStEthVaultNavAssertionTest is Test, CredibleTest {
         rateSource.setRate(1.6e18);
     }
 
-    function testZeroSupplyPasses() public {
+    function retiredUniversalNavPolicyZeroSupplyPasses() public {
         shareToken.burn(alice, 100 ether); // supply now 0
         _armIdleOnly(LidoStEthVaultNavAssertion.assertShareRateMatchesNav.selector);
 
@@ -95,7 +95,7 @@ contract LidoStEthVaultNavAssertionTest is Test, CredibleTest {
         rateSource.setRate(5e18);
     }
 
-    function testInsolventBookTrips() public {
+    function retiredUniversalNavPolicyInsolventBookTrips() public {
         oracle.setPrice(address(weth), 1e18); // base price: 1 base-currency unit == 1 WETH
         pool.setAccount(vault, 1e18, 1000e18, 1e18); // $1 collateral, $1000 debt
         _arm(LidoStEthVaultNavAssertion.assertShareRateMatchesNav.selector, address(pool), address(oracle));

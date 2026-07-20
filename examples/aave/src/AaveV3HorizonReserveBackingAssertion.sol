@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import {PhEvm} from "credible-std/PhEvm.sol";
 
 import {AaveV3LikeTypes} from "credible-std/protection/lending/examples/AaveV3LikeInterfaces.sol";
-import {IAaveV3HorizonToken} from "./AaveV3HorizonInterfaces.sol";
+import {IAaveV3HorizonDeficitPool, IAaveV3HorizonToken} from "./AaveV3HorizonInterfaces.sol";
 import {AaveV3HorizonHelpers} from "./AaveV3HorizonHelpers.sol";
 
 /// @title AaveV3HorizonReserveBackingAssertion
@@ -38,9 +38,11 @@ contract AaveV3HorizonReserveBackingAssertion is AaveV3HorizonHelpers {
 
     /// @notice Checks all configured reserves remain backed at transaction end.
     /// @dev For each reserve, compares aToken supply with underlying held by the aToken plus
-    ///      stable debt, variable debt, and unbacked bridge debt. Existing deficits are skipped so
-    ///      old bad state does not cause false positives on unrelated balance changes.
+    ///      stable debt, variable debt, unbacked bridge debt, and Horizon's first-class reserve
+    ///      deficit. A liquidation may legitimately convert debt into deficit, so excluding that
+    ///      field rejects official recovery accounting.
     function assertReserveBacking() external view {
+        require(ph.getAssertionAdopter() == POOL, "AaveV3Horizon: configured pool is not adopter");
         PhEvm.ForkId memory pre = _preTx();
         PhEvm.ForkId memory post = _postTx();
 
@@ -50,11 +52,9 @@ contract AaveV3HorizonReserveBackingAssertion is AaveV3HorizonHelpers {
     }
 
     function _assertReserveBacking(address asset, PhEvm.ForkId memory pre, PhEvm.ForkId memory post) internal view {
-        ReserveBacking memory beforeBacking = _reserveBackingAt(asset, pre);
-        if (!_isBacked(beforeBacking)) {
-            return;
-        }
-
+        // Read both endpoints so a dropped/misconfigured reserve fails at the transaction where
+        // the configuration changed, instead of silently beginning from an unvalidated baseline.
+        _reserveBackingAt(asset, pre);
         ReserveBacking memory afterBacking = _reserveBackingAt(asset, post);
         require(_isBacked(afterBacking), "AaveV3Horizon: reserve backing deficit");
     }
@@ -75,9 +75,10 @@ contract AaveV3HorizonReserveBackingAssertion is AaveV3HorizonHelpers {
         uint256 availableLiquidity = _readBalanceAt(asset, reserveData.aTokenAddress, fork);
         uint256 stableDebt = _optionalTotalSupplyAt(reserveData.stableDebtTokenAddress, fork);
         uint256 variableDebt = _optionalTotalSupplyAt(reserveData.variableDebtTokenAddress, fork);
+        uint256 deficit = _readUintAt(POOL, abi.encodeCall(IAaveV3HorizonDeficitPool.getReserveDeficit, (asset)), fork);
 
         backing.aTokenSupply = _totalSupplyAt(reserveData.aTokenAddress, fork);
-        backing.backingClaims = availableLiquidity + stableDebt + variableDebt + reserveData.unbacked;
+        backing.backingClaims = availableLiquidity + stableDebt + variableDebt + reserveData.unbacked + deficit;
     }
 
     function _isBacked(ReserveBacking memory backing) internal view returns (bool) {

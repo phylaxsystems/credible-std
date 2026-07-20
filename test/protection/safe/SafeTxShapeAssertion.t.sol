@@ -143,6 +143,15 @@ contract SafeTxShapeAssertionTest is Test, CredibleTest {
         );
     }
 
+    function testAllowsCallBasedMultiSendBatchWithKnownInnerActions() public {
+        bytes memory txs =
+            _packMultiSendTx(OP_CALL, address(target), 0, abi.encodeCall(MockProtocolTarget.doThing, (1)));
+
+        _assertOwnerAllowedByAllBaselinePolicies(
+            false, address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_CALL
+        );
+    }
+
     function testAllowsErc20ApprovalToTrustedSpenderUnderCap() public {
         _assertOwnerAllowedByAllBaselinePolicies(
             false, address(erc20Token), 0, abi.encodeCall(MockApprovalTarget.approve, (TRUSTED_SPENDER, 75)), OP_CALL
@@ -205,6 +214,13 @@ contract SafeTxShapeAssertionTest is Test, CredibleTest {
 
         vm.expectRevert();
         _execOwner(address(unknownTarget), 0, abi.encodeCall(MockProtocolTarget.doThing, (1)), OP_CALL);
+    }
+
+    function testBlocksOwnerTransactionWithSignedGasRefund() public {
+        _armBaselinePolicyFor(false, SafeTxShapeAssertion.assertSafeModulePolicy.selector);
+
+        vm.expectRevert();
+        _execOwnerWithGasPrice(address(target), abi.encodeCall(MockProtocolTarget.doThing, (1)), 1);
     }
 
     function testBlocksModuleTransactionToUnknownTargetWithCalldata() public {
@@ -356,6 +372,24 @@ contract SafeTxShapeAssertionTest is Test, CredibleTest {
         _armBaselinePolicyFor(false, SafeTxShapeAssertion.assertSafeTargetSelectorPolicy.selector);
 
         vm.expectRevert();
+        _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_DELEGATECALL);
+    }
+
+    function testBlocksCallBasedMultiSendUnknownInnerTarget() public {
+        MockProtocolTarget unknownTarget = new MockProtocolTarget();
+        bytes memory txs =
+            _packMultiSendTx(OP_CALL, address(unknownTarget), 0, abi.encodeCall(MockProtocolTarget.doThing, (1)));
+        _armBaselinePolicyFor(false, SafeTxShapeAssertion.assertSafeTargetSelectorPolicy.selector);
+
+        vm.expectRevert();
+        _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_CALL);
+    }
+
+    function testBlocksMultiSendZeroAddressTarget() public {
+        bytes memory txs = _packMultiSendTx(OP_CALL, address(0), 0, abi.encodeCall(MockProtocolTarget.doThing, (1)));
+        _armBaselinePolicyFor(false, SafeTxShapeAssertion.assertSafeTargetSelectorPolicy.selector);
+
+        vm.expectRevert(abi.encodeWithSelector(SafeTxShapeHelpers.SafeTxShapeUnknownTarget.selector, address(0)));
         _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_DELEGATECALL);
     }
 
@@ -620,6 +654,10 @@ contract SafeTxShapeAssertionTest is Test, CredibleTest {
 
     function _execOwner(address to, uint256 value, bytes memory data, uint8 operation) internal {
         safe.execTransaction(to, value, data, operation, 0, 0, 0, address(0), payable(address(0)), "");
+    }
+
+    function _execOwnerWithGasPrice(address to, bytes memory data, uint256 gasPrice) internal {
+        safe.execTransaction(to, 0, data, OP_CALL, 0, 0, gasPrice, address(0), payable(address(0)), "");
     }
 
     function _baselineTargets() internal view returns (SafeTxShapeHelpers.TargetPolicy[] memory targets) {

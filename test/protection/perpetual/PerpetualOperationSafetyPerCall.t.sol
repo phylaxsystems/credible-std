@@ -164,6 +164,14 @@ contract TestPerpRiskAssertion is PerpetualBaseAssertion, IPerpetualProtectionSu
     {}
 }
 
+contract TestLegacyPerpRiskAssertion is TestPerpRiskAssertion {
+    constructor(address perp_) TestPerpRiskAssertion(perp_) {}
+
+    function triggers() external view override {
+        registerFnCallTrigger(PerpetualBaseAssertion.assertPostMutationRisk.selector, ITestPerp.op.selector);
+    }
+}
+
 contract PerpetualOperationSafetyPerCallTest is Test, CredibleTest {
     MockPerp internal perp;
     address internal borrower = makeAddr("borrower");
@@ -173,13 +181,19 @@ contract PerpetualOperationSafetyPerCallTest is Test, CredibleTest {
     }
 
     function _arm() internal {
-        bytes memory createData = abi.encodePacked(type(TestPerpRiskAssertion).creationCode, abi.encode(address(perp)));
+        _armSelector(PerpetualBaseAssertion.assertOperationSafety.selector);
+    }
+
+    function _armSelector(bytes4 assertionSelector) internal {
+        bytes memory createData = assertionSelector == PerpetualBaseAssertion.assertPostMutationRisk.selector
+            ? abi.encodePacked(type(TestLegacyPerpRiskAssertion).creationCode, abi.encode(address(perp)))
+            : abi.encodePacked(type(TestPerpRiskAssertion).creationCode, abi.encode(address(perp)));
         // `assertOperationSafety()` is declared on the abstract `PerpetualBaseAssertion` and inherited
         // (not redeclared) by `TestPerpRiskAssertion`, so the selector must be referenced through the
         // base — `TestPerpRiskAssertion.assertOperationSafety.selector` does not compile. The selector
         // value is identical either way and the harness resolves it against the deployed contract.
         // Mirrors the sibling lending suite (test/protection/lending/LendingSolvencyPerCall.t.sol).
-        cl.assertion(address(perp), createData, PerpetualBaseAssertion.assertOperationSafety.selector);
+        cl.assertion(address(perp), createData, assertionSelector);
     }
 
     function testPerpHonestOpPasses() public {
@@ -218,5 +232,20 @@ contract PerpetualOperationSafetyPerCallTest is Test, CredibleTest {
 
         assertEq(op.account, borrower);
         assertEq(op.selector, ITestPerp.op.selector);
+    }
+
+    function testLegacyRiskAliasPassesHealthyOperation() public {
+        perp.setPending(borrower, 1);
+
+        _armSelector(PerpetualBaseAssertion.assertPostMutationRisk.selector);
+        perp.op(borrower);
+    }
+
+    function testLegacyRiskAliasTripsOnBadDebt() public {
+        perp.setPending(borrower, -1);
+
+        _armSelector(PerpetualBaseAssertion.assertPostMutationRisk.selector);
+        vm.expectRevert();
+        perp.op(borrower);
     }
 }

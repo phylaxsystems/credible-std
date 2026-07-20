@@ -37,14 +37,9 @@ contract CapLiquidationAssertion is CapLiquidationHelpers {
         registerFnCallTrigger(this.assertLiquidationRetainsBacking.selector, ICapLenderLike.liquidate.selector);
     }
 
-    /// @notice A value-moving liquidation must repay principal, netting out realized interest.
-    /// @dev Fires per `liquidate` call. Skips no-op liquidations (`amount == 0`, which move no
-    ///      value and seize no collateral). `debt()` is principal plus accrued restaker interest,
-    ///      and a `liquidate` realizes that interest into the agent's debt *before* repaying — so a
-    ///      raw `debtPost < debtPre` check would false-trip an honest partial liquidation whose
-    ///      realized interest exceeds the principal it repays. We therefore require debt to end
-    ///      strictly below `debtPre + realizedInterest`: principal must actually be repaid, while
-    ///      legitimate interest realization is not mistaken for "collateral seized, debt untouched".
+    /// @notice A value-moving liquidation must reduce the protocol-reported debt.
+    /// @dev `debt()` already includes accrued restaker interest in the official implementation,
+    ///      so adding that interest again would permit a liquidation that leaves debt unchanged.
     function assertLiquidationReducesDebt() external view {
         LiquidationCall memory liq = _resolveLiquidation();
         if (liq.amount == 0) return;
@@ -52,9 +47,7 @@ contract CapLiquidationAssertion is CapLiquidationHelpers {
         PhEvm.ForkId memory pre = _preCall(liq.callStart);
         uint256 debtPre = _debtAt(liq.agent, liq.asset, pre);
         uint256 debtPost = _debtAt(liq.agent, liq.asset, _postCall(liq.callEnd));
-        uint256 realized = _realizedRestakerInterestAt(liq.agent, liq.asset, pre);
-
-        require(debtPost < debtPre + realized, "CapLiquidation: debt not reduced");
+        require(debtPost < debtPre, "CapLiquidation: debt not reduced");
     }
 
     /// @notice A liquidation must not drain the vault's claimable backing for the asset.

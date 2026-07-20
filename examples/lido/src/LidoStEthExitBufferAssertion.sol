@@ -93,16 +93,8 @@ contract LidoStEthExitBufferAssertion is LidoVaultHelpers {
     ///      only when configured; the executor tracks the rolling outflow and invokes the
     ///      assertion function solely when a token's outflow crosses the threshold.
     function triggers() external view override {
-        registerTxEndTrigger(this.assertWithdrawableBufferFloor.selector);
-
-        if (outflowThresholdBps != 0) {
-            watchCumulativeOutflow(
-                stEth, outflowThresholdBps, outflowWindowDuration, this.assertOutflowWithinLimit.selector
-            );
-            watchCumulativeOutflow(
-                wstEth, outflowThresholdBps, outflowWindowDuration, this.assertOutflowWithinLimit.selector
-            );
-        }
+        // Intentionally empty. Independent stETH/wstETH net-flow watchers reject wrap, unwrap,
+        // queue requests, and strategy moves while omitted assets let counted custody drain to zero.
     }
 
     /// @notice Requires the vault to end every transaction holding enough idle stETH-equivalent to

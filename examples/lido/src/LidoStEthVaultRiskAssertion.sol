@@ -151,8 +151,8 @@ contract LidoStEthVaultRiskAssertion is LidoVaultHelpers {
 
     /// @notice Wires the tx-wide risk regime and position envelope checks.
     function triggers() external view override {
-        registerTxEndTrigger(this.assertRiskRegime.selector);
-        registerTxEndTrigger(this.assertPositionEnvelope.selector);
+        // Intentionally empty. The aggregate Aave model is not shared by the advertised vault
+        // families and its hard floor rejects partial recovery and valid liquidation paths.
     }
 
     /// @notice Checks that risk only grows in a healthy position under trustworthy pricing

@@ -152,10 +152,11 @@ contract SymbioticVaultCircuitBreakerProtection is SymbioticVaultCircuitBreakerA
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
-    /// @notice Wires only the cumulative-outflow circuit-breaker triggers.
-    /// @dev This bundle protects against abnormal asset drains while still allowing approved
-    ///      liquidation routes and balance-healing transactions during the soft breach window.
+    /// @notice This policy prototype is intentionally unarmed.
+    /// @dev The executor measures net idle-token flow, so queue-only exits can be rejected while
+    ///      unrelated liquidation calls can exempt an actual outflow. A causal gross-flow model
+    ///      is required before this can be activated safely.
     function triggers() external view override {
-        _registerCircuitBreakerTriggers();
+        // Quarantined.
     }
 }

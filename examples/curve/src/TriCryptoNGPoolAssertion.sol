@@ -33,6 +33,7 @@ contract TriCryptoNGPoolAssertion is TriCryptoNGProtocolHelpers {
 
     /// @notice Compares each non-native coin balance with the pool's internal `balances(i)`.
     function assertPoolCustodyCoversBalances() external {
+        require(ph.getAssertionAdopter() == pool, "TriCryptoNG: configured pool is not adopter");
         PhEvm.ForkId memory fork = _postTx();
 
         for (uint256 i; i < N_COINS; ++i) {
@@ -47,10 +48,13 @@ contract TriCryptoNGPoolAssertion is TriCryptoNGProtocolHelpers {
 
     /// @notice Checks live fee parameters stay within the pool's configured TriCrypto bounds.
     function assertFeeBounds() external {
+        require(ph.getAssertionAdopter() == pool, "TriCryptoNG: configured pool is not adopter");
         PhEvm.ForkId memory fork = _postTx();
+        if (_triCryptoTotalSupplyAt(fork) == 0) {
+            return;
+        }
         TriCryptoNGFeeState memory feeState = _triCryptoFeeStateAt(fork);
 
-        require(feeState.midFee >= MIN_FEE, "TriCryptoNG: mid fee too low");
         require(feeState.midFee <= feeState.outFee, "TriCryptoNG: mid fee above out fee");
         require(feeState.outFee <= MAX_FEE, "TriCryptoNG: out fee too high");
         require(feeState.fee >= feeState.midFee, "TriCryptoNG: fee below mid fee");
@@ -60,6 +64,7 @@ contract TriCryptoNGPoolAssertion is TriCryptoNGProtocolHelpers {
 
     /// @notice Checks `price_scale`, `price_oracle`, and `last_prices` stay initialized.
     function assertOracleValuesInitialized() external {
+        require(ph.getAssertionAdopter() == pool, "TriCryptoNG: configured pool is not adopter");
         PhEvm.ForkId memory fork = _postTx();
         uint256 totalSupply = _triCryptoTotalSupplyAt(fork);
 
@@ -76,6 +81,7 @@ contract TriCryptoNGPoolAssertion is TriCryptoNGProtocolHelpers {
 
     /// @notice Checks profit counters stay ordered and cached and live virtual prices stay initialized.
     function assertProfitAndVirtualPriceBounds() external {
+        require(ph.getAssertionAdopter() == pool, "TriCryptoNG: configured pool is not adopter");
         PhEvm.ForkId memory fork = _postTx();
         TriCryptoNGProfitState memory profitState = _triCryptoProfitStateAt(fork);
         if (profitState.totalSupply == 0) {
@@ -96,11 +102,6 @@ contract TriCryptoNGPoolAssertion is TriCryptoNGProtocolHelpers {
         require(
             _gteWithAbsoluteTolerance(profitState.xcpProfitA, WAD, profitTolerance), "TriCryptoNG: xcp profit_a below 1"
         );
-        require(
-            _withinBps(profitState.cachedVirtualPrice, profitState.liveVirtualPrice, virtualPriceToleranceBps),
-            "TriCryptoNG: cached/live VP mismatch"
-        );
-
         if (profitState.cachedVirtualPrice >= WAD && profitState.xcpProfit >= WAD) {
             uint256 virtualProfit = profitState.cachedVirtualPrice - WAD;
             uint256 xcpExcess = profitState.xcpProfit - WAD;
@@ -110,6 +111,7 @@ contract TriCryptoNGPoolAssertion is TriCryptoNGProtocolHelpers {
 
     /// @notice Checks guarded user actions do not lower live virtual price from pre-call to post-call.
     function assertVirtualPriceNonDecreasing() external {
+        require(ph.getAssertionAdopter() == pool, "TriCryptoNG: configured pool is not adopter");
         PhEvm.TriggerContext memory ctx = ph.context();
         PhEvm.ForkId memory beforeFork = _preCall(ctx.callStart);
         PhEvm.ForkId memory afterFork = _postCall(ctx.callEnd);

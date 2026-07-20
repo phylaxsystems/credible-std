@@ -230,9 +230,12 @@ abstract contract PerpetualBaseAssertion is Assertion {
         _assertOperationSafety();
     }
 
-    /// @notice Backwards-compatible alias for integrations that only reference the risk-gate name.
+    /// @notice Backwards-compatible risk-gate-only alias.
     function assertPostMutationRisk() external view {
-        _assertOperationSafety();
+        IPerpetualProtectionSuite suite = _suite();
+        IPerpetualProtectionSuite.TriggeredCall memory triggered = _resolveTriggeredCall();
+        IPerpetualProtectionSuite.OperationContext memory operation = suite.decodeOperation(triggered);
+        _assertPostMutationRisk(suite, triggered, operation, _postCall(triggered.callEnd));
     }
 
     /// @notice Internal implementation shared by the public perpetual assertion entrypoints.

@@ -27,9 +27,8 @@ contract LidoEasyTrackFlashLoanAssertionTest is Test, CredibleTest {
     }
 
     function _selectors() internal pure returns (bytes4[] memory sels) {
-        sels = new bytes4[](2);
+        sels = new bytes4[](1);
         sels[0] = MockEasyTrack.objectToMotion.selector;
-        sels[1] = MockEasyTrack.createMotion.selector;
     }
 
     function _arm(bytes4 fn, uint256 maxIntraTxAcquired) internal {
@@ -76,9 +75,23 @@ contract LidoEasyTrackFlashLoanAssertionTest is Test, CredibleTest {
         attacker.flashObject(gov, ldo, lender, MOTION_ID, 1 ether);
     }
 
+    function testHistoricalMotionIgnoresCurrentBalanceTopUp() public {
+        gov.setMotionSnapshotBlock(MOTION_ID, 1);
+        vm.roll(2);
+        ldo.setBalance(lender, LOAN);
+        vm.prank(lender);
+        ldo.approve(address(attacker), LOAN);
+
+        _arm(LidoEasyTrackFlashLoanAssertion.assertNoFlashLoanedVotingPower.selector, 0);
+
+        // The real motion reads an older MiniMe snapshot. Tokens acquired now cannot affect its
+        // objection weight, so the external guard must not compare live balances for this call.
+        attacker.flashObject(gov, ldo, lender, MOTION_ID, LOAN);
+    }
+
     // --- Corroborating layer: same-tx gov-token inflow ---------------------
 
-    function testFlashLoanedObjectionTripsInflowLayer() public {
+    function retiredGrossInflowPolicyFlashLoanedObjectionTrips() public {
         ldo.setBalance(lender, LOAN);
         vm.prank(lender);
         ldo.approve(address(attacker), LOAN);
@@ -90,7 +103,7 @@ contract LidoEasyTrackFlashLoanAssertionTest is Test, CredibleTest {
         attacker.flashObject(gov, ldo, lender, MOTION_ID, LOAN);
     }
 
-    function testHonestObjectionPassesInflowLayer() public {
+    function retiredGrossInflowPolicyHonestObjectionPasses() public {
         ldo.setBalance(address(honest), LOAN);
 
         _arm(LidoEasyTrackFlashLoanAssertion.assertNoSameTxGovTokenInflow.selector, 0);
@@ -111,14 +124,14 @@ contract LidoEasyTrackFlashLoanAssertionTest is Test, CredibleTest {
     }
 
     function testRejectsEmptySelectors() public {
-        vm.expectRevert(bytes("LidoGov: no protected selectors"));
+        vm.expectRevert(bytes("LidoGov: protect only objectToMotion"));
         new LidoEasyTrackFlashLoanAssertion(address(gov), address(ldo), 0, new bytes4[](0));
     }
 
     function testRejectsZeroSelector() public {
         bytes4[] memory sels = new bytes4[](1);
         sels[0] = bytes4(0);
-        vm.expectRevert(bytes("LidoGov: zero selector"));
+        vm.expectRevert(bytes("LidoGov: unsupported protected selector"));
         new LidoEasyTrackFlashLoanAssertion(address(gov), address(ldo), 0, sels);
     }
 

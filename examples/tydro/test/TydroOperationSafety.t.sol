@@ -49,6 +49,10 @@ contract MockTydroPool is ITydroL2Pool {
         return reserves;
     }
 
+    function getReserveAddressById(uint16 id) external view returns (address) {
+        return reserves[id];
+    }
+
     function borrow(bytes32) external override {}
 
     function withdraw(bytes32) external pure override returns (uint256) {
@@ -75,7 +79,7 @@ contract TydroOperationSafetyTest is Test, CredibleTest {
     function testCompactSelectorsAreIncluded() public view {
         bytes4[] memory selectors = suite.getMonitoredSelectors();
 
-        assertEq(selectors.length, 10);
+        assertEq(selectors.length, 13);
         assertEq(selectors[6], ITydroL2Pool.borrow.selector);
         assertEq(selectors[7], ITydroL2Pool.withdraw.selector);
         assertEq(selectors[8], ITydroL2Pool.liquidationCall.selector);
@@ -125,7 +129,7 @@ contract TydroOperationSafetyTest is Test, CredibleTest {
         uint256 debtToCover = 55e6;
         // args1: user packed above bit 32; both compact asset ids resolve to reserve index 0.
         bytes32 args1 = bytes32(uint256(uint160(user)) << 32);
-        bytes32 args2 = _packL2Amount(0, debtToCover);
+        bytes32 args2 = bytes32(debtToCover);
 
         ILendingProtectionSuite.OperationContext memory op = suite.decodeOperation(
             _triggered(
@@ -144,8 +148,8 @@ contract TydroOperationSafetyTest is Test, CredibleTest {
     }
 
     function testL2DisableCollateralOnlyTriggersWhenTurningOff() public view {
-        bytes32 disableArgs = bytes32((uint256(1) << 16) | 0); // disable bit set, asset id 0
-        bytes32 enableArgs = bytes32(uint256(0)); // disable bit clear
+        bytes32 enableArgs = bytes32((uint256(1) << 16) | 0); // useAsCollateral bit set
+        bytes32 disableArgs = bytes32(uint256(0)); // useAsCollateral bit clear
 
         ILendingProtectionSuite.OperationContext memory disableOp = suite.decodeOperation(
             _triggered(

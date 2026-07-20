@@ -64,7 +64,7 @@ contract AaveV4SpokeRiskAssertion is AaveV4Helpers {
         );
 
         registerFnCallTrigger(
-            this.assertLiquidationImprovesBorrowerRisk.selector, IAaveV4Spoke.liquidationCall.selector
+            this.assertLiquidationReducesBorrowerDebt.selector, IAaveV4Spoke.liquidationCall.selector
         );
     }
 
@@ -82,7 +82,7 @@ contract AaveV4SpokeRiskAssertion is AaveV4Helpers {
         PhEvm.ForkId memory pre = _preCall(ctx.callStart);
         PhEvm.ForkId memory post = _postCall(ctx.callEnd);
 
-        _assertOraclePricesBounded(pre, post);
+        _assertOraclePricesBounded(user, pre, post);
 
         IAaveV4Spoke.UserAccountData memory expected = _recomputeAccountDataAt(user, post);
         IAaveV4Spoke.UserAccountData memory actual = _spokeAccountDataAt(SPOKE, user, post);
@@ -94,11 +94,11 @@ contract AaveV4SpokeRiskAssertion is AaveV4Helpers {
         }
     }
 
-    /// @notice Checks liquidation reduces borrower risk.
-    /// @dev Compares independently recomputed account data around a successful liquidation. Debt
-    ///      may be fully cleared or reported as deficit; otherwise post-liquidation debt must not
-    ///      increase and health factor must not be worse than before liquidation.
-    function assertLiquidationImprovesBorrowerRisk() external view {
+    /// @notice Checks liquidation reduces the borrower's remaining debt.
+    /// @dev Aave v4 permits liquidations that reduce debt while lowering health factor because the
+    ///      seized collateral mix and effective bonus can worsen the ratio. Debt reduction is the
+    ///      protocol-supported postcondition; health-factor monotonicity is not required.
+    function assertLiquidationReducesBorrowerDebt() external view {
         PhEvm.TriggerContext memory ctx = ph.context();
         _requireAdopter(SPOKE, "AaveV4Spoke: configured spoke is not adopter");
 
@@ -108,12 +108,11 @@ contract AaveV4SpokeRiskAssertion is AaveV4Helpers {
         IAaveV4Spoke.UserAccountData memory beforeData = _recomputeAccountDataAt(user, _preCall(ctx.callStart));
         IAaveV4Spoke.UserAccountData memory afterData = _recomputeAccountDataAt(user, _postCall(ctx.callEnd));
 
-        if (beforeData.healthFactor >= HEALTH_FACTOR_LIQUIDATION_THRESHOLD || afterData.totalDebtValueRay == 0) {
+        if (beforeData.healthFactor >= HEALTH_FACTOR_LIQUIDATION_THRESHOLD) {
             return;
         }
 
-        require(afterData.totalDebtValueRay <= beforeData.totalDebtValueRay, "AaveV4Spoke: liquidation increased debt");
-        require(afterData.healthFactor >= beforeData.healthFactor, "AaveV4Spoke: liquidation health factor worsened");
+        require(afterData.totalDebtValueRay < beforeData.totalDebtValueRay, "AaveV4Spoke: liquidation did not reduce debt");
     }
 
     function _recomputeAccountDataAt(address user, PhEvm.ForkId memory fork)
@@ -146,7 +145,7 @@ contract AaveV4SpokeRiskAssertion is AaveV4Helpers {
         accountData.healthFactor = _healthFactor(accountData.avgCollateralFactor, accountData.totalDebtValueRay);
         if (accountData.totalCollateralValue > 0) {
             accountData.avgCollateralFactor =
-                (accountData.avgCollateralFactor * (WAD / BPS)) / accountData.totalCollateralValue;
+                ph.mulDivDown(accountData.avgCollateralFactor, WAD / BPS, accountData.totalCollateralValue);
         }
         accountData.riskPremium =
             _riskPremium(collateralItems, accountData.activeCollateralCount, accountData.totalDebtValueRay);
@@ -157,9 +156,13 @@ contract AaveV4SpokeRiskAssertion is AaveV4Helpers {
         view
         returns (ReserveContribution memory contribution)
     {
+        (bool collateral, bool borrowing) = _spokeUserReserveStatusAt(SPOKE, reserveId, user, fork);
+        if (!collateral && !borrowing) {
+            return contribution;
+        }
+
         IAaveV4Spoke.Reserve memory reserve = _spokeReserveAt(SPOKE, reserveId, fork);
         IAaveV4Spoke.UserPosition memory position = _spokeUserPositionAt(SPOKE, reserveId, user, fork);
-        (bool collateral, bool borrowing) = _spokeUserReserveStatusAt(SPOKE, reserveId, user, fork);
         uint256 price = _oraclePriceAt(oracle, reserveId, fork);
         require(price > 0, "AaveV4Spoke: oracle price invalid");
 
@@ -227,7 +230,7 @@ contract AaveV4SpokeRiskAssertion is AaveV4Helpers {
 
     function _premiumDebtRay(uint256 premiumShares, int256 premiumOffsetRay, uint256 drawnIndex)
         internal
-        pure
+        view
         returns (uint256)
     {
         int256 premiumRay = int256(premiumShares * drawnIndex) - premiumOffsetRay;
@@ -243,7 +246,7 @@ contract AaveV4SpokeRiskAssertion is AaveV4Helpers {
         if (totalDebtValueRay == 0) {
             return type(uint256).max;
         }
-        return ((weightedCollateralFactor * (WAD / BPS)) * RAY) / totalDebtValueRay;
+        return ph.mulDivDown(weightedCollateralFactor, (WAD / BPS) * RAY, totalDebtValueRay);
     }
 
     function _riskPremium(CollateralItem[] memory items, uint256 length, uint256 totalDebtValueRay)
@@ -291,14 +294,25 @@ contract AaveV4SpokeRiskAssertion is AaveV4Helpers {
         return a.risk < b.risk || (a.risk == b.risk && a.value > b.value);
     }
 
-    function _assertOraclePricesBounded(PhEvm.ForkId memory pre, PhEvm.ForkId memory post) internal view {
+    function _assertOraclePricesBounded(address user, PhEvm.ForkId memory pre, PhEvm.ForkId memory post)
+        internal
+        view
+    {
         uint256 reserveCount = _readUintAt(SPOKE, abi.encodeCall(IAaveV4Spoke.getReserveCount, ()), post);
         require(reserveCount <= MAX_RESERVES_TO_SCAN, "AaveV4Spoke: too many reserves");
 
-        address oracle = _readAddressAt(SPOKE, abi.encodeCall(IAaveV4Spoke.ORACLE, ()), post);
+        address preOracle = _readAddressAt(SPOKE, abi.encodeCall(IAaveV4Spoke.ORACLE, ()), pre);
+        address postOracle = _readAddressAt(SPOKE, abi.encodeCall(IAaveV4Spoke.ORACLE, ()), post);
+        require(preOracle == postOracle, "AaveV4Spoke: oracle changed during risk call");
         for (uint256 reserveId; reserveId < reserveCount; ++reserveId) {
-            uint256 prePrice = _oraclePriceAt(oracle, reserveId, pre);
-            uint256 postPrice = _oraclePriceAt(oracle, reserveId, post);
+            (bool preCollateral, bool preBorrowing) = _spokeUserReserveStatusAt(SPOKE, reserveId, user, pre);
+            (bool postCollateral, bool postBorrowing) = _spokeUserReserveStatusAt(SPOKE, reserveId, user, post);
+            if (!(preCollateral || preBorrowing || postCollateral || postBorrowing)) {
+                continue;
+            }
+
+            uint256 prePrice = _oraclePriceAt(preOracle, reserveId, pre);
+            uint256 postPrice = _oraclePriceAt(postOracle, reserveId, post);
             require(prePrice > 0 && postPrice > 0, "AaveV4Spoke: oracle price invalid");
 
             require(
@@ -314,9 +328,14 @@ contract AaveV4SpokeRiskAssertion is AaveV4Helpers {
         pure
         returns (address user, bool shouldCheckStoredRiskPremium)
     {
-        if (selector == IAaveV4Spoke.borrow.selector || selector == IAaveV4Spoke.withdraw.selector) {
+        if (selector == IAaveV4Spoke.borrow.selector) {
             (,, user) = abi.decode(_args(input), (uint256, uint256, address));
             return (user, true);
+        }
+
+        if (selector == IAaveV4Spoke.withdraw.selector) {
+            (,, user) = abi.decode(_args(input), (uint256, uint256, address));
+            return (user, false);
         }
 
         if (selector == IAaveV4Spoke.setUsingAsCollateral.selector) {

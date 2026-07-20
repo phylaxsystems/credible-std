@@ -7,7 +7,7 @@ import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 
 /// @title SparkSLLInflowStopgapAssertion
 /// @author Phylax Systems
-/// @notice Example Spark Liquidity Layer circuit breaker for venue inflows.
+/// @notice Example Spark Liquidity Layer policy on net watched-token custody outflow.
 /// @dev Mount this assertion on the SLL custody contract, e.g. Spark's `ALMProxy`,
 ///      once per watched underlying asset. From the SLL perspective the protected
 ///      action is an ERC-20 outflow from custody; from the destination venue's
@@ -19,11 +19,12 @@ import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 ///        aToken's underlying asset, then supplies it through the Aave/SparkLend pool.
 ///      - `RateLimits` refills linearly from `(maxAmount, slope)`.
 ///
-///      The intended stopgap is to hard-revert once the rolling 6-hour custody outflow
-///      exceeds the risk-budget threshold. That lets SLL slope be sized for legitimate
-///      planner throughput while this assertion enforces the emergency loss envelope.
+///      The executor measures net Transfer-log flow against the ALMProxy's idle token balance.
+///      Inflows can offset later outflows, and this is not venue-specific or a percentage of
+///      deployed SLL assets. Treat the threshold as an opt-in custody policy calibrated from
+///      actual ALMProxy traffic.
 contract SparkSLLInflowStopgapAssertion is Assertion {
-    /// @notice Spark's published 6-hour loss-bound default: 0.02% of TVL.
+    /// @notice Example 0.02% policy threshold. It is not a protocol invariant.
     uint256 public constant DEFAULT_THRESHOLD_BPS = 2;
 
     /// @notice Spark's published response-window default used for the stopgap.
@@ -32,19 +33,19 @@ contract SparkSLLInflowStopgapAssertion is Assertion {
     /// @notice Underlying ERC-20 asset leaving SLL custody.
     address public immutable watchedAsset;
 
-    /// @notice Maximum cumulative outflow as bps of the executor's TVL snapshot.
+    /// @notice Maximum net cumulative outflow as bps of the executor's idle-balance snapshot.
     uint256 public immutable thresholdBps;
 
     /// @notice Rolling window length in seconds.
     uint256 public immutable windowDuration;
 
     /// @param watchedAsset_ Underlying asset to monitor on the assertion adopter.
-    /// @param thresholdBps_ Maximum cumulative asset outflow in basis points of TVL.
+    /// @param thresholdBps_ Maximum net asset outflow in basis points of idle custody.
     /// @param windowDuration_ Rolling window, in seconds, used by the outflow trigger.
     constructor(address watchedAsset_, uint256 thresholdBps_, uint256 windowDuration_) {
         require(watchedAsset_ != address(0), "SparkSLL: zero asset");
-        require(thresholdBps_ != 0, "SparkSLL: zero threshold");
-        require(windowDuration_ != 0, "SparkSLL: zero window");
+        require(thresholdBps_ != 0 && thresholdBps_ < 10_000, "SparkSLL: invalid threshold");
+        require(windowDuration_ >= 10 && windowDuration_ <= type(uint64).max, "SparkSLL: invalid window");
 
         watchedAsset = watchedAsset_;
         thresholdBps = thresholdBps_;

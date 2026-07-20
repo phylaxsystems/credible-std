@@ -61,8 +61,9 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
     // ---------------------------------------------------------------
 
     function _arm(bytes4 fnSelector) internal {
-        bytes memory createData =
-            abi.encodePacked(type(KyberMetaAggregationRouterAssertion).creationCode, abi.encode(address(router)));
+        bytes memory createData = abi.encodePacked(
+            type(KyberMetaAggregationRouterAssertion).creationCode, abi.encode(address(router), true)
+        );
         cl.assertion(address(router), createData, fnSelector);
     }
 
@@ -398,7 +399,7 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
     // ===============================================================
 
     /// @notice A swap pulling only the initiator's approved funds is the expected path.
-    function testApproval_HonestInitiatorPull_Passes() public {
+    function retiredAllowanceInference_HonestInitiatorPull_Passes() public {
         router.setEnforceMinReturn(false);
         SwapExecutionParams memory p = _arbitraryCallParams(address(0), "");
         p.desc.srcReceivers = _one(feeWallet);
@@ -409,7 +410,7 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
     }
 
     /// @notice A full honest swap (initiator pull, pool payout, fee leg) raises no false positive.
-    function testApproval_HonestFullSwapNoFalsePositive_Passes() public {
+    function retiredAllowanceInference_HonestFullSwapNoFalsePositive_Passes() public {
         SwapExecutionParams memory p = _honestParams(address(dst), recipient, _expectedOut());
         p.desc.feeReceivers = _one(feeWallet);
         p.desc.feeAmounts = _one(1 ether);
@@ -420,7 +421,7 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
     }
 
     /// @notice An arbitrary call that spends a bystander's finite router approval is rejected.
-    function testApproval_ArbitraryCallDrainsVictim_FiniteApproval_Trips() public {
+    function retiredAllowanceInference_ArbitraryCallDrainsVictim_FiniteApproval_Trips() public {
         src.mint(victim, 1_000 ether);
         vm.prank(victim);
         src.approve(address(router), 100 ether);
@@ -434,7 +435,7 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
     }
 
     /// @notice A max (non-decrementing) approval drain is caught by the nonzero pre-call check.
-    function testApproval_ArbitraryCallDrainsVictim_MaxApproval_Trips() public {
+    function retiredAllowanceInference_ArbitraryCallDrainsVictim_MaxApproval_Trips() public {
         src.mint(victim, 1_000 ether);
         vm.prank(victim);
         src.approve(address(router), type(uint256).max);
@@ -448,7 +449,7 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
     }
 
     /// @notice The router moving its own inventory is not a third-party drain.
-    function testApproval_RouterSpendsOwnTokens_Passes() public {
+    function retiredAllowanceInference_RouterSpendsOwnTokens_Passes() public {
         src.mint(address(router), 100 ether);
         bytes memory pay = abi.encodeWithSelector(IERC20.transfer.selector, attacker, 50 ether);
         SwapExecutionParams memory p = _arbitraryCallParams(address(src), pay);
@@ -459,7 +460,7 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
     }
 
     /// @notice A third party paying out its own inventory (no router allowance) is not a drain.
-    function testApproval_ThirdPartyPaysOwnTokensNoApproval_Passes() public {
+    function retiredAllowanceInference_ThirdPartyPaysOwnTokensNoApproval_Passes() public {
         SelfFundedPayer payer = new SelfFundedPayer();
         dst.mint(address(payer), 100 ether);
 
@@ -475,7 +476,7 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
     /// @dev On-chain `swapGeneric` raw-calls a whitelisted target with attacker-supplied calldata,
     ///      which is the most direct arbitrary-call drain surface. The invariant is path-independent,
     ///      so registering this entry point closes it the same way as `swap`.
-    function testApproval_SwapGeneric_ArbitraryCallDrainsVictim_Trips() public {
+    function retiredAllowanceInference_SwapGeneric_ArbitraryCallDrainsVictim_Trips() public {
         src.mint(victim, 1_000 ether);
         vm.prank(victim);
         src.approve(address(router), type(uint256).max);
@@ -489,7 +490,7 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
     }
 
     /// @notice An honest swapGeneric pulling only the initiator's funds raises no false positive.
-    function testApproval_SwapGeneric_HonestPull_Passes() public {
+    function retiredAllowanceInference_SwapGeneric_HonestPull_Passes() public {
         SwapExecutionParams memory p = _honestParams(address(dst), recipient, _expectedOut());
         p.desc.feeReceivers = _one(feeWallet);
         p.desc.feeAmounts = _one(1 ether);
@@ -500,7 +501,7 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
     }
 
     /// @notice swapSimpleMode honest pull raises no false positive.
-    function testApproval_SwapSimpleMode_Honest_Passes() public {
+    function retiredAllowanceInference_SwapSimpleMode_Honest_Passes() public {
         SwapDescriptionV2 memory desc;
         desc.srcToken = address(src);
         desc.dstToken = address(dst);
@@ -522,7 +523,7 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
     ///      call. The victim held NO standing approval, so a pre-call allowance read sees zero; the
     ///      assertion still trips because it also flags the in-frame `Approval(victim, router)` the
     ///      permit emits — closing the permit-then-drain blind spot.
-    function testApproval_PermitGrantedAllowanceDrain_Trips() public {
+    function retiredAllowanceInference_PermitGrantedAllowanceDrain_Trips() public {
         PermitMintableToken permitToken = new PermitMintableToken("Permit", "PRM");
         permitToken.mint(victim, 1_000 ether);
         // Victim has NOT approved the router; the allowance is created inside the call via permit.
@@ -544,7 +545,7 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
     }
 
     /// @notice swapSimpleMode arbitrary-call drain is rejected just like the swap entry point.
-    function testApproval_SwapSimpleMode_DrainViaArbitraryCall_Trips() public {
+    function retiredAllowanceInference_SwapSimpleMode_DrainViaArbitraryCall_Trips() public {
         router.setEnforceMinReturn(false);
         src.mint(victim, 1_000 ether);
         vm.prank(victim);

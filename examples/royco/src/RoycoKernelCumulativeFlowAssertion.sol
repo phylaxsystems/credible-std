@@ -23,6 +23,11 @@ abstract contract RoycoKernelCumulativeFlowAssertion is RoycoKernelCumulativeOut
         uint256 inflowThresholdBps_,
         uint256 inflowWindowDuration_
     ) RoycoKernelCumulativeOutflowAssertion(outflowThresholdBps_, outflowWindowDuration_) {
+        require(inflowThresholdBps_ != 0 && inflowThresholdBps_ < 10_000, "Royco: invalid inflow threshold");
+        require(
+            inflowWindowDuration_ >= MIN_FLOW_WINDOW && inflowWindowDuration_ <= type(uint64).max,
+            "Royco: invalid inflow window"
+        );
         inflowThresholdBps = inflowThresholdBps_;
         inflowWindowDuration = inflowWindowDuration_;
     }

@@ -49,7 +49,7 @@ contract MockLender {
     }
 
     function debt(address agent, address asset) external view returns (uint256) {
-        return debtOf[agent][asset];
+        return debtOf[agent][asset] + realizedOf[agent][asset];
     }
 
     function maxRestakerRealization(address agent, address asset) external view returns (uint256, uint256) {
@@ -132,9 +132,8 @@ contract CapLiquidationAssertionTest is Test, CredibleTest {
     }
 
     function testPartialLiquidationWithHighInterestPasses() public {
-        // Realized interest (10) exceeds the principal repaid (5): total debt() rises across the
-        // call even though the liquidation is honest. Netting realized interest out of the
-        // comparison avoids the false positive a raw `debtPost < debtPre` check would raise.
+        // `debt()` includes the accrued interest before the call, so repaying five units still
+        // lowers the reported debt from 110 to 105.
         lender.seed(agent, usdc, 100e6, 10e6, 1_000e6);
         _armReducesDebt();
         vm.prank(liquidator);

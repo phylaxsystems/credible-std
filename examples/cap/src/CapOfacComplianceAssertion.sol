@@ -17,9 +17,9 @@ import {
 /// @title CapOfacComplianceAssertion
 /// @author Phylax Systems
 /// @notice Example Cap assertion for blocking sanctioned participants from sensitive paths.
-/// @dev This example assumes a hypothetical OFAC precompile at
-///      `address(uint160(uint256(keccak256("OfacCompliancePrecompile"))))`.
-///      The precompile is expected to expose `isListed(address) returns (bool listed)`.
+/// @dev The sanctions source is supplied explicitly and must expose
+///      `isListed(address) returns (bool listed)`. Production deployments should use a supported
+///      native assertion or a pinned on-chain sanctions adapter for the target chain.
 ///
 ///      Deploy this assertion against the Cap contract surface being protected:
 ///      - Vault: mint, burn, redeem, borrow, repay, rescue, insurance-fund updates
@@ -28,12 +28,14 @@ import {
 ///      - AccessControl: grant/revoke access
 ///      - Cap ERC20 / StakedCap ERC4626 inherited transfer and share-entry/exit paths
 contract CapOfacComplianceAssertion is Assertion {
-    IOfacCompliancePrecompile internal constant OFAC =
-        IOfacCompliancePrecompile(address(uint160(uint256(keccak256("OfacCompliancePrecompile")))));
+    IOfacCompliancePrecompile internal immutable OFAC;
 
     uint256 internal constant MAX_MATCHING_CALLS = 1024;
 
-    constructor() {
+    constructor(address sanctionsOracle_) {
+        require(sanctionsOracle_ != address(0), "CapOFAC: sanctions oracle zero");
+        require(sanctionsOracle_.code.length > 0, "CapOFAC: sanctions oracle has no code");
+        OFAC = IOfacCompliancePrecompile(sanctionsOracle_);
         registerAssertionSpec(AssertionSpec.Experimental);
     }
 
@@ -48,7 +50,7 @@ contract CapOfacComplianceAssertion is Assertion {
 
     /// @notice Checks the triggering Cap operation does not involve a sanctioned participant.
     /// @dev Checks the transaction sender, immediate caller, and selector-specific account
-    ///      arguments decoded from calldata. Fails when the hypothetical OFAC precompile reports
+    ///      arguments decoded from calldata. Fails when the configured sanctions oracle reports
     ///      any participant address as listed.
     function assertOfacCompliantParticipants() external view {
         PhEvm.TriggerContext memory ctx = ph.context();
@@ -235,7 +237,7 @@ contract CapOfacComplianceAssertion is Assertion {
         require(input.length >= offset + 32, "CapOFAC: malformed calldata");
 
         assembly {
-            account := shr(96, mload(add(add(input, 0x20), offset)))
+            account := and(mload(add(add(input, 0x20), offset)), 0xffffffffffffffffffffffffffffffffffffffff)
         }
     }
 }

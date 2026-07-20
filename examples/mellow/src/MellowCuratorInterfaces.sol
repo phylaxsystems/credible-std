@@ -24,6 +24,8 @@ interface IMellowOracle {
 
     function submitReports(Report[] calldata reports) external; // 0x8f88cbfb
 
+    function acceptReport(address asset, uint256 priceD18, uint32 timestamp) external; // 0x6c038d03
+
     function getReport(address asset) external view returns (DetailedReport memory); // 0xa3bdae3e
 
     function supportedAssets() external view returns (uint256); // 0xa80ce55c

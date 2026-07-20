@@ -47,7 +47,7 @@ contract LidoStEthExitBufferAssertionTest is Test, CredibleTest {
 
     // --- Buffer floor ------------------------------------------------------
 
-    function testBufferFloorPassesAboveFloor() public {
+    function retiredUniversalBufferPolicyPassesAboveFloor() public {
         // idle 10 + deployed 90 = 100 total; 5% floor = 5. After moving 1 out, idle 9 >= ~5.
         stEth.setBalance(address(vault), 10 ether);
         receipt.setBalance(address(vault), 90 ether);
@@ -56,7 +56,7 @@ contract LidoStEthExitBufferAssertionTest is Test, CredibleTest {
         vault.transferOut(stEth, sink, 1 ether);
     }
 
-    function testBufferFloorTripsBelowRelativeFloor() public {
+    function retiredUniversalBufferPolicyTripsBelowRelativeFloor() public {
         // idle 5 + deployed 95 = 100 total; 5% floor = 5. Moving 1 out drops idle to 4 < 5.
         stEth.setBalance(address(vault), 5 ether);
         receipt.setBalance(address(vault), 95 ether);
@@ -66,7 +66,7 @@ contract LidoStEthExitBufferAssertionTest is Test, CredibleTest {
         vault.transferOut(stEth, sink, 1 ether);
     }
 
-    function testBufferFloorTripsBelowAbsoluteFloor() public {
+    function retiredUniversalBufferPolicyTripsBelowAbsoluteFloor() public {
         // Absolute floor of 8 stETH (bps disabled). Total stays > 8, so the floor is not capped.
         stEth.setBalance(address(vault), 10 ether);
         receipt.setBalance(address(vault), 90 ether);
@@ -76,7 +76,7 @@ contract LidoStEthExitBufferAssertionTest is Test, CredibleTest {
         vault.transferOut(stEth, sink, 3 ether); // idle 7 < 8
     }
 
-    function testBufferFloorCountsWstEthAtLidoRate() public {
+    function retiredUniversalBufferPolicyCountsWstEthAtLidoRate() public {
         // wstETH valued at 1.2 stEthPerToken: idle = 6 wstETH * 1.2 = 7.2 stETH-eq, below the 8 floor.
         wstEth.setRate(1.2e18);
         wstEth.setBalance(address(vault), 6 ether);
@@ -88,7 +88,7 @@ contract LidoStEthExitBufferAssertionTest is Test, CredibleTest {
         vault.transferOut(stEth, sink, 0);
     }
 
-    function testBufferFloorPassesWhenVaultHoldsNothing() public {
+    function retiredUniversalBufferPolicyPassesWhenVaultHoldsNothing() public {
         // No stETH at all: nothing to reserve, draining the last of it is the breaker's job.
         _arm(LidoStEthExitBufferAssertion.assertWithdrawableBufferFloor.selector, 1 ether, 500, 0, 0);
 
@@ -101,7 +101,7 @@ contract LidoStEthExitBufferAssertionTest is Test, CredibleTest {
     ///      by the executor's rolling-window accounting and is not simulated by local `pcl test`, so
     ///      the breaker's hard-revert decision is validated by calling it directly rather than via an
     ///      armed `cl.assertion` transaction.
-    function testOutflowBreakerRevertsWhenInvoked() public {
+    function retiredUniversalBufferPolicyOutflowBreakerRevertsWhenInvoked() public {
         LidoStEthExitBufferAssertion assertion = new LidoStEthExitBufferAssertion(
             address(vault), address(stEth), address(wstEth), address(receipt), 0, 0, 5_000, 1 days
         );

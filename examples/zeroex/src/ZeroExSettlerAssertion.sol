@@ -5,7 +5,6 @@ import {PhEvm} from "credible-std/PhEvm.sol";
 
 import {ZeroExSettlerHelpers} from "./ZeroExSettlerHelpers.sol";
 import {
-    IZeroExBridgeSettlerLike,
     IZeroExSettlerLike,
     IZeroExSettlerMetaTxnLike,
     ZeroExSettlerSlippage
@@ -19,8 +18,8 @@ import {
 ///      - live executions must target the registry current or previous Settler for the feature;
 ///      - ERC20 buy-token settlements must increase the declared recipient balance by at least
 ///        the signed minimum output, catching fee-on-transfer or malicious-token edge cases.
-///      - settlement must not move ERC20 tokens from a source that pre-approved the Settler,
-///        catching allowance-drain paths that bypass the intended permit or action flow.
+/// @dev Transfer events do not identify the spender that moved a token. The legacy allowance
+///      heuristic remains callable for compatibility, but is deliberately not registered.
 contract ZeroExSettlerAssertion is ZeroExSettlerHelpers {
     constructor(address settler_, address registry_, uint128 featureId_)
         ZeroExSettlerHelpers(settler_, registry_, featureId_)
@@ -44,16 +43,6 @@ contract ZeroExSettlerAssertion is ZeroExSettlerHelpers {
             this.assertRecipientReceivesMinimumBuyAmount.selector, IZeroExSettlerMetaTxnLike.executeMetaTxn.selector
         );
 
-        registerFnCallTrigger(this.assertNoPreApprovedTransferSource.selector, IZeroExSettlerLike.execute.selector);
-        registerFnCallTrigger(
-            this.assertNoPreApprovedTransferSource.selector, IZeroExSettlerLike.executeWithPermit.selector
-        );
-        registerFnCallTrigger(
-            this.assertNoPreApprovedTransferSource.selector, IZeroExSettlerMetaTxnLike.executeMetaTxn.selector
-        );
-        registerFnCallTrigger(
-            this.assertNoPreApprovedTransferSource.selector, IZeroExBridgeSettlerLike.execute.selector
-        );
     }
 
     /// @notice A called Settler must still be the registry's current or previous deployment.
@@ -88,10 +77,8 @@ contract ZeroExSettlerAssertion is ZeroExSettlerHelpers {
         require(afterBalance - beforeBalance >= slippage.minAmountOut, "0xSettler: recipient credited below minimum");
     }
 
-    /// @notice Rejects ERC20 transfers sourced from accounts that pre-approved this Settler.
-    /// @dev The check is call-scoped: it inspects ERC20 Transfer logs emitted during the triggered
-    ///      Settler call, then reads `allowance(from, settler)` at the pre-call fork. A failure means
-    ///      the settlement moved tokens from an address that already exposed spend authority.
+    /// @notice Legacy diagnostic retained for source compatibility; it is not registered.
+    /// @dev Transfer logs cannot establish that Settler was the allowance spender.
     function assertNoPreApprovedTransferSource() external view {
         PhEvm.TriggerContext memory ctx = ph.context();
         _requireConfiguredSettlerIsAdopter();

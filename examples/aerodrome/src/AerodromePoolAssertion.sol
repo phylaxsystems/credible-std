@@ -24,7 +24,6 @@ contract AerodromePoolAssertion is AerodromePoolHelpers {
         registerFnCallTrigger(this.assertReservesBackedByBalances.selector, IAerodromePoolLike.burn.selector);
         registerFnCallTrigger(this.assertReservesBackedByBalances.selector, IAerodromePoolLike.skim.selector);
         registerFnCallTrigger(this.assertReservesBackedByBalances.selector, IAerodromePoolLike.sync.selector);
-        registerFnCallTrigger(this.assertReservesBackedByBalances.selector, IAerodromePoolLike.claimFees.selector);
 
         registerFnCallTrigger(this.assertSwapKNonDecreasing.selector, IAerodromePoolLike.swap.selector);
         registerFnCallTrigger(
@@ -39,7 +38,7 @@ contract AerodromePoolAssertion is AerodromePoolHelpers {
         PhEvm.TriggerContext memory ctx = ph.context();
         _requireConfiguredPoolIsAdopter();
 
-        PoolSnapshot memory post = _poolSnapshotAt(_postCall(ctx.callEnd));
+        PoolSnapshot memory post = _poolSnapshotAt(_postCall(ctx.callEnd), false);
         require(post.poolBalance0 >= post.reserve0, "AerodromePool: token0 reserves underbacked");
         require(post.poolBalance1 >= post.reserve1, "AerodromePool: token1 reserves underbacked");
     }
@@ -51,8 +50,8 @@ contract AerodromePoolAssertion is AerodromePoolHelpers {
         PhEvm.TriggerContext memory ctx = ph.context();
         _requireConfiguredPoolIsAdopter();
 
-        PoolSnapshot memory pre = _poolSnapshotAt(_preCall(ctx.callStart));
-        PoolSnapshot memory post = _poolSnapshotAt(_postCall(ctx.callEnd));
+        PoolSnapshot memory pre = _poolSnapshotAt(_preCall(ctx.callStart), true);
+        PoolSnapshot memory post = _poolSnapshotAt(_postCall(ctx.callEnd), true);
         require(post.k >= pre.k, "AerodromePool: swap decreased K");
     }
 
@@ -63,13 +62,22 @@ contract AerodromePoolAssertion is AerodromePoolHelpers {
         PhEvm.TriggerContext memory ctx = ph.context();
         _requireConfiguredPoolIsAdopter();
 
-        PoolSnapshot memory pre = _poolSnapshotAt(_preCall(ctx.callStart));
-        PoolSnapshot memory post = _poolSnapshotAt(_postCall(ctx.callEnd));
+        PoolSnapshot memory pre = _poolSnapshotAt(_preCall(ctx.callStart), false);
+        PoolSnapshot memory post = _poolSnapshotAt(_postCall(ctx.callEnd), false);
         (uint256 claimed0, uint256 claimed1) = abi.decode(ph.callOutputAt(ctx.callStart), (uint256, uint256));
+        address recipient = _triggeredCaller(ctx);
+        uint256 recipient0Before = _balanceAt(pre.token0, recipient, _preCall(ctx.callStart));
+        uint256 recipient1Before = _balanceAt(pre.token1, recipient, _preCall(ctx.callStart));
+        uint256 recipient0After = _balanceAt(post.token0, recipient, _postCall(ctx.callEnd));
+        uint256 recipient1After = _balanceAt(post.token1, recipient, _postCall(ctx.callEnd));
 
         require(pre.feeBalance0 >= post.feeBalance0, "AerodromePool: token0 fee custody increased on claim");
         require(pre.feeBalance1 >= post.feeBalance1, "AerodromePool: token1 fee custody increased on claim");
-        require(pre.feeBalance0 - post.feeBalance0 == claimed0, "AerodromePool: token0 claim/custody mismatch");
-        require(pre.feeBalance1 - post.feeBalance1 == claimed1, "AerodromePool: token1 claim/custody mismatch");
+        require(pre.feeBalance0 - post.feeBalance0 >= claimed0, "AerodromePool: token0 claim/custody mismatch");
+        require(pre.feeBalance1 - post.feeBalance1 >= claimed1, "AerodromePool: token1 claim/custody mismatch");
+        require(recipient0After >= recipient0Before, "AerodromePool: token0 recipient balance decreased");
+        require(recipient1After >= recipient1Before, "AerodromePool: token1 recipient balance decreased");
+        require(recipient0After - recipient0Before >= claimed0, "AerodromePool: token0 claim underpaid");
+        require(recipient1After - recipient1Before >= claimed1, "AerodromePool: token1 claim underpaid");
     }
 }

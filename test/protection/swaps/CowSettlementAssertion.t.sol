@@ -171,37 +171,6 @@ contract CowSettlementAssertionTest is Test, CredibleTest {
     }
 
     // ----------------------------------------------------------------
-    //  Surplus protection — assertSolverDoesNotExtractValue
-    // ----------------------------------------------------------------
-
-    function testHonestSettlementPaysUserNotSolver() public {
-        settlement.configureTrade(SELL, BUY, 0, MockGPv2Settlement.Mode.Honest);
-
-        _armSurplus();
-        vm.prank(solver, solver);
-        _settle();
-    }
-
-    function testSolverSiphoningSurplusTrips() public {
-        settlement.configureTrade(SELL, BUY, SURPLUS, MockGPv2Settlement.Mode.SolverSiphon);
-
-        _armSurplus();
-        vm.expectRevert(bytes("CowSettlement: solver extracted value from settlement"));
-        vm.prank(solver, solver);
-        _settle();
-    }
-
-    function testContractSolverSiphoningSurplusTrips() public {
-        MockSolverForwarder forwarder = new MockSolverForwarder();
-        settlement.configureTrade(SELL, BUY, SURPLUS, MockGPv2Settlement.Mode.SolverSiphon);
-
-        _armSurplus();
-        vm.expectRevert(bytes("CowSettlement: solver extracted value from settlement"));
-        vm.prank(solver, solver);
-        forwarder.settle(settlement);
-    }
-
-    // ----------------------------------------------------------------
     //  Inventory protection — assertBufferConserved
     // ----------------------------------------------------------------
 
@@ -213,7 +182,7 @@ contract CowSettlementAssertionTest is Test, CredibleTest {
 
     function testBufferDrainToUnauthorizedRecipientTrips() public {
         _armBuffer();
-        vm.expectRevert(bytes("CowSettlement: buffer moved to unauthorized recipient"));
+        vm.expectRevert(bytes("CowSettlement: external buffer drain"));
         vm.prank(attacker, attacker);
         settlement.drainTo(address(dai), attacker, 200_000e18);
     }
@@ -236,10 +205,6 @@ contract CowSettlementAssertionTest is Test, CredibleTest {
         IGPv2SettlementLike.TradeData[] memory trades = new IGPv2SettlementLike.TradeData[](0);
         IGPv2SettlementLike.InteractionData[][3] memory interactions;
         settlement.settle(tokens, prices, trades, interactions);
-    }
-
-    function _armSurplus() internal {
-        _arm(CowSettlementAssertion.assertSolverDoesNotExtractValue.selector);
     }
 
     function _armBuffer() internal {

@@ -14,10 +14,11 @@ contract CurveUsdControllerAssertion is CurveUsdControllerProtocolHelpers {
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
-    /// @notice Registers checks over loan-list indexing, aggregate debt, and post-action health rules.
+    /// @notice Registers operation-local post-action health rules.
+    /// @dev The market-wide loan/debt scans below are intentionally not transaction triggers: the
+    ///      official controller has no matching maximum loan count, so an immutable scan bound
+    ///      otherwise becomes a protocol liveness cap.
     function triggers() external view override {
-        registerTxEndTrigger(this.assertLoanListIntegrity.selector);
-        registerTxEndTrigger(this.assertDebtAccounting.selector);
         _registerCurveUsdRiskIncreasingTriggers(this.assertPostRiskIncreasingOperationHealth.selector);
         _registerCurveUsdLiquidationTriggers(this.assertPostLiquidationHealthRule.selector);
     }
@@ -56,6 +57,7 @@ contract CurveUsdControllerAssertion is CurveUsdControllerProtocolHelpers {
 
     /// @notice Checks risk-increasing actions leave an existing loan with nonnegative health.
     function assertPostRiskIncreasingOperationHealth() external {
+        require(ph.getAssertionAdopter() == controller, "CurveUSD: configured controller is not adopter");
         CurveUsdTriggeredCall memory triggered = _resolveCurveUsdTriggeredCall();
         address user = _curveUsdAccountFromCall(triggered);
         PhEvm.ForkId memory fork = _postCall(triggered.callEnd);
@@ -69,6 +71,7 @@ contract CurveUsdControllerAssertion is CurveUsdControllerProtocolHelpers {
 
     /// @notice Checks a liquidation that starts from healthy state does not leave a surviving loan unhealthy.
     function assertPostLiquidationHealthRule() external {
+        require(ph.getAssertionAdopter() == controller, "CurveUSD: configured controller is not adopter");
         CurveUsdTriggeredCall memory triggered = _resolveCurveUsdTriggeredCall();
         address user = _curveUsdAccountFromCall(triggered);
 

@@ -14,7 +14,6 @@ contract MockSparkVault {
     uint256 public chi = 1e27;
     uint256 public rho = 1;
     uint256 public vsr = 1;
-    uint256 public assetsOutstanding;
     bool public breakOutstanding;
 
     constructor(ERC20Mock assetToken_) {
@@ -29,11 +28,18 @@ contract MockSparkVault {
         return chi;
     }
 
+    function asset() external view returns (address) {
+        return address(assetToken);
+    }
+
+    function assetsOutstanding() external view returns (uint256) {
+        if (breakOutstanding) return 0;
+        uint256 liquidity = assetToken.balanceOf(address(this));
+        return totalAssets > liquidity ? totalAssets - liquidity : 0;
+    }
+
     function take(uint256 value) external {
         assetToken.transfer(msg.sender, value);
-        if (!breakOutstanding) {
-            assetsOutstanding += value;
-        }
     }
 }
 
@@ -49,7 +55,7 @@ contract SparkVaultAssertionTest is Test, CredibleTest {
 
     function _arm() internal {
         bytes memory createData = abi.encodePacked(
-            type(SparkVaultAssertion).creationCode, abi.encode(address(vault), address(asset), 0, 2_500, 1 days)
+            type(SparkVaultAssertion).creationCode, abi.encode(address(vault), address(asset))
         );
         cl.assertion(address(vault), createData, SparkVaultAssertion.assertSparkTakeAccounting.selector);
     }
@@ -59,11 +65,17 @@ contract SparkVaultAssertionTest is Test, CredibleTest {
         vault.take(10 ether);
     }
 
+    function testTakeAccountingPassesWhenExcessLiquidityKeepsOutstandingAtZero() public {
+        asset.mint(address(vault), 50 ether);
+        _arm();
+        vault.take(10 ether);
+    }
+
     function testTakeAccountingTripsWhenOutstandingDoesNotIncrease() public {
         vault.setBreakOutstanding(true);
 
         _arm();
-        vm.expectRevert(bytes("SparkVault: take outstanding delta mismatch"));
+        vm.expectRevert(bytes("SparkVault: bad post-take assetsOutstanding"));
         vault.take(10 ether);
     }
 }

@@ -57,6 +57,11 @@ abstract contract UniswapV4PoolManagerHelpers is Assertion {
     ///      EXTCODESIZE = 0.
     constructor(address manager_, IUniswapV4PoolManagerLike.PoolKey memory poolKey_) {
         require(manager_ != address(0), "UniswapV4Pool: manager zero");
+        // The audited executor has no fork-aware native-balance read. Substituting uint256.max
+        // made native protocol-fee custody vacuous, so this adapter is explicitly ERC-20-only.
+        require(
+            poolKey_.currency0 != address(0) && poolKey_.currency1 != address(0), "UniswapV4Pool: native unsupported"
+        );
         require(poolKey_.currency0 < poolKey_.currency1, "UniswapV4Pool: currencies misordered");
         MANAGER = manager_;
         CURRENCY0 = poolKey_.currency0;
@@ -102,10 +107,6 @@ abstract contract UniswapV4PoolManagerHelpers is Assertion {
         view
         returns (uint256)
     {
-        if (_isNativeCurrency(currency)) {
-            return type(uint256).max;
-        }
-
         return _readBalanceAt(currency, account, fork);
     }
 

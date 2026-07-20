@@ -4,7 +4,6 @@ pragma solidity ^0.8.13;
 import {PhEvm} from "credible-std/PhEvm.sol";
 import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 import {CapMintBackingHelpers} from "./CapMintBackingHelpers.sol";
-import {ICapVaultLike} from "./CapMintBackingInterfaces.sol";
 
 /// @title CapMintBackingAssertion
 /// @author Phylax Systems
@@ -43,16 +42,12 @@ contract CapMintBackingAssertion is CapMintBackingHelpers {
         registerAssertionSpec(AssertionSpec.Experimental);
     }
 
+    /// @dev Intentionally unarmed. Cap values cUSD with its live NAV conversion rather than at a
+    ///      fixed one-dollar face value, and its reserve set is mutable. The policy helpers below
+    ///      are retained as a prototype, but registering them would reject valid mint, burn, and
+    ///      proportional redemption paths and would miss newly added reserves.
     function triggers() external view override {
-        registerFnCallTrigger(this.assertBackingCoversSupply.selector, ICapVaultLike.mint.selector);
-        registerFnCallTrigger(this.assertBackingCoversSupply.selector, ICapVaultLike.burn.selector);
-        registerFnCallTrigger(this.assertBackingCoversSupply.selector, ICapVaultLike.redeem.selector);
-
-        _watchInflow(ASSET0);
-        _watchInflow(ASSET1);
-        _watchInflow(ASSET2);
-        _watchInflow(ASSET3);
-        _watchInflow(ASSET4);
+        // Quarantined until the assertion derives Cap's current NAV and reserve set on-chain.
     }
 
     /// @notice cUSD backing may not be eroded across a supply-changing operation.

@@ -40,8 +40,18 @@ abstract contract ERC4626BaseAssertion is Assertion {
     /// @param _vault The ERC-4626 vault being monitored (assertion adopter).
     /// @param _asset The vault's underlying ERC-20 asset.
     constructor(address _vault, address _asset) {
+        require(_vault != address(0), "ERC4626: vault zero");
+        require(_asset != address(0), "ERC4626: asset zero");
         vault = _vault;
         asset = _asset;
+    }
+
+    /// @notice Confirms the assertion is attached to the configured vault and asset.
+    /// @dev Constructor-time protocol reads are unavailable in the assertion deployment runtime,
+    ///      so the relationship is checked at the snapshot used by each assertion instead.
+    function _requireVaultConfigurationAt(PhEvm.ForkId memory fork) internal view {
+        require(ph.getAssertionAdopter() == vault, "ERC4626: configured vault is not adopter");
+        require(_readAddressAt(vault, abi.encodeCall(IERC4626.asset, ()), fork) == asset, "ERC4626: asset mismatch");
     }
 
     // ---------------------------------------------------------------

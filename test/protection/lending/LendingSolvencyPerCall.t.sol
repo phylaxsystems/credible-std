@@ -118,6 +118,14 @@ contract TestLendingSolvencyAssertion is LendingProtectionSuiteBase, LendingBase
     }
 }
 
+contract TestLegacyLendingSolvencyAssertion is TestLendingSolvencyAssertion {
+    constructor(address pool_) TestLendingSolvencyAssertion(pool_) {}
+
+    function triggers() external view override {
+        registerFnCallTrigger(LendingBaseAssertion.assertPostOperationSolvency.selector, ITestLendingPool.op.selector);
+    }
+}
+
 /// @notice Router that makes an account insolvent on the first op and repairs it on the second,
 ///         within the same transaction. Net tx-start -> tx-end state is solvent, but the
 ///         intermediate state after the first op is not.
@@ -145,9 +153,14 @@ contract LendingSolvencyPerCallTest is Test, CredibleTest {
     }
 
     function _arm() internal {
-        bytes memory createData =
-            abi.encodePacked(type(TestLendingSolvencyAssertion).creationCode, abi.encode(address(pool)));
-        cl.assertion(address(pool), createData, LendingBaseAssertion.assertOperationSafety.selector);
+        _armSelector(LendingBaseAssertion.assertOperationSafety.selector);
+    }
+
+    function _armSelector(bytes4 assertionSelector) internal {
+        bytes memory createData = assertionSelector == LendingBaseAssertion.assertPostOperationSolvency.selector
+            ? abi.encodePacked(type(TestLegacyLendingSolvencyAssertion).creationCode, abi.encode(address(pool)))
+            : abi.encodePacked(type(TestLendingSolvencyAssertion).creationCode, abi.encode(address(pool)));
+        cl.assertion(address(pool), createData, assertionSelector);
     }
 
     function testSolvencyHonestOpPasses() public {
@@ -184,5 +197,20 @@ contract LendingSolvencyPerCallTest is Test, CredibleTest {
         _arm();
         vm.expectRevert();
         batcher.breakThenRepair(borrower);
+    }
+
+    function testLegacySolvencyAliasPassesHonestOperation() public {
+        pool.setPending(borrower, 1);
+
+        _armSelector(LendingBaseAssertion.assertPostOperationSolvency.selector);
+        pool.op(borrower);
+    }
+
+    function testLegacySolvencyAliasTripsOnInsolvency() public {
+        pool.setPending(borrower, -1);
+
+        _armSelector(LendingBaseAssertion.assertPostOperationSolvency.selector);
+        vm.expectRevert();
+        pool.op(borrower);
     }
 }

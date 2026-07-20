@@ -30,6 +30,12 @@ abstract contract SymbioticVaultFlowHelpers is SymbioticVaultBaseAssertion {
         uint256 recipientInflow;
     }
 
+    struct SlashState {
+        uint256 activeStake;
+        uint256 currentWithdrawals;
+        uint256 nextWithdrawals;
+    }
+
     function _depositDeltasAt(address onBehalfOf, PhEvm.ForkId memory preFork, PhEvm.ForkId memory postFork)
         internal
         view
@@ -77,6 +83,63 @@ abstract contract SymbioticVaultFlowHelpers is SymbioticVaultBaseAssertion {
             vaultOutflow: _readBalanceAt(asset, vault, preFork) - _readBalanceAt(asset, vault, postFork),
             recipientInflow: _readBalanceAt(asset, recipient, postFork) - _readBalanceAt(asset, recipient, preFork)
         });
+    }
+
+    function _claimEntitlementAt(uint256 epoch, address claimant, PhEvm.ForkId memory fork)
+        internal
+        view
+        returns (uint256)
+    {
+        uint256 totalShares = _withdrawalSharesAt(vault, epoch, fork);
+        uint256 claimantShares = _withdrawalSharesOfAt(vault, epoch, claimant, fork);
+        require(totalShares != 0, "SymbioticVault: zero epoch withdrawal shares");
+        return ph.mulDivDown(_withdrawalsAt(vault, epoch, fork), claimantShares, totalShares);
+    }
+
+    function _slashStateAt(uint256 currentEpoch, PhEvm.ForkId memory fork)
+        internal
+        view
+        returns (SlashState memory state)
+    {
+        state = SlashState({
+            activeStake: _activeStakeAt(vault, fork),
+            currentWithdrawals: _withdrawalsAt(vault, currentEpoch, fork),
+            nextWithdrawals: _withdrawalsAt(vault, currentEpoch + 1, fork)
+        });
+    }
+
+    function _expectedSlashState(SlashState memory pre, uint256 amount, bool currentEpochCapture)
+        internal
+        view
+        returns (SlashState memory expected, uint256 slashedAmount)
+    {
+        expected = pre;
+        uint256 slashable = pre.activeStake + pre.nextWithdrawals;
+        if (!currentEpochCapture) {
+            slashable += pre.currentWithdrawals;
+        }
+        slashedAmount = amount < slashable ? amount : slashable;
+        if (slashedAmount == 0) {
+            return (expected, 0);
+        }
+
+        uint256 activeSlashed = ph.mulDivDown(slashedAmount, pre.activeStake, slashable);
+        uint256 nextSlashed;
+        uint256 currentSlashed;
+        if (currentEpochCapture) {
+            nextSlashed = slashedAmount - activeSlashed;
+        } else {
+            nextSlashed = ph.mulDivDown(slashedAmount, pre.nextWithdrawals, slashable);
+            currentSlashed = slashedAmount - activeSlashed - nextSlashed;
+            if (currentSlashed > pre.currentWithdrawals) {
+                nextSlashed += currentSlashed - pre.currentWithdrawals;
+                currentSlashed = pre.currentWithdrawals;
+            }
+        }
+
+        expected.activeStake -= activeSlashed;
+        expected.currentWithdrawals -= currentSlashed;
+        expected.nextWithdrawals -= nextSlashed;
     }
 
     function _assertDepositPolicy(address caller, PhEvm.ForkId memory preFork, PhEvm.ForkId memory postFork, uint256 postActiveStake)

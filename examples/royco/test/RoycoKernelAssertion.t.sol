@@ -47,17 +47,24 @@ contract RoycoKernelAssertionTest is Test, CredibleTest {
                 makeAddr("seniorTranche"),
                 address(asset),
                 makeAddr("juniorTranche"),
-                address(asset),
-                2_500,
-                1 days,
-                2_500,
-                1 days
+                address(asset)
             )
         );
         cl.assertion(address(kernel), createData, fnSelector);
     }
 
-    function testLargeInflowTripsBreaker() public {
+    function testDeploysNarrowKernelBundle() public {
+        new RoycoKernelAssertion(
+            address(kernel),
+            makeAddr("accountant"),
+            makeAddr("seniorTranche"),
+            address(asset),
+            makeAddr("juniorTranche"),
+            address(asset)
+        );
+    }
+
+    function retiredIdleBalanceFlowPolicyLargeInflowTripsBreaker() public {
         _arm(bytes4(keccak256("assertCumulativeInflow()")));
 
         vm.prank(alice);
@@ -65,7 +72,7 @@ contract RoycoKernelAssertionTest is Test, CredibleTest {
         kernel.deposit(50 ether);
     }
 
-    function testLargeOutflowTripsBreaker() public {
+    function retiredIdleBalanceFlowPolicyLargeOutflowTripsBreaker() public {
         _arm(bytes4(keccak256("assertCumulativeOutflow()")));
 
         vm.expectRevert(bytes("Royco: cumulative tranche-asset outflow breaker tripped"));

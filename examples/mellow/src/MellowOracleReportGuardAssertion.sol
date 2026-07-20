@@ -9,8 +9,8 @@ import {IMellowOracle} from "./MellowCuratorInterfaces.sol";
 
 /// @title MellowOracleReportGuardAssertion
 /// @author Phylax Systems
-/// @notice Immutable catastrophe cap on how far a single oracle report can move a Mellow vault's
-///         price-per-share.
+/// @notice Prototype cap on how far a single oracle report can move Mellow's shares-per-asset
+///         conversion factor.
 /// @dev Apply to the `Oracle` (the contract whose `submitReports` reprices the vault).
 ///
 ///      Why this is not a restatement of the protocol's own guard. Mellow's `Oracle` already
@@ -46,7 +46,7 @@ contract MellowOracleReportGuardAssertion is MellowCuratorHelpers {
 
     constructor(address oracle_, uint256 maxReportDriftBps_) {
         require(oracle_ != address(0), "MellowOracle: zero oracle");
-        require(maxReportDriftBps_ != 0, "MellowOracle: zero drift cap");
+        require(maxReportDriftBps_ != 0 && maxReportDriftBps_ < 10_000, "MellowOracle: invalid drift cap");
 
         oracle = oracle_;
         maxReportDriftBps = maxReportDriftBps_;
@@ -54,9 +54,13 @@ contract MellowOracleReportGuardAssertion is MellowCuratorHelpers {
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
-    /// @notice Fires the per-call drift check on every `submitReports` call to the oracle.
+    /// @notice Intentionally unarmed until report acceptance has an independent baseline.
+    /// @dev A suspicious submission is valid upstream and does not propagate immediately. Its
+    ///      later `acceptReport` call clears the suspicious flag after the old accepted value has
+    ///      already been overwritten in Oracle storage. This stateless assertion cannot both allow
+    ///      submission and compare acceptance with the prior accepted value.
     function triggers() external view override {
-        registerFnCallTrigger(this.assertReportDriftWithinCap.selector, IMellowOracle.submitReports.selector);
+        // Quarantined pending an accepted-price source independent from `getReport`.
     }
 
     /// @notice Requires no supported asset's repriced `priceD18` to move more than the cap in one
@@ -72,6 +76,7 @@ contract MellowOracleReportGuardAssertion is MellowCuratorHelpers {
         PhEvm.TriggerContext memory ctx = ph.context();
         PhEvm.ForkId memory preCall = _preCall(ctx.callStart);
         PhEvm.ForkId memory postCall = _postCall(ctx.callEnd);
+        require(ph.getAssertionAdopter() == oracle, "MellowOracle: configured oracle is not adopter");
 
         uint256 count = _readUintAt(oracle, abi.encodeCall(IMellowOracle.supportedAssets, ()), preCall);
 
@@ -83,13 +88,16 @@ contract MellowOracleReportGuardAssertion is MellowCuratorHelpers {
                 continue; // no baseline — the bootstrap report is suspicious and does not reprice
             }
 
-            (bool okPost, uint256 postPrice, bool suspicious) = _tryReadReportPrice(oracle, asset, postCall);
-            if (!okPost || suspicious) {
-                continue; // suspicious reports are recorded but not propagated into vault accounting
+            (bool okPost, uint256 postPrice,) = _tryReadReportPrice(oracle, asset, postCall);
+            if (!okPost) {
+                continue;
             }
 
             uint256 drift = postPrice > prePrice ? postPrice - prePrice : prePrice - postPrice;
-            require(drift * 10_000 <= prePrice * maxReportDriftBps, "MellowOracle: report price drift exceeds cap");
+            require(
+                ph.mulDivUp(drift, 10_000, prePrice) <= maxReportDriftBps,
+                "MellowOracle: report price drift exceeds cap"
+            );
         }
     }
 }

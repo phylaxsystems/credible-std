@@ -26,6 +26,9 @@ import {ERC4626BaseAssertion} from "./ERC4626BaseAssertion.sol";
 /// @dev Uses V2 `registerFnCallTrigger` + `ph.context()` for call-scoped triggers,
 ///      `ph.callinputAt()` to read call arguments, and `ph.callOutputAt()` to read the
 ///      actual return value — replacing the totalSupply/totalAssets delta inference from V1.
+///      ERC-4626 specifies the conservative direction of previews, but it does not set a generic
+///      maximum distance from the state-changing result. Concrete vaults may override
+///      `_maxPreviewDeviation()` when their implementation proves a tighter bound.
 abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
     /// @notice Register the default trigger set for preview-consistency invariants.
     /// @dev Each ERC-4626 operation gets its own assertion function via registerFnCallTrigger.
@@ -37,10 +40,10 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
     }
 
     /// @notice Maximum acceptable deviation between a preview result and the actual result.
-    /// @dev Defaults to 1 (single-unit rounding). Override for vaults with wider rounding
-    ///      (e.g. multi-step rounding, fee chunking, or decimal normalization).
+    /// @dev Defaults to no generic distance cap. Override only when the concrete vault's
+    ///      implementation proves a smaller maximum.
     function _maxPreviewDeviation() internal view virtual returns (uint256) {
-        return 1;
+        return type(uint256).max;
     }
 
     // ---------------------------------------------------------------
@@ -52,10 +55,10 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
     ///         actualSharesMinted - previewDeposit(assets) <= maxDeviation
     function assertDepositPreview() external {
         PhEvm.TriggerContext memory ctx = ph.context();
+        _requireVaultConfigurationAt(_preCall(ctx.callStart));
 
-        // Decode call input: deposit(uint256 assets, address receiver) → extract assets
         bytes memory input = ph.callinputAt(ctx.callStart);
-        (uint256 assets,) = abi.decode(_stripSelector(input), (uint256, address));
+        uint256 assets = _firstUint256Arg(input);
 
         // Preview at pre-call state
         uint256 previewShares =
@@ -77,9 +80,10 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
     ///         previewMint(shares) - actualAssetsCharged <= maxDeviation
     function assertMintPreview() external {
         PhEvm.TriggerContext memory ctx = ph.context();
+        _requireVaultConfigurationAt(_preCall(ctx.callStart));
 
         bytes memory input = ph.callinputAt(ctx.callStart);
-        (uint256 shares,) = abi.decode(_stripSelector(input), (uint256, address));
+        uint256 shares = _firstUint256Arg(input);
 
         uint256 previewAssets =
             _readUintAt(vault, abi.encodeCall(IERC4626.previewMint, (shares)), _preCall(ctx.callStart));
@@ -100,9 +104,10 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
     ///         previewWithdraw(assets) - actualSharesBurned <= maxDeviation
     function assertWithdrawPreview() external {
         PhEvm.TriggerContext memory ctx = ph.context();
+        _requireVaultConfigurationAt(_preCall(ctx.callStart));
 
         bytes memory input = ph.callinputAt(ctx.callStart);
-        (uint256 assets,,) = abi.decode(_stripSelector(input), (uint256, address, address));
+        uint256 assets = _firstUint256Arg(input);
 
         uint256 previewShares =
             _readUintAt(vault, abi.encodeCall(IERC4626.previewWithdraw, (assets)), _preCall(ctx.callStart));
@@ -125,9 +130,10 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
     ///         actualAssetsReturned - previewRedeem(shares) <= maxDeviation
     function assertRedeemPreview() external {
         PhEvm.TriggerContext memory ctx = ph.context();
+        _requireVaultConfigurationAt(_preCall(ctx.callStart));
 
         bytes memory input = ph.callinputAt(ctx.callStart);
-        (uint256 shares,,) = abi.decode(_stripSelector(input), (uint256, address, address));
+        uint256 shares = _firstUint256Arg(input);
 
         uint256 previewAssets =
             _readUintAt(vault, abi.encodeCall(IERC4626.previewRedeem, (shares)), _preCall(ctx.callStart));
@@ -149,6 +155,16 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
         args = new bytes(input.length - 4);
         for (uint256 i = 0; i < args.length; i++) {
             args[i] = input[i + 4];
+        }
+    }
+
+    /// @notice Reads the first ABI argument from selector-prefixed calldata.
+    /// @dev This also supports ERC-4626-compatible default-argument overloads whose first amount
+    ///      has the same ABI position as the canonical methods.
+    function _firstUint256Arg(bytes memory input) internal pure returns (uint256 value) {
+        require(input.length >= 36, "ERC4626Preview: input too short");
+        assembly ("memory-safe") {
+            value := mload(add(input, 36))
         }
     }
 }

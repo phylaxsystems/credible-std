@@ -49,8 +49,11 @@ contract MellowVaultOutflowAssertion is Assertion {
     constructor(address vault_, address asset_, uint256 outflowThresholdBps_, uint256 outflowWindowDuration_) {
         require(vault_ != address(0), "MellowOutflow: zero vault");
         require(asset_ != address(0), "MellowOutflow: zero asset");
-        require(outflowThresholdBps_ != 0 && outflowThresholdBps_ <= 10_000, "MellowOutflow: bad threshold");
-        require(outflowWindowDuration_ != 0, "MellowOutflow: zero window");
+        require(outflowThresholdBps_ != 0 && outflowThresholdBps_ < 10_000, "MellowOutflow: bad threshold");
+        require(
+            outflowWindowDuration_ >= 10 && outflowWindowDuration_ <= type(uint64).max,
+            "MellowOutflow: invalid window"
+        );
 
         vault = vault_;
         asset = asset_;
@@ -60,14 +63,10 @@ contract MellowVaultOutflowAssertion is Assertion {
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
-    /// @notice Registers the rolling-window outflow breaker on the deposit asset.
-    /// @dev The executor tracks the rolling outflow and TVL snapshot internally and invokes
-    ///      `assertOutflowWithinLimit` only once the watched token's cumulative outflow crosses the
-    ///      threshold — so reaching the assertion already means the rate limit was breached.
+    /// @notice Quarantined: adopter idle-token net flow is not consolidated Mellow outflow.
     function triggers() external view override {
-        watchCumulativeOutflow(
-            asset, outflowThresholdBps, outflowWindowDuration, this.assertOutflowWithinLimit.selector
-        );
+        // Intentionally empty. Divest inflows cancel payouts, strategy pushes look like exits, and
+        // native assets have no ERC-20 Transfer log for the watcher to observe.
     }
 
     /// @notice Hard circuit breaker for deposit-asset outflow from the vault.

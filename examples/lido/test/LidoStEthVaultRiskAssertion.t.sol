@@ -75,7 +75,7 @@ contract LidoStEthVaultRiskAssertionTest is Test, CredibleTest {
 
     // --- assertRiskRegime: healthy paths -----------------------------------
 
-    function testHealthyDebtGrowthPasses() public {
+    function retiredUniversalRiskPolicyHealthyDebtGrowthPasses() public {
         weth.setBalance(borrowReserve, 100 ether); // reserve covers the larger debt
         _arm(LidoStEthVaultRiskAssertion.assertRiskRegime.selector);
 
@@ -83,7 +83,7 @@ contract LidoStEthVaultRiskAssertionTest is Test, CredibleTest {
         vault.borrowMore(pool, 230e8, 210e8, 1.9e18, debtWeth, 60 ether);
     }
 
-    function testReduceOnlyAllowsDeleverage() public {
+    function retiredUniversalRiskPolicyReduceOnlyAllowsDeleverage() public {
         pool.setAccount(address(vault), COLLATERAL, DEBT, 1.04e18); // unhealthy: below comfort band
         _arm(LidoStEthVaultRiskAssertion.assertRiskRegime.selector);
 
@@ -93,7 +93,7 @@ contract LidoStEthVaultRiskAssertionTest is Test, CredibleTest {
 
     // --- assertRiskRegime: reduce-only triggers ----------------------------
 
-    function testUnhealthyDebtGrowthTrips() public {
+    function retiredUniversalRiskPolicyUnhealthyDebtGrowthTrips() public {
         pool.setAccount(address(vault), COLLATERAL, DEBT, 1.04e18); // below comfort band
         _arm(LidoStEthVaultRiskAssertion.assertRiskRegime.selector);
 
@@ -101,7 +101,7 @@ contract LidoStEthVaultRiskAssertionTest is Test, CredibleTest {
         vault.borrowMore(pool, COLLATERAL, 210e8, 1.04e18, debtWeth, 60 ether);
     }
 
-    function testUnhealthyHealthFactorDeclineTrips() public {
+    function retiredUniversalRiskPolicyUnhealthyHealthFactorDeclineTrips() public {
         pool.setAccount(address(vault), COLLATERAL, DEBT, 1.04e18); // below comfort band
         _arm(LidoStEthVaultRiskAssertion.assertRiskRegime.selector);
 
@@ -110,7 +110,7 @@ contract LidoStEthVaultRiskAssertionTest is Test, CredibleTest {
         vault.setPosition(pool, COLLATERAL, DEBT, 1.02e18);
     }
 
-    function testDepegBlocksCollateralGrowth() public {
+    function retiredUniversalRiskPolicyDepegBlocksCollateralGrowth() public {
         feed.setAnswer(0.95e18); // 5% off peg, well past the 1% band
         _arm(LidoStEthVaultRiskAssertion.assertRiskRegime.selector);
 
@@ -118,7 +118,7 @@ contract LidoStEthVaultRiskAssertionTest is Test, CredibleTest {
         vault.setSupplied(aWstEth, 150 ether);
     }
 
-    function testUnreadableRateBlocksDebtGrowth() public {
+    function retiredUniversalRiskPolicyUnreadableRateBlocksDebtGrowth() public {
         rateSource.setReverts(true); // share pricing not trustworthy
         weth.setBalance(borrowReserve, 100 ether);
         _arm(LidoStEthVaultRiskAssertion.assertRiskRegime.selector);
@@ -127,7 +127,7 @@ contract LidoStEthVaultRiskAssertionTest is Test, CredibleTest {
         vault.borrowMore(pool, 230e8, 210e8, 1.9e18, debtWeth, 60 ether);
     }
 
-    function testIlliquidCollateralBlocksCollateralGrowth() public {
+    function retiredUniversalRiskPolicyIlliquidCollateralBlocksCollateralGrowth() public {
         collateral.setBalance(collReserve, 50 ether); // reserve holds < 100% of supplied
         _arm(LidoStEthVaultRiskAssertion.assertRiskRegime.selector);
 
@@ -137,7 +137,7 @@ contract LidoStEthVaultRiskAssertionTest is Test, CredibleTest {
 
     // --- assertRiskRegime: liquidity guards --------------------------------
 
-    function testInsufficientExitLiquidityTrips() public {
+    function retiredUniversalRiskPolicyInsufficientExitLiquidityTrips() public {
         // Healthy, but the borrowed reserve cannot cover the grown debt (50 < 100 WETH).
         _arm(LidoStEthVaultRiskAssertion.assertRiskRegime.selector);
 
@@ -145,7 +145,7 @@ contract LidoStEthVaultRiskAssertionTest is Test, CredibleTest {
         vault.borrowMore(pool, 230e8, 210e8, 1.9e18, debtWeth, 100 ether);
     }
 
-    function testCollateralNotWithdrawableTrips() public {
+    function retiredUniversalRiskPolicyCollateralNotWithdrawableTrips() public {
         // Healthy and liquid pre-state, but deepening the supply leaves it under-covered.
         _arm(LidoStEthVaultRiskAssertion.assertRiskRegime.selector);
 
@@ -155,27 +155,27 @@ contract LidoStEthVaultRiskAssertionTest is Test, CredibleTest {
 
     // --- assertPositionEnvelope --------------------------------------------
 
-    function testEnvelopePasses() public {
+    function retiredUniversalRiskPolicyEnvelopePasses() public {
         _arm(LidoStEthVaultRiskAssertion.assertPositionEnvelope.selector);
 
         vault.borrowMore(pool, 230e8, 210e8, 1.9e18, debtWeth, 60 ether);
     }
 
-    function testEnvelopeIgnoresDebtFreePosition() public {
+    function retiredUniversalRiskPolicyEnvelopeIgnoresDebtFreePosition() public {
         _arm(LidoStEthVaultRiskAssertion.assertPositionEnvelope.selector);
 
         // No debt: the envelope has nothing to enforce.
         vault.setPosition(pool, 50e8, 0, 0);
     }
 
-    function testHealthFactorBelowFloorTrips() public {
+    function retiredUniversalRiskPolicyHealthFactorBelowFloorTrips() public {
         _arm(LidoStEthVaultRiskAssertion.assertPositionEnvelope.selector);
 
         vm.expectRevert(bytes("LidoVault: health factor below floor"));
         vault.setPosition(pool, COLLATERAL, DEBT, 1.005e18); // below the 1.01 floor
     }
 
-    function testHealthFactorDeclineBelowBandTrips() public {
+    function retiredUniversalRiskPolicyHealthFactorDeclineBelowBandTrips() public {
         _arm(LidoStEthVaultRiskAssertion.assertPositionEnvelope.selector);
 
         // Above the floor but slipping below the comfort band while declining.
@@ -183,7 +183,7 @@ contract LidoStEthVaultRiskAssertionTest is Test, CredibleTest {
         vault.setPosition(pool, COLLATERAL, DEBT, 1.03e18);
     }
 
-    function testCollateralRatioBelowMinTrips() public {
+    function retiredUniversalRiskPolicyCollateralRatioBelowMinTrips() public {
         _arm(LidoStEthVaultRiskAssertion.assertPositionEnvelope.selector);
 
         // HF holds, but $205 collateral / $200 debt is 1.025x, below the 1.05x minimum.

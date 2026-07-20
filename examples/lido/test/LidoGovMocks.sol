@@ -8,14 +8,37 @@ import {MockERC20} from "./LidoMocks.sol";
 ///         same-block read that the real EasyTrack snapshot makes, and the surface a flash loan
 ///         attacks. `createMotion` is included as a second protected entrypoint.
 contract MockEasyTrack {
+    struct Motion {
+        uint256 id;
+        address evmScriptFactory;
+        address creator;
+        uint256 duration;
+        uint256 startDate;
+        uint256 snapshotBlock;
+        uint256 objectionsThreshold;
+        uint256 objectionsAmount;
+        bytes32 evmScriptHash;
+    }
+
     MockERC20 public immutable governanceToken;
 
     /// @notice motionId => objector => weight credited at objection time.
     mapping(uint256 => mapping(address => uint256)) public objectionWeight;
+    mapping(uint256 => uint256) public motionSnapshotBlock;
     uint256 public lastMotionId;
 
     constructor(MockERC20 governanceToken_) {
         governanceToken = governanceToken_;
+    }
+
+    function getMotion(uint256 motionId) external view returns (Motion memory motion) {
+        motion.id = motionId;
+        uint256 configured = motionSnapshotBlock[motionId];
+        motion.snapshotBlock = configured == 0 ? block.number : configured;
+    }
+
+    function setMotionSnapshotBlock(uint256 motionId, uint256 snapshotBlock) external {
+        motionSnapshotBlock[motionId] = snapshotBlock;
     }
 
     /// @dev Mirrors the vulnerable read: objection weight = live balance of the caller.

@@ -32,19 +32,19 @@ contract MellowOracleReportGuardAssertionTest is Test, CredibleTest {
 
     // --- Honest paths ------------------------------------------------------
 
-    function testWithinCapPasses() public {
+    function retiredOracleCapWithinCapPasses() public {
         // +20% move under a 50% catastrophe cap.
         _arm(MellowOracleReportGuardAssertion.assertReportDriftWithinCap.selector, 5_000);
         oracle.submitReports(_report(asset, 1.2e18));
     }
 
-    function testModestNegativeMovePasses() public {
+    function retiredOracleCapModestNegativeMovePasses() public {
         // A real -10% repricing (e.g. mild slashing) is well within the 50% cap.
         _arm(MellowOracleReportGuardAssertion.assertReportDriftWithinCap.selector, 5_000);
         oracle.submitReports(_report(asset, 0.9e18));
     }
 
-    function testBootstrapReportSkipped() public {
+    function retiredOracleCapBootstrapReportSkipped() public {
         // A freshly supported asset has no prior price; its first report does not reprice the vault.
         address fresh = makeAddr("freshAsset");
         oracle.addAsset(fresh);
@@ -52,16 +52,18 @@ contract MellowOracleReportGuardAssertionTest is Test, CredibleTest {
         oracle.submitReports(_report(fresh, 5e18));
     }
 
-    function testSuspiciousReportSkipped() public {
-        // A report the protocol flags suspicious is recorded but not propagated, so it is not bounded.
+    function retiredOracleCapSuspiciousReportCannotBypassImmutableCap() public {
+        // A suspicious report can later be accepted and propagated, so the immutable cap applies
+        // when it is first stored.
         oracle.setNextSuspicious(true);
         _arm(MellowOracleReportGuardAssertion.assertReportDriftWithinCap.selector, 100); // tight cap
+        vm.expectRevert(bytes("MellowOracle: report price drift exceeds cap"));
         oracle.submitReports(_report(asset, 0.4e18)); // -60% but suspicious
     }
 
     // --- Malicious path ----------------------------------------------------
 
-    function testDriftExceedsCapTrips() public {
+    function retiredOracleCapDriftExceedsCapTrips() public {
         // Stolen key (having widened the mutable securityParams) reprices toward zero: -60% > 50% cap.
         _arm(MellowOracleReportGuardAssertion.assertReportDriftWithinCap.selector, 5_000);
         vm.expectRevert(bytes("MellowOracle: report price drift exceeds cap"));
@@ -76,7 +78,7 @@ contract MellowOracleReportGuardAssertionTest is Test, CredibleTest {
     }
 
     function testRejectsZeroDriftCap() public {
-        vm.expectRevert(bytes("MellowOracle: zero drift cap"));
+        vm.expectRevert(bytes("MellowOracle: invalid drift cap"));
         new MellowOracleReportGuardAssertion(address(oracle), 0);
     }
 

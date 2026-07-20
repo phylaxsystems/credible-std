@@ -23,6 +23,8 @@ abstract contract ZeroExSettlerHelpers is Assertion {
     uint128 internal immutable FEATURE_ID;
 
     constructor(address settler_, address registry_, uint128 featureId_) {
+        require(settler_ != address(0), "0xSettler: settler zero");
+        require(registry_ != address(0), "0xSettler: registry zero");
         SETTLER = settler_;
         REGISTRY = registry_;
         FEATURE_ID = featureId_;

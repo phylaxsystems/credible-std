@@ -74,11 +74,16 @@ contract UniswapV4PoolManagerAssertion is UniswapV4PoolManagerHelpers {
         if (!_matchesConfiguredPool(key)) {
             return;
         }
+        if (key.hooks != address(0)) {
+            // Hooks are protocol execution, may consume the entire swap or reenter the manager,
+            // and cannot be attributed to the outer call arguments by boundary snapshots.
+            return;
+        }
 
         Slot0Snapshot memory pre = _slot0At(_preCall(ctx.callStart));
         Slot0Snapshot memory post = _slot0At(_postCall(ctx.callEnd));
 
-        require(post.sqrtPriceX96 > MIN_SQRT_PRICE, "UniswapV4Pool: price below min");
+        require(post.sqrtPriceX96 >= MIN_SQRT_PRICE, "UniswapV4Pool: price below min");
         require(post.sqrtPriceX96 < MAX_SQRT_PRICE, "UniswapV4Pool: price above max");
 
         if (params.zeroForOne) {
@@ -104,6 +109,9 @@ contract UniswapV4PoolManagerAssertion is UniswapV4PoolManagerHelpers {
         (IUniswapV4PoolManagerLike.PoolKey memory key, IUniswapV4PoolManagerLike.ModifyLiquidityParams memory params,) =
             _modifyLiquidityArgs(ph.callinputAt(ctx.callStart));
         if (!_matchesConfiguredPool(key)) {
+            return;
+        }
+        if (key.hooks != address(0)) {
             return;
         }
 
@@ -174,7 +182,7 @@ contract UniswapV4PoolManagerAssertion is UniswapV4PoolManagerHelpers {
                 pre.managerBalance0,
                 post.managerBalance0,
                 "0",
-                _isNativeCurrency(CURRENCY0)
+                false
             );
             require(
                 post.protocolFeesAccrued1 == pre.protocolFeesAccrued1,
@@ -188,7 +196,7 @@ contract UniswapV4PoolManagerAssertion is UniswapV4PoolManagerHelpers {
                 pre.managerBalance1,
                 post.managerBalance1,
                 "1",
-                _isNativeCurrency(CURRENCY1)
+                false
             );
             require(
                 post.protocolFeesAccrued0 == pre.protocolFeesAccrued0,

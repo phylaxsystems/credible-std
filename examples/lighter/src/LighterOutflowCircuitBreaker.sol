@@ -50,8 +50,11 @@ contract LighterOutflowCircuitBreaker is Assertion {
     constructor(address bridge_, address collateral_, uint256 outflowThresholdBps_, uint256 outflowWindowDuration_) {
         require(bridge_ != address(0), "LighterBreaker: bridge zero");
         require(collateral_ != address(0), "LighterBreaker: collateral zero");
-        require(outflowThresholdBps_ != 0, "LighterBreaker: threshold zero");
-        require(outflowWindowDuration_ != 0, "LighterBreaker: window zero");
+        require(outflowThresholdBps_ != 0 && outflowThresholdBps_ < 10_000, "LighterBreaker: invalid threshold");
+        require(
+            outflowWindowDuration_ >= 10 && outflowWindowDuration_ <= type(uint64).max,
+            "LighterBreaker: invalid window"
+        );
 
         BRIDGE = bridge_;
         COLLATERAL = collateral_;
@@ -77,7 +80,8 @@ contract LighterOutflowCircuitBreaker is Assertion {
     ///      the window — likely a drain in progress.
     function assertCollateralOutflowWithinLimit() external view virtual {
         PhEvm.OutflowContext memory ctx = ph.outflowContext();
-        if (!_breakerTrips(ctx.currentBps, OUTFLOW_THRESHOLD_BPS, _bridgeInDesertMode())) {
+        require(ph.getAssertionAdopter() == BRIDGE, "LighterBreaker: configured bridge is not adopter");
+        if (!_breakerTrips(ctx.currentBps, OUTFLOW_THRESHOLD_BPS, _bridgeInDesertModeAt(_preTx()))) {
             return;
         }
         revert CollateralOutflowBreached(ctx.token, ctx.currentBps, OUTFLOW_THRESHOLD_BPS, ctx.absoluteOutflow);
@@ -91,12 +95,12 @@ contract LighterOutflowCircuitBreaker is Assertion {
         if (inDesertMode) {
             return false;
         }
-        return currentBps >= thresholdBps;
+        return currentBps > thresholdBps;
     }
 
-    /// @notice Reads the bridge's desert-mode flag at the post-transaction snapshot.
-    function _bridgeInDesertMode() internal view returns (bool) {
-        return _readBoolAt(BRIDGE, abi.encodeCall(IZkLighterLike.desertMode, ()), _postTx());
+    /// @notice Reads the bridge's desert-mode flag at the supplied snapshot.
+    function _bridgeInDesertModeAt(PhEvm.ForkId memory fork) internal view returns (bool) {
+        return _readBoolAt(BRIDGE, abi.encodeCall(IZkLighterLike.desertMode, ()), fork);
     }
 
     function _viewFailureMessage() internal pure override returns (string memory) {

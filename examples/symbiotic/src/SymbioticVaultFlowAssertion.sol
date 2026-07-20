@@ -26,7 +26,9 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticVaultFlowHelpers {
         registerFnCallTrigger(this.assertRedeemScheduling.selector, ISymbioticVaultLike.redeem.selector);
         registerFnCallTrigger(this.assertClaimFlow.selector, ISymbioticVaultLike.claim.selector);
         registerFnCallTrigger(this.assertClaimBatchFlow.selector, ISymbioticVaultLike.claimBatch.selector);
-        registerTxEndTrigger(this.assertTotalStakeIdentity.selector);
+        registerFnCallTrigger(this.assertSlashAccounting.selector, ISymbioticVaultLike.onSlash.selector);
+        // `totalStake()` is defined from these same bucket getters in v1, so a transaction-end
+        // reread is redundant and would revert if this v1-only bundle were misapplied to VaultV2.
     }
 
     /// @notice Successful deposits must match token/accounting deltas and vault policy.
@@ -34,9 +36,10 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticVaultFlowHelpers {
     ///      After a successful deposit, the reported return values must match the observed deltas.
     function assertDepositAccounting() external view {
         PhEvm.TriggerContext memory ctx = ph.context();
-        PhEvm.TriggerCall memory call_ = _currentTriggerCall(vault, ctx);
+        address caller = _currentTriggerCaller(vault, ctx);
         PhEvm.ForkId memory preFork = _preCall(ctx.callStart);
         PhEvm.ForkId memory postFork = _postCall(ctx.callEnd);
+        _requireVaultConfigurationAt(preFork);
         (address onBehalfOf,) = abi.decode(_stripSelector(ph.callinputAt(ctx.callStart)), (address, uint256));
         (uint256 depositedAmount, uint256 mintedShares) = abi.decode(ph.callOutputAt(ctx.callStart), (uint256, uint256));
 
@@ -48,7 +51,7 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticVaultFlowHelpers {
         require(deltas.activeSharesDelta == mintedShares, "SymbioticVault: deposit activeShares mismatch");
         require(deltas.beneficiarySharesDelta == mintedShares, "SymbioticVault: deposit beneficiary shares mismatch");
 
-        _assertDepositPolicy(call_.caller, preFork, postFork, postActiveStake);
+        _assertDepositPolicy(caller, preFork, postFork, postActiveStake);
     }
 
     /// @notice Withdrawals must queue assets into next epoch without moving collateral immediately.
@@ -56,8 +59,10 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticVaultFlowHelpers {
     ///      After a successful withdraw, active stake/shares should go down and next-epoch claims should go up.
     function assertWithdrawScheduling() external {
         PhEvm.TriggerContext memory ctx = ph.context();
+        address caller = _currentTriggerCaller(vault, ctx);
         PhEvm.ForkId memory preFork = _preCall(ctx.callStart);
         PhEvm.ForkId memory postFork = _postCall(ctx.callEnd);
+        _requireVaultConfigurationAt(preFork);
         (address claimer, uint256 amount) =
             abi.decode(_stripSelector(ph.callinputAt(ctx.callStart)), (address, uint256));
         (uint256 burnedShares, uint256 mintedWithdrawalShares) =
@@ -72,6 +77,11 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticVaultFlowHelpers {
         );
         require(deltas.activeStakeReduction == amount, "SymbioticVault: withdraw activeStake mismatch");
         require(deltas.activeSharesReduction == burnedShares, "SymbioticVault: withdraw burned shares mismatch");
+        require(
+            _activeSharesOfAt(vault, caller, preFork) - _activeSharesOfAt(vault, caller, postFork)
+                == burnedShares,
+            "SymbioticVault: withdraw caller shares not burned"
+        );
         require(deltas.queuedAssetsIncrease == amount, "SymbioticVault: withdraw next-epoch withdrawals mismatch");
         require(deltas.queuedSharesIncrease == mintedWithdrawalShares, "SymbioticVault: withdraw epoch share mint mismatch");
         require(
@@ -85,8 +95,10 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticVaultFlowHelpers {
     ///      After a successful redeem, the vault should only reshuffle internal buckets for the next epoch.
     function assertRedeemScheduling() external {
         PhEvm.TriggerContext memory ctx = ph.context();
+        address caller = _currentTriggerCaller(vault, ctx);
         PhEvm.ForkId memory preFork = _preCall(ctx.callStart);
         PhEvm.ForkId memory postFork = _postCall(ctx.callEnd);
+        _requireVaultConfigurationAt(preFork);
         (address claimer, uint256 shares) =
             abi.decode(_stripSelector(ph.callinputAt(ctx.callStart)), (address, uint256));
         (uint256 withdrawnAssets, uint256 mintedWithdrawalShares) =
@@ -98,6 +110,10 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticVaultFlowHelpers {
 
         _assertNoImmediateCollateralOutflow(preFork, postFork, "SymbioticVault: redeem moved collateral immediately");
         require(deltas.activeSharesReduction == shares, "SymbioticVault: redeem activeShares mismatch");
+        require(
+            _activeSharesOfAt(vault, caller, preFork) - _activeSharesOfAt(vault, caller, postFork) == shares,
+            "SymbioticVault: redeem caller shares not burned"
+        );
         require(deltas.activeStakeReduction == withdrawnAssets, "SymbioticVault: redeem withdrawn assets mismatch");
         require(deltas.queuedAssetsIncrease == withdrawnAssets, "SymbioticVault: redeem withdrawals mismatch");
         require(deltas.queuedSharesIncrease == mintedWithdrawalShares, "SymbioticVault: redeem epoch share mint mismatch");
@@ -112,18 +128,23 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticVaultFlowHelpers {
     ///      After a successful claim, one mature epoch should be paid exactly once and marked claimed.
     function assertClaimFlow() external view {
         PhEvm.TriggerContext memory ctx = ph.context();
-        PhEvm.TriggerCall memory call_ = _currentTriggerCall(vault, ctx);
+        address caller = _currentTriggerCaller(vault, ctx);
         PhEvm.ForkId memory preFork = _preCall(ctx.callStart);
         PhEvm.ForkId memory postFork = _postCall(ctx.callEnd);
+        _requireVaultConfigurationAt(preFork);
         (address recipient, uint256 epoch) =
             abi.decode(_stripSelector(ph.callinputAt(ctx.callStart)), (address, uint256));
         uint256 claimedAmount = abi.decode(ph.callOutputAt(ctx.callStart), (uint256));
         ClaimDeltas memory deltas = _claimDeltasAt(recipient, preFork, postFork);
 
         require(epoch < _currentEpochAt(vault, preFork), "SymbioticVault: claim succeeded for immature epoch");
+        require(
+            claimedAmount == _claimEntitlementAt(epoch, caller, preFork),
+            "SymbioticVault: claim amount below entitlement"
+        );
         require(deltas.vaultOutflow == claimedAmount, "SymbioticVault: claim vault outflow mismatch");
         require(deltas.recipientInflow == claimedAmount, "SymbioticVault: claim recipient inflow mismatch");
-        _assertClaimStateTransition(epoch, call_.caller, preFork, postFork, false);
+        _assertClaimStateTransition(epoch, caller, preFork, postFork, false);
     }
 
     /// @notice Batch claims must only include mature epochs and pay exact collateral.
@@ -131,9 +152,10 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticVaultFlowHelpers {
     ///      After a successful batch claim, every epoch in the batch must be mature, newly claimed, and fully paid.
     function assertClaimBatchFlow() external view {
         PhEvm.TriggerContext memory ctx = ph.context();
-        PhEvm.TriggerCall memory call_ = _currentTriggerCall(vault, ctx);
+        address caller = _currentTriggerCaller(vault, ctx);
         PhEvm.ForkId memory preFork = _preCall(ctx.callStart);
         PhEvm.ForkId memory postFork = _postCall(ctx.callEnd);
+        _requireVaultConfigurationAt(preFork);
         (address recipient, uint256[] memory epochs) =
             abi.decode(_stripSelector(ph.callinputAt(ctx.callStart)), (address, uint256[]));
         uint256 claimedAmount = abi.decode(ph.callOutputAt(ctx.callStart), (uint256));
@@ -143,10 +165,52 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticVaultFlowHelpers {
         require(deltas.vaultOutflow == claimedAmount, "SymbioticVault: claimBatch vault outflow mismatch");
         require(deltas.recipientInflow == claimedAmount, "SymbioticVault: claimBatch recipient inflow mismatch");
 
+        uint256 entitlement;
         for (uint256 i; i < epochs.length; ++i) {
             require(epochs[i] < currentEpoch, "SymbioticVault: claimBatch succeeded for immature epoch");
-            _assertClaimStateTransition(epochs[i], call_.caller, preFork, postFork, true);
+            entitlement += _claimEntitlementAt(epochs[i], caller, preFork);
+            _assertClaimStateTransition(epochs[i], caller, preFork, postFork, true);
         }
+        require(claimedAmount == entitlement, "SymbioticVault: claimBatch amount below entitlement");
+    }
+
+    /// @notice Slashing must debit the exact official stake buckets and pay the configured burner.
+    function assertSlashAccounting() external view {
+        PhEvm.TriggerContext memory ctx = ph.context();
+        address caller = _currentTriggerCaller(vault, ctx);
+        PhEvm.ForkId memory preFork = _preCall(ctx.callStart);
+        PhEvm.ForkId memory postFork = _postCall(ctx.callEnd);
+        _requireVaultConfigurationAt(preFork);
+
+        (uint256 requestedAmount, uint48 captureTimestamp) =
+            abi.decode(_stripSelector(ph.callinputAt(ctx.callStart)), (uint256, uint48));
+        uint256 returnedAmount = abi.decode(ph.callOutputAt(ctx.callStart), (uint256));
+        uint256 currentEpoch = _currentEpochAt(vault, preFork);
+        uint256 captureEpoch = _epochAt(vault, captureTimestamp, preFork);
+        require(caller == _slasherAddressAt(vault, preFork), "SymbioticVault: unauthorized slasher");
+        require(captureEpoch <= currentEpoch, "SymbioticVault: future capture epoch");
+        require(currentEpoch == 0 || captureEpoch + 1 >= currentEpoch, "SymbioticVault: stale capture epoch");
+
+        SlashState memory pre = _slashStateAt(currentEpoch, preFork);
+        (SlashState memory expected, uint256 expectedAmount) =
+            _expectedSlashState(pre, requestedAmount, captureEpoch == currentEpoch);
+        SlashState memory post = _slashStateAt(currentEpoch, postFork);
+        require(returnedAmount == expectedAmount, "SymbioticVault: slash return mismatch");
+        require(post.activeStake == expected.activeStake, "SymbioticVault: slashed active stake mismatch");
+        require(
+            post.currentWithdrawals == expected.currentWithdrawals,
+            "SymbioticVault: slashed current withdrawals mismatch"
+        );
+        require(
+            post.nextWithdrawals == expected.nextWithdrawals,
+            "SymbioticVault: slashed next withdrawals mismatch"
+        );
+
+        address burner = _burnerAt(vault, preFork);
+        uint256 vaultOutflow = _readBalanceAt(asset, vault, preFork) - _readBalanceAt(asset, vault, postFork);
+        uint256 burnerInflow = _readBalanceAt(asset, burner, postFork) - _readBalanceAt(asset, burner, preFork);
+        require(vaultOutflow == expectedAmount, "SymbioticVault: slash vault outflow mismatch");
+        require(burnerInflow == expectedAmount, "SymbioticVault: slash burner inflow mismatch");
     }
 
     /// @notice Symbiotic vault total stake must equal active stake plus current and next epoch withdrawals.
@@ -154,6 +218,7 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticVaultFlowHelpers {
     ///      After any transaction, all stake should live in exactly one of: active, current queued, next queued.
     function assertTotalStakeIdentity() external view {
         PhEvm.ForkId memory postTx = _postTx();
+        _requireVaultConfigurationAt(postTx);
         uint256 epoch = _currentEpochAt(vault, postTx);
         uint256 totalStake = _totalStakeAt(vault, postTx);
         uint256 activeStake = _activeStakeAt(vault, postTx);

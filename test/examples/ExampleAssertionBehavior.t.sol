@@ -30,9 +30,9 @@ contract ExampleAssertionBehaviorTest is Test {
         assertEq(config.hashAddressSet(owners), config.hashAddressSet(sameOwnersDifferentOrder));
     }
 
-    function testBoringVaultConstructorRequiresMonitoredAssets() external {
-        vm.expectRevert(bytes("BoringVault: no monitored assets"));
-        new BoringVaultAssertion(address(0xA001), address(0xA002), 18, new address[](0), 100, 100, 1_000, 1_000, 1 days);
+    function testBoringVaultConstructorRejectsZeroVault() external {
+        vm.expectRevert(bytes("BoringVault: zero vault"));
+        new BoringVaultAssertion(address(0), address(0xA002), 18, new address[](0), 100, 100);
     }
 
     function testSymbioticCircuitBreakerRequiresLiquidationRoutes() external {

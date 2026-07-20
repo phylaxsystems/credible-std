@@ -71,27 +71,27 @@ contract CapRedemptionGateAssertionTest is Test, CredibleTest {
         cl.assertion(address(vault), createData, CapRedemptionGateAssertion.assertCapRedemptionGate.selector);
     }
 
-    function testSmallBorrowOutflowPassesBelowGateTier() public {
+    function policyPrototypeSmallBorrowOutflowPassesBelowGateTier() public {
         _arm();
         // 1% outflow stays under the 15% tier-2 floor, so nothing is gated.
         vault.borrow(address(asset), 1 ether, receiver);
     }
 
-    function testLargeBorrowTripsBorrowGate() public {
+    function policyPrototypeLargeBorrowTripsBorrowGate() public {
         _arm();
         // 20% outflow clears the 15% borrow tier.
         vm.expectRevert(bytes("CapGate: borrow disabled"));
         vault.borrow(address(asset), 20 ether, receiver);
     }
 
-    function testRedeemBelowTier3StillAllowed() public {
+    function policyPrototypeRedeemBelowTier3StillAllowed() public {
         _arm();
         // 20% outflow trips the borrow tier but not the 30% redemption tier, so redeem passes.
         uint256[] memory minOut;
         vault.redeem(20 ether, minOut, receiver, block.timestamp);
     }
 
-    function testRedeemTripsRedemptionGate() public {
+    function policyPrototypeRedeemTripsRedemptionGate() public {
         _arm();
         // 35% outflow clears the 30% redemption tier.
         uint256[] memory minOut;
@@ -99,14 +99,14 @@ contract CapRedemptionGateAssertionTest is Test, CredibleTest {
         vault.redeem(35 ether, minOut, receiver, block.timestamp);
     }
 
-    function testBurnTripsRedemptionGate() public {
+    function policyPrototypeBurnTripsRedemptionGate() public {
         _arm();
         // burn is the second redemption path gated at the 30% tier.
         vm.expectRevert(bytes("CapGate: redemption capacity reached"));
         vault.burn(address(asset), 35 ether, 0, receiver, block.timestamp);
     }
 
-    function testInvestAllTripsInvestGate() public {
+    function policyPrototypeInvestAllTripsInvestGate() public {
         _arm();
         // investAll moves 60% of TVL into a strategy, clearing the 50% invest tier.
         vm.expectRevert(bytes("CapGate: invest disabled"));

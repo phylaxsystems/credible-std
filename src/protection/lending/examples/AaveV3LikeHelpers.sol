@@ -2,7 +2,6 @@
 pragma solidity ^0.8.13;
 
 import {PhEvm} from "../../../PhEvm.sol";
-import {ILendingProtectionSuite} from "../ILendingProtectionSuite.sol";
 import {LendingProtectionSuiteBase} from "../LendingBaseAssertion.sol";
 import {
     AaveV3LikeTypes,
@@ -61,7 +60,7 @@ contract AaveV3LikeProtectionSuite is LendingProtectionSuiteBase {
     /// @dev The list is intentionally limited to operations that can change debt, effective
     ///      collateral, liquidation settlement, or the user's risk category. Supply, repay, and other
     ///      risk-improving paths are left out to keep the example focused and low noise.
-    function getMonitoredSelectors() external pure override returns (bytes4[] memory selectors) {
+    function getMonitoredSelectors() external pure virtual override returns (bytes4[] memory selectors) {
         selectors = new bytes4[](6);
         selectors[0] = IAaveV3LikePool.borrow.selector;
         selectors[1] = IAaveV3LikePool.withdraw.selector;
@@ -77,7 +76,8 @@ contract AaveV3LikeProtectionSuite is LendingProtectionSuiteBase {
     ///      the Aave ABI details here lets the base assertion express protocol-agnostic safety rules.
     function decodeOperation(TriggeredCall calldata triggered)
         external
-        pure
+        view
+        virtual
         override
         returns (OperationContext memory operation)
     {
@@ -557,7 +557,7 @@ contract AaveV3LikeProtectionSuite is LendingProtectionSuiteBase {
 
     /// @notice Returns whether the reserve is enabled as collateral in the user config bitset.
     function _isUsingAsCollateral(uint256 userConfigData, uint256 reserveId) internal pure returns (bool) {
-        return ((userConfigData >> (reserveId * 2)) & 1) != 0;
+        return ((userConfigData >> (reserveId * 2 + 1)) & 1) != 0;
     }
 
     /// @notice Safely casts a `uint256` metric to `int256` for `SolvencyState`.

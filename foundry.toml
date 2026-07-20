@@ -207,6 +207,7 @@ out = "examples/symbiotic/out"
 cache_path = "examples/symbiotic/cache"
 libs = ["lib"]
 remappings = ["credible-std/=src/"]
+optimizer = true
 
 [profile.tydro]
 src = "examples/tydro/src"

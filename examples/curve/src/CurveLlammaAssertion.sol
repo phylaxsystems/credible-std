@@ -6,12 +6,12 @@ import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 import {CurveLlammaProtocolHelpers} from "./CurveLlammaProtocol.sol";
 
 /// @title CurveLlammaAssertion
-/// @notice Example LLAMMA checks for band custody, band layout, swap price bounds,
-///         and a hard cumulative inflow circuit breaker on both token legs.
+/// @notice Example LLAMMA post-swap price check.
+/// @dev Market-wide custody and band scans are available below as diagnostics, but are not
+///      registered as enforcement triggers: the official market can grow beyond any immutable
+///      local scan cap. Fixed net-inflow caps were also removed because they rejected first
+///      deposits, repayments, and ordinary swaps.
 contract CurveLlammaAssertion is CurveLlammaProtocolHelpers {
-    uint256 public constant INFLOW_THRESHOLD_BPS = 1_000;
-    uint256 public constant INFLOW_WINDOW_DURATION = 6 hours;
-
     constructor(
         address amm_,
         address borrowedToken_,
@@ -36,23 +36,9 @@ contract CurveLlammaAssertion is CurveLlammaProtocolHelpers {
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
-    /// @notice Registers checks over band sums vs ERC20 custody, one-sided inactive bands, swap prices,
-    ///         and 10% token inflow caps over a rolling 6 hour window for both AMM legs.
+    /// @notice Registers the bounded, operation-local price check.
     function triggers() external view override {
-        watchCumulativeInflow(
-            borrowedToken, INFLOW_THRESHOLD_BPS, INFLOW_WINDOW_DURATION, this.assertCumulativeInflow.selector
-        );
-        watchCumulativeInflow(
-            collateralToken, INFLOW_THRESHOLD_BPS, INFLOW_WINDOW_DURATION, this.assertCumulativeInflow.selector
-        );
-        registerTxEndTrigger(this.assertAMMCustodyCoversBands.selector);
-        registerTxEndTrigger(this.assertBandShape.selector);
         _registerLlammaSwapTriggers(this.assertPostSwapPriceInsideActiveBand.selector);
-    }
-
-    /// @notice Hard circuit breaker that blocks transactions while either monitored inflow stays above threshold.
-    function assertCumulativeInflow() external pure {
-        revert("CurveLLAMMA: cumulative inflow breaker tripped");
     }
 
     /// @notice Compares AMM ERC20 balances with summed `bands_x` and `bands_y` across scanned bands.
@@ -107,6 +93,7 @@ contract CurveLlammaAssertion is CurveLlammaProtocolHelpers {
 
     /// @notice Checks `get_p()` stays between `p_current_down` and `p_current_up` for the active band.
     function assertPostSwapPriceInsideActiveBand() external {
+        require(ph.getAssertionAdopter() == amm, "CurveLLAMMA: configured AMM is not adopter");
         PhEvm.TriggerContext memory ctx = ph.context();
         PhEvm.ForkId memory fork = _postCall(ctx.callEnd);
 

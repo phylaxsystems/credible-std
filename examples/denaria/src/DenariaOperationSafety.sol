@@ -843,7 +843,7 @@ contract DenariaProtectionSuite is DenariaHelpers {
 
 /// @title DenariaOperationSafetyAssertion
 /// @author Phylax Systems
-/// @notice Example single-entry assertion bundle for Denaria.
+/// @notice Quarantined legacy Denaria assertion bundle.
 /// @dev Usage:
 ///      `cl.assertion({ adopter: denariaPerpPair, createData: abi.encodePacked(type(DenariaOperationSafetyAssertion).creationCode, abi.encode(denariaPerpPair, denariaVault)), fnSelector: DenariaOperationSafetyAssertion.assertOperationSafety.selector })`
 ///      `cl.assertion({ adopter: denariaVault, createData: abi.encodePacked(type(DenariaOperationSafetyAssertion).creationCode, abi.encode(denariaPerpPair, denariaVault)), fnSelector: DenariaOperationSafetyAssertion.assertOperationSafety.selector })`
@@ -854,9 +854,16 @@ contract DenariaOperationSafetyAssertion is PerpetualBaseAssertion {
     IPerpetualProtectionSuite internal immutable SUITE;
 
     constructor(address perpPair_, address vault_) {
+        require(perpPair_ != address(0), "Denaria: perp pair zero");
+        require(vault_ != address(0), "Denaria: vault zero");
         SUITE = IPerpetualProtectionSuite(address(new DenariaProtectionSuite(perpPair_, vault_)));
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
+
+    /// @dev Intentionally empty. Production uses Stylus `*For` selectors, a different insurance
+    ///      getter and event layout, and report-updated price/funding boundaries. The legacy suite
+    ///      is retained for migration work but must not be armed against the current engine.
+    function triggers() external view override {}
 
     function _suite() internal view override returns (IPerpetualProtectionSuite) {
         return SUITE;

@@ -97,7 +97,8 @@ contract CapOFTLockboxBackingAssertionTest is Test, CredibleTest {
 
     function _arm(address lockbox_) internal {
         bytes memory createData = abi.encodePacked(
-            type(CapOFTLockboxBackingAssertion).creationCode, abi.encode(address(cusd), address(endpoint), 1e12)
+            type(CapOFTLockboxBackingAssertion).creationCode,
+            abi.encode(lockbox_, address(cusd), address(endpoint), 1e12)
         );
         cl.assertion(lockbox_, createData, CapOFTLockboxBackingAssertion.assertReleaseOnlyOnReceive.selector);
     }
@@ -141,7 +142,7 @@ contract CapOFTLockboxBackingAssertionTest is Test, CredibleTest {
 
     function testDeploys() public {
         CapOFTLockboxBackingAssertion assertion =
-            new CapOFTLockboxBackingAssertion(address(cusd), address(endpoint), 1e12);
+            new CapOFTLockboxBackingAssertion(address(lockbox), address(cusd), address(endpoint), 1e12);
         assertTrue(address(assertion) != address(0));
     }
 }

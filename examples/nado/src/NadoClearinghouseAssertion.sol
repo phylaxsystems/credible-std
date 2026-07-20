@@ -40,7 +40,10 @@ contract NadoClearinghouseAssertion is NadoHelpers {
         flowWindowDuration = flowWindowDuration_;
     }
 
-    /// @notice Registers Nado collateral-accounting checks and quote-asset flow breakers.
+    /// @notice Registers only call-scoped Clearinghouse ledger checks.
+    /// @dev Quote flow spans Endpoint, Clearinghouse, and WithdrawPool over multiple transactions.
+    ///      Adopter idle-token net flow cannot represent that lifecycle, so those breakers remain
+    ///      unregistered until the full custody boundary is modeled.
     function triggers() external view override {
         registerFnCallTrigger(
             this.assertDepositCreditsSpotBalance.selector, INadoClearinghouseLike.depositCollateral.selector
@@ -52,18 +55,6 @@ contract NadoClearinghouseAssertion is NadoHelpers {
             this.assertRebalanceXWithdrawDebitsSpotBalance.selector, INadoClearinghouseLike.rebalanceXWithdraw.selector
         );
 
-        watchCumulativeInflow(
-            quoteAsset, quoteInflowPauseThresholdBps, flowWindowDuration, this.assertQuoteInflowPaused.selector
-        );
-        watchCumulativeOutflow(
-            quoteAsset,
-            quoteOutflowWithdrawalOnlyThresholdBps,
-            flowWindowDuration,
-            this.assertQuoteOutflowIsWithdrawalPath.selector
-        );
-        watchCumulativeOutflow(
-            quoteAsset, quoteOutflowPauseThresholdBps, flowWindowDuration, this.assertQuoteOutflowPaused.selector
-        );
     }
 
     /// @notice Checks that a successful `Clearinghouse.depositCollateral` credits the sender's spot balance.
@@ -72,6 +63,7 @@ contract NadoClearinghouseAssertion is NadoHelpers {
         PhEvm.TriggerContext memory ctx = ph.context();
         PhEvm.ForkId memory beforeFork = _preCall(ctx.callStart);
         PhEvm.ForkId memory afterFork = _postCall(ctx.callEnd);
+        _requireConfigurationAt(beforeFork);
         INadoClearinghouseLike.DepositCollateral memory txn =
             abi.decode(_stripSelector(ph.callinputAt(ctx.callStart)), (INadoClearinghouseLike.DepositCollateral));
 
@@ -90,6 +82,7 @@ contract NadoClearinghouseAssertion is NadoHelpers {
         PhEvm.TriggerContext memory ctx = ph.context();
         PhEvm.ForkId memory beforeFork = _preCall(ctx.callStart);
         PhEvm.ForkId memory afterFork = _postCall(ctx.callEnd);
+        _requireConfigurationAt(beforeFork);
         (bytes32 sender, uint32 productId, uint128 amount,,) =
             abi.decode(_stripSelector(ph.callinputAt(ctx.callStart)), (bytes32, uint32, uint128, address, uint64));
 
@@ -102,6 +95,7 @@ contract NadoClearinghouseAssertion is NadoHelpers {
         PhEvm.TriggerContext memory ctx = ph.context();
         PhEvm.ForkId memory beforeFork = _preCall(ctx.callStart);
         PhEvm.ForkId memory afterFork = _postCall(ctx.callEnd);
+        _requireConfigurationAt(beforeFork);
         (bytes memory transaction,) = abi.decode(_stripSelector(ph.callinputAt(ctx.callStart)), (bytes, uint64));
         INadoClearinghouseLike.RebalanceXWithdraw memory txn =
             abi.decode(_stripTransactionType(transaction), (INadoClearinghouseLike.RebalanceXWithdraw));

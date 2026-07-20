@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Assertion} from "credible-std/Assertion.sol";
 import {PhEvm} from "credible-std/PhEvm.sol";
-import {ERC4626AssetFlowAssertion} from "credible-std/protection/vault/ERC4626AssetFlowAssertion.sol";
+import {ERC4626BaseAssertion} from "credible-std/protection/vault/ERC4626BaseAssertion.sol";
 
 interface ILlamaLendVault {
     function controller() external view returns (address);
@@ -32,7 +32,7 @@ library LlamaLendControllerSelectors {
         bytes4(keccak256("borrow_more(uint256,uint256,address,address,bytes)"));
 }
 
-abstract contract LlamaLendVaultProtocolHelpers is ERC4626AssetFlowAssertion {
+abstract contract LlamaLendVaultProtocolHelpers is ERC4626BaseAssertion {
     address internal immutable controller;
 
     /// @dev `controller_` is passed explicitly so the constructor never reads `vault_.controller()`.
@@ -40,19 +40,6 @@ abstract contract LlamaLendVaultProtocolHelpers is ERC4626AssetFlowAssertion {
     ///      protocol read during construction would revert with EXTCODESIZE = 0.
     constructor(address controller_) {
         controller = controller_;
-    }
-
-    function _netAssetFlow() internal view virtual override returns (int256 netFlow) {
-        PhEvm.Erc20TransferData[] memory deltas = _reducedErc20BalanceDeltasAt(asset, _postTx());
-
-        for (uint256 i; i < deltas.length; ++i) {
-            if (deltas[i].to == controller) {
-                netFlow += int256(deltas[i].value);
-            }
-            if (deltas[i].from == controller) {
-                netFlow -= int256(deltas[i].value);
-            }
-        }
     }
 
     function _llamaAvailableBalanceAt(PhEvm.ForkId memory fork) internal view returns (uint256) {

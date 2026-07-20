@@ -191,12 +191,40 @@ abstract contract RoycoKernelHelpers is RoycoHelpers {
         address juniorTranche_,
         address jtAsset_
     ) {
+        require(kernel_ != address(0), "Royco: kernel zero");
+        require(accountant_ != address(0), "Royco: accountant zero");
+        require(seniorTranche_ != address(0) && juniorTranche_ != address(0), "Royco: tranche zero");
+        require(stAsset_ != address(0) && jtAsset_ != address(0), "Royco: asset zero");
         kernel = kernel_;
         accountant = accountant_;
         seniorTranche = seniorTranche_;
         stAsset = stAsset_;
         juniorTranche = juniorTranche_;
         jtAsset = jtAsset_;
+    }
+
+    function _requireKernelConfigurationAt(PhEvm.ForkId memory fork) internal view {
+        require(ph.getAssertionAdopter() == kernel, "Royco: configured kernel is not adopter");
+        require(
+            _readAddressAt(kernel, abi.encodeCall(IRoycoKernel.ACCOUNTANT, ()), fork) == accountant,
+            "Royco: accountant mismatch"
+        );
+        require(
+            _readAddressAt(kernel, abi.encodeCall(IRoycoKernel.SENIOR_TRANCHE, ()), fork) == seniorTranche,
+            "Royco: senior tranche mismatch"
+        );
+        require(
+            _readAddressAt(kernel, abi.encodeCall(IRoycoKernel.JUNIOR_TRANCHE, ()), fork) == juniorTranche,
+            "Royco: junior tranche mismatch"
+        );
+        require(
+            _readAddressAt(kernel, abi.encodeCall(IRoycoKernel.ST_ASSET, ()), fork) == stAsset,
+            "Royco: senior asset mismatch"
+        );
+        require(
+            _readAddressAt(kernel, abi.encodeCall(IRoycoKernel.JT_ASSET, ()), fork) == jtAsset,
+            "Royco: junior asset mismatch"
+        );
     }
 
     function _hasIdenticalAssets() internal view returns (bool) {
@@ -332,9 +360,28 @@ abstract contract RoycoVaultTrancheHelpers is RoycoHelpers {
     ///      from the adopter; live tranche reads during construction would revert with
     ///      EXTCODESIZE = 0.
     constructor(address tranche_, address kernel_, RoycoTrancheType trancheType_) {
+        require(tranche_ != address(0), "Royco: tranche zero");
+        require(kernel_ != address(0), "Royco: kernel zero");
         tranche = tranche_;
         kernel = kernel_;
         trancheType = trancheType_;
+    }
+
+    function _requireTrancheConfigurationAt(PhEvm.ForkId memory fork) internal view {
+        require(ph.getAssertionAdopter() == tranche, "Royco: configured tranche is not adopter");
+        require(
+            _readAddressAt(tranche, abi.encodeCall(IRoycoVaultTranche.KERNEL, ()), fork) == kernel,
+            "Royco: tranche kernel mismatch"
+        );
+        require(
+            _readUintAt(tranche, abi.encodeCall(IRoycoVaultTranche.TRANCHE_TYPE, ()), fork)
+                == uint256(trancheType),
+            "Royco: tranche type mismatch"
+        );
+    }
+
+    function _balanceOfAt(address account, PhEvm.ForkId memory fork) internal view returns (uint256) {
+        return _readUintAt(tranche, abi.encodeCall(IRoycoVaultTranche.balanceOf, (account)), fork);
     }
 
     function _totalSupplyAt(PhEvm.ForkId memory fork) internal view returns (uint256) {
@@ -437,7 +484,7 @@ abstract contract RoycoVaultTrancheHelpers is RoycoHelpers {
         view
         returns (PhEvm.TriggerCall memory redeemCall)
     {
-        PhEvm.TriggerCall[] memory calls = _matchingCalls(kernel, _kernelRedeemSelector(), 32);
+        PhEvm.TriggerCall[] memory calls = _matchingCalls(kernel, _kernelRedeemSelector(), type(uint256).max);
         uint256 matchCount;
 
         for (uint256 i; i < calls.length; ++i) {

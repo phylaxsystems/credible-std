@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {PhEvm} from "../../PhEvm.sol";
-import {IERC4626} from "./IERC4626.sol";
 import {ERC4626BaseAssertion} from "./ERC4626BaseAssertion.sol";
 
 /// @title ERC4626CumulativeOutflowAssertion
@@ -28,6 +26,8 @@ abstract contract ERC4626CumulativeOutflowAssertion is ERC4626BaseAssertion {
     uint256 public immutable outflowWindowDuration;
 
     constructor(uint256 _thresholdBps, uint256 _windowDuration) {
+        require(_thresholdBps < 10_000, "ERC4626: invalid outflow threshold");
+        require(_windowDuration >= 10 && _windowDuration <= type(uint64).max, "ERC4626: invalid outflow window");
         outflowThresholdBps = _thresholdBps;
         outflowWindowDuration = _windowDuration;
     }
@@ -43,6 +43,7 @@ abstract contract ERC4626CumulativeOutflowAssertion is ERC4626BaseAssertion {
     ///      logic — e.g. allow deposits but block withdrawals using `ph.outflowContext()`
     ///      and `_matchingCalls()`.
     function assertCumulativeOutflow() external virtual {
+        require(ph.getAssertionAdopter() == vault, "ERC4626: configured vault is not adopter");
         revert("ERC4626: cumulative outflow breaker tripped");
     }
 }

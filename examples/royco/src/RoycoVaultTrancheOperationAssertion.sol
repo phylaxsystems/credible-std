@@ -22,9 +22,10 @@ abstract contract RoycoVaultTrancheOperationAssertion is RoycoVaultTrancheHelper
         PhEvm.TriggerContext memory ctx = ph.context();
         PhEvm.ForkId memory preFork = _preCall(ctx.callStart);
         PhEvm.ForkId memory postFork = _postCall(ctx.callEnd);
+        _requireTrancheConfigurationAt(preFork);
 
         bytes memory input = ph.callinputAt(ctx.callStart);
-        (uint256 assets_,) = _decodeTrancheDepositInput(input);
+        (uint256 assets_, address receiver) = _decodeTrancheDepositInput(input);
 
         uint256 expectedUserShares = _previewDepositAt(assets_, preFork);
         uint256 actualUserShares = abi.decode(ph.callOutputAt(ctx.callStart), (uint256));
@@ -33,13 +34,9 @@ abstract contract RoycoVaultTrancheOperationAssertion is RoycoVaultTrancheHelper
         uint256 preSupply = _totalSupplyAt(preFork);
         uint256 postSupply = _totalSupplyAt(postFork);
         require(postSupply >= preSupply + actualUserShares, "Royco: deposit supply delta mismatch");
-
-        uint256 actualFeeSharesMinted = postSupply - preSupply - actualUserShares;
-        (uint256 expectedFeeSharesMinted, uint256 expectedFormulaShares) =
-            _expectedDepositMathAt(assets_, preFork, preSupply);
-        require(actualFeeSharesMinted == expectedFeeSharesMinted, "Royco: protocol fee share mint mismatch");
         require(
-            actualUserShares == expectedFormulaShares, "Royco: deposit share math drifted from virtual offset formula"
+            _balanceOfAt(receiver, postFork) - _balanceOfAt(receiver, preFork) == actualUserShares,
+            "Royco: deposit receiver share mismatch"
         );
     }
 
@@ -47,9 +44,11 @@ abstract contract RoycoVaultTrancheOperationAssertion is RoycoVaultTrancheHelper
     function assertRedeemPreviewConsistency() external view {
         PhEvm.TriggerContext memory ctx = ph.context();
         PhEvm.ForkId memory preFork = _preCall(ctx.callStart);
+        PhEvm.ForkId memory postFork = _postCall(ctx.callEnd);
+        _requireTrancheConfigurationAt(preFork);
 
         bytes memory input = ph.callinputAt(ctx.callStart);
-        (uint256 shares,,) = _decodeTrancheRedeemInput(input);
+        (uint256 shares,, address owner) = _decodeTrancheRedeemInput(input);
 
         RoycoAssetClaims memory previewClaims = _previewRedeemAt(shares, preFork);
         RoycoAssetClaims memory actualClaims = abi.decode(ph.callOutputAt(ctx.callStart), (RoycoAssetClaims));
@@ -57,6 +56,10 @@ abstract contract RoycoVaultTrancheOperationAssertion is RoycoVaultTrancheHelper
         require(actualClaims.stAssets == previewClaims.stAssets, "Royco: redeem ST asset preview mismatch");
         require(actualClaims.jtAssets == previewClaims.jtAssets, "Royco: redeem JT asset preview mismatch");
         require(actualClaims.nav == previewClaims.nav, "Royco: redeem NAV preview mismatch");
+        require(
+            _balanceOfAt(owner, preFork) - _balanceOfAt(owner, postFork) == shares,
+            "Royco: redeem owner share mismatch"
+        );
     }
 
     /// @notice The tranche must enter the kernel redeem path before its own share burn executes.
@@ -65,6 +68,7 @@ abstract contract RoycoVaultTrancheOperationAssertion is RoycoVaultTrancheHelper
     ///      accidental duplicate redeem paths inside the same call.
     function assertRedeemOrdering() external view {
         PhEvm.TriggerContext memory ctx = ph.context();
+        _requireTrancheConfigurationAt(_preCall(ctx.callStart));
         bytes memory input = ph.callinputAt(ctx.callStart);
         (uint256 shares, address receiver,) = _decodeTrancheRedeemInput(input);
 

@@ -7,8 +7,8 @@ import {ERC4626BaseAssertion} from "./ERC4626BaseAssertion.sol";
 
 /// @title ERC4626SharePriceAssertion
 /// @author Phylax Systems
-/// @notice Asserts that the vault's share price (totalAssets / totalSupply) does not decrease
-///         beyond a configurable tolerance, both transaction-wide and per individual user operation.
+/// @notice Asserts that the vault's endpoint share price (totalAssets / totalSupply) does not
+///         decrease beyond a configurable tolerance.
 ///
 /// Invariants covered:
 ///   - **Non-dilutive entry/exit**: absent explicit fee accrual or loss recognition,
@@ -16,17 +16,16 @@ import {ERC4626BaseAssertion} from "./ERC4626BaseAssertion.sol";
 ///   - **Rounding favors incumbents**: the share price must not move against the vault
 ///     (i.e., existing holders) during ordinary user operations.
 ///
-/// @dev Uses the V2 `assetsMatchSharePrice` / `assetsMatchSharePriceAt` precompiles for the
-///      primary check, and `ratioGe` for an explicit cross-multiplication comparison as a
-///      second, readable signal.
-///
-///      The tolerance is expressed in basis points (1 bps = 0.01%).
-///      A tolerance of 0 enforces strict non-decrease; values like 25-50 allow for rounding noise.
+/// @dev Compares only the relevant pre/post endpoints. Healthy vault operations often update assets
+///      and shares at different internal call boundaries, so intermediate snapshots are not part of
+///      this property. Increases are permitted. Empty-supply endpoints have no holder share price and
+///      are outside this check.
 abstract contract ERC4626SharePriceAssertion is ERC4626BaseAssertion {
     /// @notice Maximum acceptable share-price decrease in basis points.
     uint256 public immutable sharePriceToleranceBps;
 
     constructor(uint256 _toleranceBps) {
+        require(_toleranceBps < 10_000, "ERC4626: invalid share price tolerance");
         sharePriceToleranceBps = _toleranceBps;
     }
 
@@ -70,13 +69,10 @@ abstract contract ERC4626SharePriceAssertion is ERC4626BaseAssertion {
     // ---------------------------------------------------------------
 
     /// @notice Verifies the share price did not decrease beyond tolerance across the entire transaction.
-    /// @dev Uses assetsMatchSharePrice for a comprehensive all-forks check, then ratioGe for
-    ///      an explicit pre/post comparison as a second signal.
+    /// @dev Compares PreTx and PostTx only. Intermediate call snapshots can contain healthy
+    ///      temporary asset/share ordering differences and are deliberately ignored.
     function assertSharePriceEnvelope() external {
-        // Primary check: share price consistent across ALL fork points in the tx
-        require(ph.assetsMatchSharePrice(vault, sharePriceToleranceBps), "ERC4626: share price drift exceeds tolerance");
-
-        // Secondary signal: explicit pre/post ratio comparison
+        _requireVaultConfigurationAt(_postTx());
         uint256 preAssets = _totalAssetsAt(_preTx());
         uint256 preShares = _totalSupplyAt(_preTx());
         uint256 postAssets = _totalAssetsAt(_postTx());
@@ -110,14 +106,23 @@ abstract contract ERC4626SharePriceAssertion is ERC4626BaseAssertion {
 
     /// @notice Verifies each individual deposit/mint/withdraw/redeem call does not decrease
     ///         the share price beyond tolerance.
-    /// @dev Uses ph.context() to get the triggering call boundaries and
-    ///      assetsMatchSharePriceAt for a targeted pre/post-call comparison.
+    /// @dev Uses the triggering call's endpoint snapshots and permits share-price increases.
     function assertPerCallSharePrice() external {
         PhEvm.TriggerContext memory ctx = ph.context();
+        PhEvm.ForkId memory pre = _preCall(ctx.callStart);
+        PhEvm.ForkId memory post = _postCall(ctx.callEnd);
+        _requireVaultConfigurationAt(post);
+
+        uint256 preAssets = _totalAssetsAt(pre);
+        uint256 preShares = _totalSupplyAt(pre);
+        uint256 postAssets = _totalAssetsAt(post);
+        uint256 postShares = _totalSupplyAt(post);
+
+        if (preShares == 0 || postShares == 0) return;
 
         require(
-            ph.assetsMatchSharePriceAt(vault, sharePriceToleranceBps, _preCall(ctx.callStart), _postCall(ctx.callEnd)),
-            "ERC4626: call-level share price drift exceeds tolerance"
+            ph.ratioGe(postAssets, postShares, preAssets, preShares, sharePriceToleranceBps),
+            "ERC4626: call-level share price decreased beyond tolerance"
         );
     }
 }
