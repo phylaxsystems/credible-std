@@ -2,7 +2,9 @@
 pragma solidity ^0.8.13;
 
 import {ILendingProtectionSuite} from "credible-std/protection/lending/ILendingProtectionSuite.sol";
-import {AaveV3LikeOperationSafetyAssertionBase} from "credible-std/protection/lending/examples/AaveV3LikeOperationSafety.sol";
+import {
+    AaveV3LikeOperationSafetyAssertionBase
+} from "credible-std/protection/lending/examples/AaveV3LikeOperationSafety.sol";
 import {AaveV3LikeProtectionSuite} from "credible-std/protection/lending/examples/AaveV3LikeHelpers.sol";
 import {IAaveV3LikePool} from "credible-std/protection/lending/examples/AaveV3LikeInterfaces.sol";
 
@@ -19,6 +21,7 @@ interface ITydroPoolCurrent {
         address asset,
         address from,
         address to,
+        uint256 amount,
         uint256 scaledBalanceFromBefore,
         uint256 scaledBalanceToBefore
     ) external;
@@ -117,13 +120,16 @@ contract TydroProtectionSuite is AaveV3LikeProtectionSuite {
             operation.relatedAsset = _assetByL2Id(args1);
             operation.counterparty = triggered.caller;
             operation.amount = uint256(args2) & L2_SHORTENED_AMOUNT_MASK;
-            operation.metadata = abi.encode(((uint256(args2) >> 128) & 1) != 0);
+            if (operation.amount == L2_MAX_AMOUNT) {
+                operation.amount = type(uint256).max;
+            }
+            operation.metadata = abi.encode(((uint256(args2) >> 128) & 1) == 0);
             return operation;
         }
 
         if (triggered.selector == ITydroL2Pool.setUserUseReserveAsCollateral.selector) {
             bytes32 args = abi.decode(triggered.input[4:], (bytes32));
-            bool useAsCollateral = ((uint256(args) >> 16) & 1) != 0;
+            bool useAsCollateral = ((uint256(args) >> 16) & 1) == 0;
 
             if (!useAsCollateral) {
                 operation.kind = OperationKind.DisableCollateral;
@@ -143,14 +149,14 @@ contract TydroProtectionSuite is AaveV3LikeProtectionSuite {
         operation.caller = triggered.caller;
 
         if (triggered.selector == ITydroPoolCurrent.finalizeTransfer.selector) {
-            (address asset, address from, address to,,) =
-                abi.decode(triggered.input[4:], (address, address, address, uint256, uint256));
+            (address asset, address from, address to, uint256 amount,,) =
+                abi.decode(triggered.input[4:], (address, address, address, uint256, uint256, uint256));
             operation.kind = OperationKind.TransferCollateral;
             operation.account = from;
             operation.asset = asset;
             operation.counterparty = to;
-            operation.amount = from == to ? 0 : 1;
-            operation.reducesEffectiveCollateral = from != to;
+            operation.amount = amount;
+            operation.reducesEffectiveCollateral = from != to && amount != 0;
             return operation;
         }
 
@@ -176,9 +182,8 @@ contract TydroProtectionSuite is AaveV3LikeProtectionSuite {
         }
 
         if (triggered.selector == ITydroPoolCurrent.flashLoan.selector) {
-            (,,, uint256[] memory interestRateModes, address onBehalfOf,,) = abi.decode(
-                triggered.input[4:], (address, address[], uint256[], uint256[], address, bytes, uint16)
-            );
+            (,,, uint256[] memory interestRateModes, address onBehalfOf,,) =
+                abi.decode(triggered.input[4:], (address, address[], uint256[], uint256[], address, bytes, uint16));
             for (uint256 i; i < interestRateModes.length; ++i) {
                 if (interestRateModes[i] != 0) {
                     operation.kind = OperationKind.Borrow;
