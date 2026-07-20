@@ -41,7 +41,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: [fluid, lido, mellow, safe-guard]
+        profile: [balancer, fluid, lido, mellow, safe-guard]
     steps:
       - name: Checkout
         uses: actions/checkout@v6

@@ -16,6 +16,7 @@ FOUNDRY_PROFILE=<protocol> forge build
 |---|---|---|
 | `aave/` | `aave` | Aave V3 Horizon oracle & reserve-backing; Aave V4 hub/spoke |
 | `aerodrome/` | `aerodrome` | Aerodrome pool assertions |
+| `balancer/` | — | Balancer V3 singleton Vault: hookless-pool swap invariant non-decrease + live tokenOut direction + pinned in-call rates, per-pool custody bound (necessary, not sufficient), scoped rate-provider drift bound, Vault net-outflow breaker |
 | `cap/` | `cap` | OFAC compliance + redemption-gate (ERC-4626) |
 | `curve/` | `curve` | crvUSD controller, LlamaLend, CurveLlamma, StableSwap-NG, TriCrypto-NG |
 | `denaria/` | `all-protection-suites` | Denaria perpetual operation safety |

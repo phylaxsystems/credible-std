@@ -1,0 +1,149 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.13;
+
+// Minimal Balancer V3 types mirrored from `balancer-v3-monorepo` (`pkg/interfaces`).
+// Only the surfaces the assertion bundle reads are included; token addresses are plain
+// `address` instead of `IERC20`, which is ABI-identical.
+
+enum SwapKind {
+    EXACT_IN,
+    EXACT_OUT
+}
+
+enum Rounding {
+    ROUND_UP,
+    ROUND_DOWN
+}
+
+enum TokenType {
+    STANDARD,
+    WITH_RATE
+}
+
+/// @notice Calldata for `IVaultMain.swap`, mirrored from Balancer's `VaultSwapParams`.
+struct VaultSwapParams {
+    SwapKind kind;
+    address pool;
+    address tokenIn;
+    address tokenOut;
+    uint256 amountGivenRaw;
+    uint256 limitRaw;
+    bytes userData;
+}
+
+enum AddLiquidityKind {
+    PROPORTIONAL,
+    UNBALANCED,
+    SINGLE_TOKEN_EXACT_OUT,
+    DONATION,
+    CUSTOM
+}
+
+struct AddLiquidityParams {
+    address pool;
+    address to;
+    uint256[] maxAmountsIn;
+    uint256 minBptAmountOut;
+    AddLiquidityKind kind;
+    bytes userData;
+}
+
+enum RemoveLiquidityKind {
+    PROPORTIONAL,
+    SINGLE_TOKEN_EXACT_IN,
+    SINGLE_TOKEN_EXACT_OUT,
+    CUSTOM
+}
+
+struct RemoveLiquidityParams {
+    address pool;
+    address from;
+    uint256 maxBptAmountIn;
+    uint256[] minAmountsOut;
+    RemoveLiquidityKind kind;
+    bytes userData;
+}
+
+/// @notice Per-token registration data, mirrored from Balancer's `TokenInfo`.
+struct TokenInfo {
+    TokenType tokenType;
+    address rateProvider;
+    bool paysYieldFees;
+}
+
+/// @notice The Vault surface used by the assertions. Getters live on VaultExtension in
+///         production but are reachable through the Vault address via its fallback delegation.
+interface IBalancerV3VaultLike {
+    function swap(VaultSwapParams calldata vaultSwapParams)
+        external
+        returns (uint256 amountCalculated, uint256 amountIn, uint256 amountOut);
+
+    function addLiquidity(AddLiquidityParams calldata params)
+        external
+        returns (uint256[] memory amountsIn, uint256 bptAmountOut, bytes memory returnData);
+
+    function removeLiquidity(RemoveLiquidityParams calldata params)
+        external
+        returns (uint256 bptAmountIn, uint256[] memory amountsOut, bytes memory returnData);
+
+    function initialize(
+        address pool,
+        address to,
+        address[] calldata tokens,
+        uint256[] calldata exactAmountsIn,
+        uint256 minBptAmountOut,
+        bytes calldata userData
+    ) external returns (uint256 bptAmountOut);
+
+    function removeLiquidityRecovery(
+        address pool,
+        address from,
+        uint256 exactBptAmountIn,
+        uint256[] calldata minAmountsOut
+    ) external returns (uint256[] memory amountsOut);
+
+    function collectAggregateFees(address pool)
+        external
+        returns (uint256[] memory swapFeeAmounts, uint256[] memory yieldFeeAmounts);
+
+    function disableRecoveryMode(address pool) external;
+
+    function getPoolTokens(address pool) external view returns (address[] memory tokens);
+
+    function getPoolTokenInfo(address pool)
+        external
+        view
+        returns (
+            address[] memory tokens,
+            TokenInfo[] memory tokenInfo,
+            uint256[] memory balancesRaw,
+            uint256[] memory lastBalancesLiveScaled18
+        );
+
+    function getCurrentLiveBalances(address pool) external view returns (uint256[] memory balancesLiveScaled18);
+
+    function getReservesOf(address token) external view returns (uint256 reserveAmount);
+
+    function getAggregateSwapFeeAmount(address pool, address token) external view returns (uint256 swapFeeAmount);
+
+    function getAggregateYieldFeeAmount(address pool, address token) external view returns (uint256 yieldFeeAmount);
+
+    function totalSupply(address token) external view returns (uint256 tokenTotalSupply);
+
+    function isPoolInitialized(address pool) external view returns (bool initialized);
+
+    function isPoolInRecoveryMode(address pool) external view returns (bool inRecoveryMode);
+}
+
+/// @notice Pool math surface: the Vault trusts these functions, the assertions re-check them.
+interface IBalancerV3BasePoolLike {
+    function computeInvariant(uint256[] memory balancesLiveScaled18, Rounding rounding)
+        external
+        view
+        returns (uint256 invariant);
+}
+
+/// @notice Rate provider surface for WITH_RATE pool tokens.
+interface IRateProviderLike {
+    function getRate() external view returns (uint256 rate);
+}
