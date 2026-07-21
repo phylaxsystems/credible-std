@@ -59,7 +59,14 @@ contract MetaMorphoVaultAssertion is
     ///      asset-flow assertion because a healthy MetaMorpho vault can hold less on-hand USDC than
     ///      `totalAssets()` while its funds are allocated into Morpho markets.
     function triggers() external view override {
-        _registerSharePriceTriggers();
+        // Use the gas-bounded share-price triggers: MetaMorpho's computed `totalAssets()` loops the
+        // Morpho Blue supply queue, so the default envelope's all-fork-points `assetsMatchSharePrice`
+        // scan exhausts the assertion gas limit (PrecompileOOG) on unrelated high-call-count
+        // transactions that merely touch the vault, causing false invalidations. The bounded envelope
+        // compares only pre-tx vs post-tx (2 fork points) and is two-sided, so it still catches
+        // tx-wide dilution and donation/inflation through any entrypoint, while the per-call checks
+        // cover settlement during real deposit/mint/withdraw/redeem operations.
+        _registerBoundedSharePriceTriggers();
         _registerPreviewTriggers();
         _registerCumulativeOutflowTriggers();
     }
