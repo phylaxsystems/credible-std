@@ -10,7 +10,7 @@ import {AnomalyGatedAccountingAssertion} from "credible-std/protection/anomaly/A
 import {AnomalyGatedOracleAssertion} from "credible-std/protection/anomaly/AnomalyGatedOracleAssertion.sol";
 import {MockERC20, MockOracle, MockVault4626, Vault} from "./AnomalyTestMocks.sol";
 
-// Single-heuristic mixin coverage: each mixin's assert function proves its own disposition —
+// Single-heuristic mixin coverage. Each mixin's assert function proves its own disposition:
 // block on anomalous-and-corroborated, the exclusive-set pass on anomalous-only, and the gate
 // suppressing a corroborated-only transaction. As in the composite tests, released pcl has no
 // anomaly precompile, so the harnesses fire from a tx-end trigger and override the virtual

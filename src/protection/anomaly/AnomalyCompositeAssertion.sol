@@ -173,8 +173,8 @@ contract AnomalyCompositeAssertion is AnomalyGatedBaseAssertion {
         return requireAll ? acc && leg : acc || leg;
     }
 
-    /// @dev Whether the fold has hit the operator's absorbing value — false under AND, true under
-    ///      OR — after which the remaining legs cannot change the outcome, so their reads are skipped.
+    /// @dev Whether the fold has hit the operator's absorbing value (false under AND, true under
+    ///      OR). Past it the remaining legs cannot change the outcome, so their reads are skipped.
     function _decided(bool acc) internal view returns (bool) {
         return acc != requireAll;
     }

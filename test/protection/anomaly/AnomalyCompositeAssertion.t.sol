@@ -245,6 +245,38 @@ contract TestAnomalyCompositeAssertion is CredibleTest, Test {
         new CompositeTxEndHarness(c, true);
     }
 
+    /// A zero target reverts at deploy: `anomalyContext` can never score it, so the gate would
+    /// never open and the assertion would be permanently inert.
+    function test_zero_target_reverts_at_deploy() public {
+        AnomalyCompositeAssertion.Config memory c = _withDrain(_base());
+        c.target = address(0);
+        vm.expectRevert(AnomalyGatedBaseAssertion.ZeroTarget.selector);
+        new CompositeTxEndHarness(c, true);
+    }
+
+    /// The threshold must sit in [1, 10_000], boundaries included. Zero gates true on the
+    /// zero-filled context of an unscored target; above 10_000 the gate is unreachable because
+    /// `scoreBps` caps at 10_000.
+    function test_threshold_range_boundaries_at_deploy() public {
+        AnomalyCompositeAssertion.Config memory c = _withDrain(_base());
+        c.anomalyThresholdBps = 0;
+        vm.expectRevert(AnomalyGatedBaseAssertion.ThresholdOutOfRange.selector);
+        new CompositeTxEndHarness(c, true);
+
+        c = _withDrain(_base());
+        c.anomalyThresholdBps = 10_001;
+        vm.expectRevert(AnomalyGatedBaseAssertion.ThresholdOutOfRange.selector);
+        new CompositeTxEndHarness(c, true);
+
+        c = _withDrain(_base());
+        c.anomalyThresholdBps = 1;
+        new CompositeTxEndHarness(c, true);
+
+        c = _withDrain(_base());
+        c.anomalyThresholdBps = 10_000;
+        new CompositeTxEndHarness(c, true);
+    }
+
     /// The baseline opt-in, anomalous: the bare gate blocks on the score alone.
     function test_bare_gate_blocks_when_anomalous() public {
         AnomalyCompositeAssertion.Config memory c = _base();

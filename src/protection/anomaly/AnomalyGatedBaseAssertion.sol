@@ -50,12 +50,21 @@ interface IERC20 {
 /// }
 /// ```
 abstract contract AnomalyGatedBaseAssertion is Assertion {
-    /// @notice Constructor guard: an enabled heuristic is missing a parameter it needs — a zero
-    ///         custody, token, vault, or oracle address, an oracle query too short to hold a
-    ///         selector, or a zero drain fraction (which corroborates on any transaction while
-    ///         custody holds a balance). A deploy-time revert instead of a silently inert leg or a
-    ///         per-transaction false block.
+    /// @notice Constructor guard: an enabled heuristic is missing a parameter it needs, whether a
+    ///         zero custody, token, vault, or oracle address, an oracle query too short to hold a
+    ///         selector, or a zero drain fraction, which corroborates on any transaction while
+    ///         custody holds a balance. The constructor rejects these instead of shipping a
+    ///         silently inert leg or a per-transaction false block.
     error HeuristicMisconfigured();
+    /// @notice Constructor guard: the watched target is the zero address. `anomalyContext` can
+    ///         never score it, so the gate would never open and the assertion would be permanently
+    ///         inert.
+    error ZeroTarget();
+    /// @notice Constructor guard: the operating threshold must be in `[1, 10_000]`. At zero the
+    ///         gate is satisfied by the zero-filled context of an unscored target, turning the
+    ///         damage heuristics into ungated blockers; above 10_000 the gate is unreachable
+    ///         (`scoreBps` caps at 10_000) and the assertion permanently inert.
+    error ThresholdOutOfRange();
 
     /// @notice EIP-1967 implementation slot, `keccak256("eip1967.proxy.implementation") - 1`.
     bytes32 internal constant EIP1967_IMPLEMENTATION =
@@ -70,9 +79,16 @@ abstract contract AnomalyGatedBaseAssertion is Assertion {
     ///         the calibrated operating point for a 1% false-positive budget is 205, a 2% probability.
     uint16 internal immutable anomalyThresholdBps;
 
-    /// @param _target The watched contract the model scores.
-    /// @param _anomalyThresholdBps The operating point, in bps of anomaly probability.
+    /// @param _target The watched contract the model scores. Must be non-zero.
+    /// @param _anomalyThresholdBps The operating point, in bps of anomaly probability. Must be in
+    ///        `[1, 10_000]`.
     constructor(address _target, uint16 _anomalyThresholdBps) {
+        if (_target == address(0)) {
+            revert ZeroTarget();
+        }
+        if (_anomalyThresholdBps == 0 || _anomalyThresholdBps > 10_000) {
+            revert ThresholdOutOfRange();
+        }
         registerAssertionSpec(AssertionSpec.Reshiram);
         target = _target;
         anomalyThresholdBps = _anomalyThresholdBps;
@@ -84,8 +100,9 @@ abstract contract AnomalyGatedBaseAssertion is Assertion {
 
     /// @notice Whether the model scored this transaction at or above the operating threshold.
     /// @dev `ph.anomalyContext` fails open: an unscored target reads 0, so a contract with no model
-    ///      (too new to have history) does not gate true and the assertion stays inert. Virtual so an
-    ///      adopter can override the gate, e.g. a per-function threshold or a second signal.
+    ///      (too new to have history) does not gate true and the assertion stays inert; the
+    ///      constructor's `[1, 10_000]` threshold range guarantees this. Virtual so an adopter can
+    ///      override the gate, e.g. a per-function threshold or a second signal.
     function _anomalous() internal view virtual returns (bool) {
         return ph.anomalyContext(target).scoreBps >= anomalyThresholdBps;
     }
