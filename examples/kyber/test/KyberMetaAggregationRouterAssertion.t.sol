@@ -375,6 +375,47 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
         assertLt(dst.balanceOf(recipient), fullMinimum);
     }
 
+    /// @notice The same legitimate partial fill FALSE-POSITIVES when the assertion is deployed with
+    ///         `originalRouterFamily_ = false`, pinning the root cause of the mainnet backtest trip.
+    /// @dev `_arm` uses the correct `true`; here we deploy with `false` — the exact misconfiguration
+    ///      that the backtest harness introduced by encoding a single-arg `constructor(address)` (the
+    ///      missing trailing bool reads as zero). With the family flag false the `_PARTIAL_FILL` skip
+    ///      short-circuits off, so the flat `>= minReturnAmount` floor rejects a swap the router
+    ///      legitimately filled pro-rata. The assertion logic is unchanged and correct; the trip was
+    ///      a deployment-arity bug, not a false positive in the check.
+    function testMinReturn_PartialFill_MisconfiguredFamilyFalse_Trips() public {
+        uint256 spent = AMOUNT_IN / 2;
+        uint256 fullMinimum = _expectedOut();
+
+        SwapDescriptionV2 memory desc;
+        desc.srcToken = address(src);
+        desc.dstToken = address(dst);
+        desc.srcReceivers = _one(address(pool));
+        desc.srcAmounts = _one(spent);
+        desc.feeReceivers = _noAddrs();
+        desc.feeAmounts = _noUints();
+        desc.dstReceiver = recipient;
+        desc.amount = AMOUNT_IN;
+        desc.minReturnAmount = fullMinimum;
+        desc.flags = PARTIAL_FILL;
+
+        SwapExecutionParams memory p;
+        p.callTarget = address(executor);
+        p.targetData = _executorData(recipient);
+        p.desc = desc;
+
+        // Arm with originalRouterFamily_ = false (the backtest-harness misconfiguration).
+        bytes memory createData = abi.encodePacked(
+            type(KyberMetaAggregationRouterAssertion).creationCode, abi.encode(address(router), false)
+        );
+        cl.assertion(
+            address(router), createData, KyberMetaAggregationRouterAssertion.assertReceiverGetsMinReturn.selector
+        );
+
+        vm.expectRevert(bytes("Kyber: dstReceiver credited below minReturnAmount"));
+        router.swap(p);
+    }
+
     /// @notice swapSimpleMode underpayment trips when the router guard is absent.
     function testMinReturn_SwapSimpleMode_Underpaid_Trips() public {
         router.setEnforceMinReturn(false);
