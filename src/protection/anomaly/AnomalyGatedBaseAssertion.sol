@@ -52,9 +52,11 @@ interface IERC20 {
 abstract contract AnomalyGatedBaseAssertion is Assertion {
     /// @notice Constructor guard: an enabled heuristic is missing a parameter it needs, whether a
     ///         zero custody, token, vault, or oracle address, an oracle query too short to hold a
-    ///         selector, or a zero drain fraction, which corroborates on any transaction while
-    ///         custody holds a balance. The constructor rejects these instead of shipping a
-    ///         silently inert leg or a per-transaction false block.
+    ///         selector, or a drain fraction outside `[1, 10_000]`. A zero fraction corroborates on
+    ///         any transaction while custody holds a balance; above 10_000 the leg can never
+    ///         corroborate because net outflow is capped by the pre-transaction balance. The
+    ///         constructor rejects these instead of shipping a silently inert leg or a
+    ///         per-transaction false block.
     error HeuristicMisconfigured();
     /// @notice Constructor guard: the watched target is the zero address. `anomalyContext` can
     ///         never score it, so the gate would never open and the assertion would be permanently
@@ -123,6 +125,8 @@ abstract contract AnomalyGatedBaseAssertion is Assertion {
     ///         is often a pool while the drained reserve sits in a separate aToken.
     /// @dev Net outflow from the reduced ERC-20 balance deltas over the post-transaction fork, scaled
     ///      by the balance read at the pre-transaction fork. A zero pre-balance corroborates nothing.
+    ///      The ratio uses `ph.mulDivDown`, whose 512-bit intermediates keep a huge-balance token
+    ///      from overflowing `net * 10_000` and blocking without corroboration.
     function _drains(address outflowTarget, address token, uint256 fracBps) internal view returns (bool) {
         uint256 preBalance = _balanceAt(token, outflowTarget, _preTx());
         if (preBalance == 0) {
@@ -140,7 +144,7 @@ abstract contract AnomalyGatedBaseAssertion is Assertion {
             }
         }
         uint256 net = outflow > inflow ? outflow - inflow : 0;
-        return net * 10_000 / preBalance >= fracBps;
+        return ph.mulDivDown(net, 10_000, preBalance) >= fracBps;
     }
 
     /// @notice Whether an EIP-1967 implementation or admin slot, or the supplied `ownerSlot` when

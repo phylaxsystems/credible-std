@@ -89,9 +89,17 @@ contract AnomalyCompositeAssertion is AnomalyGatedBaseAssertion {
             revert NoHeuristicEnabled();
         }
         // Each enabled leg must carry the parameters it reads; a zero address leaves the leg
-        // silently inert or falsely blocking, and a zero drain fraction corroborates on any
-        // transaction. The upgrade leg needs no check: a zero `upgradeTarget` means `target`.
-        if (c.useDrain && (c.outflowTarget == address(0) || c.outflowToken == address(0) || c.outflowFracBps == 0)) {
+        // silently inert or falsely blocking. The drain fraction must sit in [1, 10_000]: zero
+        // corroborates on any transaction, and above 10_000 can never corroborate because net
+        // outflow is capped by the pre-transaction balance. The upgrade leg needs no check: a zero
+        // `upgradeTarget` means `target`.
+        if (
+            c.useDrain
+                && (c.outflowTarget == address(0)
+                    || c.outflowToken == address(0)
+                    || c.outflowFracBps == 0
+                    || c.outflowFracBps > 10_000)
+        ) {
             revert HeuristicMisconfigured();
         }
         if (c.useAccounting && c.accountingVault == address(0)) {

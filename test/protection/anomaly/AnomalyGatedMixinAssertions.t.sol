@@ -170,6 +170,15 @@ contract TestAnomalyGatedOutflowAssertion is CredibleTest, Test {
         vm.expectRevert(AnomalyGatedBaseAssertion.HeuristicMisconfigured.selector);
         new OutflowTxEndHarness(address(vault), address(0), DRAIN_FRAC_BPS, true);
     }
+
+    /// A fraction above 10_000 reverts at deploy: net outflow is capped by the pre-transaction
+    /// balance, so the leg could never corroborate. The 10_000 boundary itself deploys.
+    function test_fraction_above_cap_reverts_at_deploy() public {
+        vm.expectRevert(AnomalyGatedBaseAssertion.HeuristicMisconfigured.selector);
+        new OutflowTxEndHarness(address(vault), address(token), 10_001, true);
+
+        new OutflowTxEndHarness(address(vault), address(token), 10_000, true);
+    }
 }
 
 /// @notice The upgrade mixin's disposition, including the named owner slot.
@@ -200,6 +209,13 @@ contract TestAnomalyGatedUpgradeAssertion is CredibleTest, Test {
         _register(bytes32(0), true);
         vm.expectRevert();
         vault.upgradeTo(IMPL);
+    }
+
+    /// Anomalous and the tx rewrites the EIP-1967 admin slot: block.
+    function test_blocks_anomalous_admin_change() public {
+        _register(bytes32(0), true);
+        vm.expectRevert();
+        vault.changeAdmin(SINK);
     }
 
     /// Anomalous and the tx rewrites the named owner slot: block.

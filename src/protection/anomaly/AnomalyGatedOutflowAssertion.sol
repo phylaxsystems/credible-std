@@ -23,11 +23,12 @@ abstract contract AnomalyGatedOutflowAssertion is AnomalyGatedBaseAssertion {
     /// @notice The reserve token whose net outflow corroborates a drain.
     address internal immutable outflowToken;
     /// @notice Net outflow over pre-transaction balance, in bps, at or above which the drain
-    ///         heuristic corroborates.
+    ///         heuristic corroborates. Must be in `[1, 10_000]`: net outflow is capped by the
+    ///         pre-transaction balance, so a larger fraction can never corroborate.
     uint256 internal immutable outflowFracBps;
 
     constructor(address _outflowTarget, address _token, uint256 _fracBps) {
-        if (_outflowTarget == address(0) || _token == address(0) || _fracBps == 0) {
+        if (_outflowTarget == address(0) || _token == address(0) || _fracBps == 0 || _fracBps > 10_000) {
             revert HeuristicMisconfigured();
         }
         outflowTarget = _outflowTarget;

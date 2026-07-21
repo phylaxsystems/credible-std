@@ -224,6 +224,10 @@ contract TestAnomalyCompositeAssertion is CredibleTest, Test {
         c.outflowFracBps = 0;
         _expectMisconfigured(c);
 
+        c = _withDrain(_base());
+        c.outflowFracBps = 10_001;
+        _expectMisconfigured(c);
+
         c = _base();
         c.useAccounting = true; // accountingVault stays 0
         c.shareToleranceBps = 200;
@@ -291,6 +295,15 @@ contract TestAnomalyCompositeAssertion is CredibleTest, Test {
         AnomalyCompositeAssertion.Config memory c = _base();
         c.bareGateBaseline = true;
         _register(c, false);
+        vault.poke();
+    }
+
+    /// `bareGateBaseline` alongside an enabled heuristic changes nothing: the leg set drives the
+    /// disposition, so an anomalous tx with no damage stays in the alert cell.
+    function test_baseline_flag_inert_when_heuristic_enabled() public {
+        AnomalyCompositeAssertion.Config memory c = _withDrain(_base());
+        c.bareGateBaseline = true;
+        _register(c, true);
         vault.poke();
     }
 }
