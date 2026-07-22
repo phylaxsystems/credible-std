@@ -168,6 +168,12 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticVaultFlowHelpers {
         uint256 entitlement;
         for (uint256 i; i < epochs.length; ++i) {
             require(epochs[i] < currentEpoch, "SymbioticVault: claimBatch succeeded for immature epoch");
+            // A repeated epoch would satisfy both per-epoch transition checks against the same
+            // pre/post state while counting the entitlement twice, so a faulty implementation
+            // that pays one epoch multiple times would otherwise slip through.
+            for (uint256 j; j < i; ++j) {
+                require(epochs[j] != epochs[i], "SymbioticVault: claimBatch duplicate epoch");
+            }
             entitlement += _claimEntitlementAt(epochs[i], caller, preFork);
             _assertClaimStateTransition(epochs[i], caller, preFork, postFork, true);
         }
@@ -246,7 +252,9 @@ contract SymbioticVaultProtection is SymbioticVaultFlowAssertion {
 
     /// @notice Wires only the vault-flow triggers.
     /// @dev This bundle protects the happy-path accounting surface: deposit, withdraw, redeem,
-    ///      claim, claimBatch, and the tx-wide total-stake identity.
+    ///      claim, claimBatch, and slashing. `assertTotalStakeIdentity` is not registered here:
+    ///      in v1 `totalStake()` is defined from the same bucket getters the per-call checks
+    ///      already read, so a tx-end reread is redundant.
     function triggers() external view override {
         _registerVaultFlowTriggers();
     }

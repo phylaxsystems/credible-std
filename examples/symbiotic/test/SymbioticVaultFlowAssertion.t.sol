@@ -19,6 +19,7 @@ contract MockSymbioticV1Vault {
     uint256 public activeShares;
     bool public underpayClaim;
     bool public corruptSlashBuckets;
+    bool public payDuplicateEpochs;
 
     mapping(uint256 => uint256) public withdrawals;
     mapping(uint256 => uint256) public withdrawalShares;
@@ -51,11 +52,29 @@ contract MockSymbioticV1Vault {
         corruptSlashBuckets = enabled;
     }
 
+    function setPayDuplicateEpochs(bool enabled) external {
+        payDuplicateEpochs = enabled;
+    }
+
     function claim(address recipient, uint256 epoch) external returns (uint256 amount) {
         require(!isWithdrawalsClaimed[epoch][msg.sender], "already claimed");
         amount = withdrawals[epoch] * withdrawalSharesOf[epoch][msg.sender] / withdrawalShares[epoch];
         if (underpayClaim) amount /= 2;
         isWithdrawalsClaimed[epoch][msg.sender] = true;
+        collateral.transfer(recipient, amount);
+    }
+
+    /// @dev `payDuplicateEpochs` models a faulty implementation that skips the claimed check and
+    ///      pays a repeated epoch again instead of reverting.
+    function claimBatch(address recipient, uint256[] calldata epochs) external returns (uint256 amount) {
+        for (uint256 i; i < epochs.length; ++i) {
+            uint256 epoch = epochs[i];
+            if (!payDuplicateEpochs) {
+                require(!isWithdrawalsClaimed[epoch][msg.sender], "already claimed");
+            }
+            amount += withdrawals[epoch] * withdrawalSharesOf[epoch][msg.sender] / withdrawalShares[epoch];
+            isWithdrawalsClaimed[epoch][msg.sender] = true;
+        }
         collateral.transfer(recipient, amount);
     }
 
@@ -112,6 +131,27 @@ contract SymbioticVaultFlowAssertionTest is Test, CredibleTest {
         _arm(SymbioticVaultFlowAssertion.assertClaimFlow.selector);
         vm.expectRevert(bytes("SymbioticVault: claim amount below entitlement"));
         vault.claim(recipient, 1);
+    }
+
+    function testClaimBatchPaysEachMatureEpochOnce() public {
+        vault.seedClaim(0, address(this), 40 ether, 40 ether);
+        vault.seedClaim(1, address(this), 100 ether, 100 ether);
+        _arm(SymbioticVaultFlowAssertion.assertClaimBatchFlow.selector);
+        uint256[] memory epochs = new uint256[](2);
+        epochs[0] = 0;
+        epochs[1] = 1;
+        vault.claimBatch(recipient, epochs);
+    }
+
+    function testClaimBatchRejectsRepeatedEpoch() public {
+        vault.seedClaim(1, address(this), 100 ether, 100 ether);
+        vault.setPayDuplicateEpochs(true);
+        _arm(SymbioticVaultFlowAssertion.assertClaimBatchFlow.selector);
+        uint256[] memory epochs = new uint256[](2);
+        epochs[0] = 1;
+        epochs[1] = 1;
+        vm.expectRevert(bytes("SymbioticVault: claimBatch duplicate epoch"));
+        vault.claimBatch(recipient, epochs);
     }
 
     function testCurrentEpochSlashConservesBucketsAndPaysBurner() public {
