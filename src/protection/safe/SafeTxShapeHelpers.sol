@@ -87,6 +87,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
 
     struct Action {
         address safe;
+        address caller;
         address module;
         address target;
         uint256 value;
@@ -302,6 +303,9 @@ abstract contract SafeTxShapeHelpers is Assertion {
         view
         returns (uint256 transactionsOffset, uint256 transactionsLength)
     {
+        if (action.operation == OPERATION_CALL && action.value != 0) {
+            revert SafeTxShapeNativeValueBlocked(action.target, batchPolicy.selector, action.value);
+        }
         if (action.operation == OPERATION_DELEGATECALL && !batchPolicy.allowDelegateCall) {
             revert SafeTxShapeBatchDelegateCallNotAllowed(action.target);
         }
@@ -335,6 +339,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
 
         innerAction = Action({
             safe: parent.safe,
+            caller: parent.operation == OPERATION_CALL ? parent.target : parent.caller,
             module: parent.module,
             target: target,
             value: value,
@@ -428,7 +433,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
             // `increaseAllowance(spender, addedValue)` adds to the current allowance; treating `addedValue`
             // as the final amount would let two inner calls land above `maxAmount`. Verify the post-state
             // allowance instead so the cap binds the actual final allowance after the transaction.
-            _validateIncreaseAllowanceFinalState(action.safe, action.target, spender);
+            _validateIncreaseAllowanceFinalState(action.caller, action.target, spender);
             return;
         }
 
@@ -477,7 +482,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
         }
     }
 
-    function _validateIncreaseAllowanceFinalState(address safe, address token, address spender) internal view {
+    function _validateIncreaseAllowanceFinalState(address owner, address token, address spender) internal view {
         if (!_approvalPolicyExists[token][spender][APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE]) {
             revert SafeTxShapeApprovalSpenderNotAllowed(token, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE);
         }
@@ -486,7 +491,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
         PhEvm.ForkId memory postFork = _postCall(triggerCtx.callEnd);
 
         PhEvm.StaticCallResult memory result = ph.staticcallAt(
-            token, abi.encodeWithSignature("allowance(address,address)", safe, spender), ALLOWANCE_READ_GAS, postFork
+            token, abi.encodeWithSignature("allowance(address,address)", owner, spender), ALLOWANCE_READ_GAS, postFork
         );
         if (!result.ok || result.data.length < 32) {
             revert SafeTxShapeAllowanceReadFailed(token, spender);
@@ -591,6 +596,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
         (uint256 dataOffset, uint256 dataLength) = _dynamicBytesBounds(input, 4, _readUint256(input, 68));
         action = Action({
             safe: safe,
+            caller: safe,
             module: address(0),
             target: _readAbiAddress(input, 4),
             value: _readUint256(input, 36),
@@ -631,6 +637,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
         (uint256 dataOffset, uint256 dataLength) = _dynamicBytesBounds(input, 4, _readUint256(input, 68));
         action = Action({
             safe: safe,
+            caller: safe,
             module: module,
             target: _readAbiAddress(input, 4),
             value: _readUint256(input, 36),

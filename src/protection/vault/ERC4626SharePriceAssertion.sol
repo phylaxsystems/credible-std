@@ -94,6 +94,7 @@ abstract contract ERC4626SharePriceAssertion is ERC4626BaseAssertion {
     ///      `totalAssets()`. Unlike `assertSharePriceEnvelope`, it does not inspect intermediate
     ///      call-boundary forks; the per-call checks cover settlement during standard ERC-4626 ops.
     function assertSharePriceEnvelopeBounded() external {
+        _requireVaultConfigurationAt(_postTx());
         require(
             ph.assetsMatchSharePriceAt(vault, sharePriceToleranceBps, _preTx(), _postTx()),
             "ERC4626: tx-wide share price drift exceeds tolerance"

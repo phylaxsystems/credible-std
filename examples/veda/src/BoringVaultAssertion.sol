@@ -127,12 +127,11 @@ contract BoringVaultAssertion is BoringVaultHelpers {
         require(postSupply == preSupply - shareAmount, "BoringVault: exit supply delta mismatch");
         require(postOwnerShares == preOwnerShares - shareAmount, "BoringVault: exit share delta mismatch");
 
-        if (assetAmount == 0) {
-            require(asset == address(0), "BoringVault: nonzero asset on share-only exit");
+        if (asset == address(0)) {
+            require(assetAmount == 0, "BoringVault: nonzero amount on share-only exit");
             _requireShareOnlyCaller(ctx);
             return;
         }
-        require(asset != address(0), "BoringVault: zero asset");
 
         uint256 preVaultAssets = _assetBalanceAt(asset, vault, beforeFork);
         uint256 postVaultAssets = _assetBalanceAt(asset, vault, afterFork);

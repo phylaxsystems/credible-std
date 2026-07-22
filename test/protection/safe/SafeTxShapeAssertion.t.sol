@@ -46,11 +46,19 @@ contract MockProtocolTarget {
 }
 
 contract MockApprovalTarget {
-    function approve(address, uint256) external pure returns (bool) {
+    mapping(address owner => mapping(address spender => uint256 amount)) public allowance;
+
+    function setAllowance(address owner, address spender, uint256 amount) external {
+        allowance[owner][spender] = amount;
+    }
+
+    function approve(address spender, uint256 amount) external returns (bool) {
+        allowance[msg.sender][spender] = amount;
         return true;
     }
 
-    function increaseAllowance(address, uint256) external pure returns (bool) {
+    function increaseAllowance(address spender, uint256 addedValue) external returns (bool) {
+        allowance[msg.sender][spender] += addedValue;
         return true;
     }
 
@@ -150,6 +158,22 @@ contract SafeTxShapeAssertionTest is Test, CredibleTest {
         _assertOwnerAllowedByAllBaselinePolicies(
             false, address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_CALL
         );
+    }
+
+    function testBlocksCallBasedMultiSendOuterNativeValue() public {
+        bytes memory txs =
+            _packMultiSendTx(OP_CALL, address(target), 0, abi.encodeCall(MockProtocolTarget.doThing, (1)));
+        _armBaselinePolicyFor(false, SafeTxShapeAssertion.assertSafeTargetSelectorPolicy.selector);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SafeTxShapeHelpers.SafeTxShapeNativeValueBlocked.selector,
+                address(multiSend),
+                MULTISEND_SELECTOR,
+                uint256(1)
+            )
+        );
+        _execOwner(address(multiSend), 1, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_CALL);
     }
 
     function testAllowsErc20ApprovalToTrustedSpenderUnderCap() public {
@@ -522,6 +546,30 @@ contract SafeTxShapeAssertionTest is Test, CredibleTest {
 
         vm.expectRevert();
         _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_DELEGATECALL);
+    }
+
+    function testCallBasedMultiSendChecksExecutorAllowance() public {
+        erc20Token.setAllowance(address(multiSend), TRUSTED_SPENDER, 101);
+        _armBaselinePolicyFor(false, SafeTxShapeAssertion.assertSafeApprovalPolicy.selector);
+
+        bytes memory txs = _packMultiSendTx(
+            OP_CALL,
+            address(erc20Token),
+            0,
+            abi.encodeWithSelector(INCREASE_ALLOWANCE_SELECTOR, TRUSTED_SPENDER, uint256(1))
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SafeTxShapeHelpers.SafeTxShapeApprovalAmountAboveCap.selector,
+                address(erc20Token),
+                TRUSTED_SPENDER,
+                APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE,
+                uint256(101),
+                uint256(100)
+            )
+        );
+        _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_CALL);
     }
 
     function testBlocksDuplicatePolicyEntries() public {

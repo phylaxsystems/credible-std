@@ -374,8 +374,7 @@ abstract contract RoycoVaultTrancheHelpers is RoycoHelpers {
             "Royco: tranche kernel mismatch"
         );
         require(
-            _readUintAt(tranche, abi.encodeCall(IRoycoVaultTranche.TRANCHE_TYPE, ()), fork)
-                == uint256(trancheType),
+            _readUintAt(tranche, abi.encodeCall(IRoycoVaultTranche.TRANCHE_TYPE, ()), fork) == uint256(trancheType),
             "Royco: tranche type mismatch"
         );
     }
@@ -451,32 +450,23 @@ abstract contract RoycoVaultTrancheHelpers is RoycoHelpers {
         return abi.decode(_stripSelector(input), (uint256, address, address));
     }
 
-    function _convertToSharesWithVirtualOffsets(uint256 assetsNAV, uint256 totalSupply_, uint256 totalAssetsNAV)
-        internal
-        view
-        returns (uint256 shares)
-    {
-        return ph.mulDivDown(totalSupply_ + 1, assetsNAV, totalAssetsNAV + 1);
+    function _protocolFeeRecipientAt(PhEvm.ForkId memory fork) internal view returns (address) {
+        RoycoKernelStateView memory state =
+            abi.decode(_viewAt(kernel, abi.encodeCall(IRoycoKernel.getState, ()), fork), (RoycoKernelStateView));
+        return state.protocolFeeRecipient;
     }
 
-    function _expectedDepositMathAt(uint256 assets_, PhEvm.ForkId memory fork, uint256 preSupply)
+    function _expectedProtocolFeeSharesAt(uint256 preSupply, PhEvm.ForkId memory fork)
         internal
         view
-        returns (uint256 expectedFeeSharesMinted, uint256 expectedFormulaShares)
+        returns (uint256 expectedFeeShares)
     {
-        (RoycoSyncedAccountingState memory stateBeforeDeposit, uint256 valueAllocated) =
-            _kernelPreviewDepositAt(assets_, fork);
-
-        uint256 feeAccrued = trancheType == RoycoTrancheType.SENIOR
-            ? stateBeforeDeposit.stProtocolFeeAccrued
-            : stateBeforeDeposit.jtProtocolFeeAccrued;
-        uint256 effectiveNAV = trancheType == RoycoTrancheType.SENIOR
-            ? stateBeforeDeposit.stEffectiveNAV
-            : stateBeforeDeposit.jtEffectiveNAV;
-
-        (expectedFeeSharesMinted,) = _previewMintProtocolFeeSharesAt(feeAccrued, effectiveNAV, fork);
-        expectedFormulaShares =
-            _convertToSharesWithVirtualOffsets(valueAllocated, preSupply + expectedFeeSharesMinted, effectiveNAV);
+        (,, uint256 synchronizedSupply) = abi.decode(
+            _viewAt(kernel, abi.encodeCall(IRoycoKernel.previewSyncTrancheAccounting, (trancheType)), fork),
+            (RoycoSyncedAccountingState, RoycoAssetClaims, uint256)
+        );
+        require(synchronizedSupply >= preSupply, "Royco: preview supply underflow");
+        return synchronizedSupply - preSupply;
     }
 
     function _resolveTriggeredKernelRedeemCall(PhEvm.TriggerContext memory ctx, uint256 shares, address receiver)

@@ -6,8 +6,8 @@ import {IRoycoVaultTranche, RoycoAssetClaims, RoycoVaultTrancheHelpers} from "./
 
 /// @title RoycoVaultTrancheOperationAssertion
 /// @author Phylax Systems
-/// @notice Tranche-side Royco invariant checks for preview consistency, protocol-fee share
-///         minting, virtual offset share math, and redeem-before-burn ordering.
+/// @notice Tranche-side Royco invariant checks for preview consistency, exact protocol-fee share
+///         accounting, receiver/owner share deltas, and redeem-before-burn ordering.
 abstract contract RoycoVaultTrancheOperationAssertion is RoycoVaultTrancheHelpers {
     /// @notice Registers the default deposit/redeem invariant set for a Royco tranche.
     function _registerOperationInvariantTriggers() internal view {
@@ -16,8 +16,7 @@ abstract contract RoycoVaultTrancheOperationAssertion is RoycoVaultTrancheHelper
         registerFnCallTrigger(this.assertRedeemOrdering.selector, IRoycoVaultTranche.redeem.selector);
     }
 
-    /// @notice Previewed deposits must match actual user share minting, protocol-fee share
-    ///         issuance, and the tranche's one-share/one-wei virtual offset formula.
+    /// @notice Previewed deposits must match exact user and protocol-fee share minting.
     function assertDepositPreviewConsistency() external view {
         PhEvm.TriggerContext memory ctx = ph.context();
         PhEvm.ForkId memory preFork = _preCall(ctx.callStart);
@@ -33,9 +32,15 @@ abstract contract RoycoVaultTrancheOperationAssertion is RoycoVaultTrancheHelper
 
         uint256 preSupply = _totalSupplyAt(preFork);
         uint256 postSupply = _totalSupplyAt(postFork);
-        require(postSupply >= preSupply + actualUserShares, "Royco: deposit supply delta mismatch");
+        uint256 expectedFeeShares = _expectedProtocolFeeSharesAt(preSupply, preFork);
+        require(postSupply == preSupply + actualUserShares + expectedFeeShares, "Royco: deposit supply delta mismatch");
+
+        uint256 expectedReceiverShares = actualUserShares;
+        if (receiver == _protocolFeeRecipientAt(preFork)) {
+            expectedReceiverShares += expectedFeeShares;
+        }
         require(
-            _balanceOfAt(receiver, postFork) - _balanceOfAt(receiver, preFork) == actualUserShares,
+            _balanceOfAt(receiver, postFork) == _balanceOfAt(receiver, preFork) + expectedReceiverShares,
             "Royco: deposit receiver share mismatch"
         );
     }
@@ -56,8 +61,15 @@ abstract contract RoycoVaultTrancheOperationAssertion is RoycoVaultTrancheHelper
         require(actualClaims.stAssets == previewClaims.stAssets, "Royco: redeem ST asset preview mismatch");
         require(actualClaims.jtAssets == previewClaims.jtAssets, "Royco: redeem JT asset preview mismatch");
         require(actualClaims.nav == previewClaims.nav, "Royco: redeem NAV preview mismatch");
+
+        uint256 preSupply = _totalSupplyAt(preFork);
+        uint256 postSupply = _totalSupplyAt(postFork);
+        uint256 expectedFeeShares = _expectedProtocolFeeSharesAt(preSupply, preFork);
+        require(postSupply + shares == preSupply + expectedFeeShares, "Royco: redeem supply delta mismatch");
+
+        uint256 ownerFeeShares = owner == _protocolFeeRecipientAt(preFork) ? expectedFeeShares : 0;
         require(
-            _balanceOfAt(owner, preFork) - _balanceOfAt(owner, postFork) == shares,
+            _balanceOfAt(owner, postFork) + shares == _balanceOfAt(owner, preFork) + ownerFeeShares,
             "Royco: redeem owner share mismatch"
         );
     }

@@ -236,7 +236,16 @@ contract CowSettlementAssertionTest is Test, CredibleTest {
         drainer.settleAndDrain(buyToken, settlement, attacker, SURPLUS);
     }
 
-    function testSweepAndTradeVolumeCannotOverlap() public {
+    function testHonestTradeCanPaySweepSafe() public {
+        settlement.configureTrade(SELL, BUY, 0, MockGPv2Settlement.Mode.Honest);
+        settlement.configureReceiver(sweepRecipient);
+
+        _armBufferFor(address(buyToken));
+        vm.prank(solver, solver);
+        _settle();
+    }
+
+    function testTradeToSweepSafeCannotAuthorizeAdditionalDrain() public {
         MockAllowanceDrainer drainer = new MockAllowanceDrainer();
         settlement.configureTrade(SELL, BUY, 0, MockGPv2Settlement.Mode.Honest);
         settlement.configureReceiver(sweepRecipient);
@@ -244,7 +253,7 @@ contract CowSettlementAssertionTest is Test, CredibleTest {
         buyToken.mint(address(settlement), BUY);
 
         _armBufferFor(address(buyToken));
-        vm.expectRevert(bytes("CowSettlement: ambiguous sweep and trade"));
+        vm.expectRevert(bytes("CowSettlement: external buffer drain"));
         vm.prank(solver, solver);
         drainer.settleAndDrain(buyToken, settlement, attacker, BUY);
     }

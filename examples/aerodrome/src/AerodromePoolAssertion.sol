@@ -73,8 +73,8 @@ contract AerodromePoolAssertion is AerodromePoolHelpers {
 
         require(pre.feeBalance0 >= post.feeBalance0, "AerodromePool: token0 fee custody increased on claim");
         require(pre.feeBalance1 >= post.feeBalance1, "AerodromePool: token1 fee custody increased on claim");
-        require(pre.feeBalance0 - post.feeBalance0 >= claimed0, "AerodromePool: token0 claim/custody mismatch");
-        require(pre.feeBalance1 - post.feeBalance1 >= claimed1, "AerodromePool: token1 claim/custody mismatch");
+        require(pre.feeBalance0 - post.feeBalance0 == claimed0, "AerodromePool: token0 claim/custody mismatch");
+        require(pre.feeBalance1 - post.feeBalance1 == claimed1, "AerodromePool: token1 claim/custody mismatch");
         require(recipient0After >= recipient0Before, "AerodromePool: token0 recipient balance decreased");
         require(recipient1After >= recipient1Before, "AerodromePool: token1 recipient balance decreased");
         require(recipient0After - recipient0Before >= claimed0, "AerodromePool: token0 claim underpaid");

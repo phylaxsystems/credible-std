@@ -12,10 +12,10 @@ import {CowSettlementHelpers} from "./CowSettlementHelpers.sol";
 /// @dev A signed order may legitimately pay any receiver, and Trade events do not expose that
 ///      receiver. The assertion therefore makes no receiver-level claim about normal settlement
 ///      volume. It instead reconciles each watched token's gross outflow against that token's own
-///      reported trade volume or transfers to the configured sweep Safe. Transactions containing
-///      both are rejected because a transfer to the Safe cannot be attributed unambiguously and
-///      must not consume both allowances. Gross accounting catches standing-allowance drains even
-///      when same-transaction prefunding hides the endpoint delta.
+///      reported trade volume or transfers to the configured sweep Safe. Because a transfer to the
+///      Safe may also be an order payment, these allowances are non-additive: only the larger amount
+///      is credited. Gross accounting catches standing-allowance drains even when same-transaction
+///      prefunding hides the endpoint delta.
 contract CowSettlementAssertion is CowSettlementHelpers {
     constructor(
         address settlement_,
@@ -44,8 +44,8 @@ contract CowSettlementAssertion is CowSettlementHelpers {
             uint256 swept = _transferredValueAt(token, SETTLEMENT, SWEEP_RECIPIENT, _postTx());
             uint256 settlementVolume = _reportedTradeVolume(token);
 
-            require(swept == 0 || settlementVolume == 0, "CowSettlement: ambiguous sweep and trade");
-            require(grossOut <= swept + settlementVolume, "CowSettlement: external buffer drain");
+            uint256 authorizedOutflow = swept > settlementVolume ? swept : settlementVolume;
+            require(grossOut <= authorizedOutflow, "CowSettlement: external buffer drain");
         }
     }
 }
