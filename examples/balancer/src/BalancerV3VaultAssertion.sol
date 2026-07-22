@@ -204,7 +204,11 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
     ///      transaction (raw balances, BPT supply, aggregate fees — all plain Vault storage
     ///      reads). Every read here is bounded by the pool's token count, so the assertion's cost
     ///      is independent of how large or call-heavy the triggering transaction is, and unrelated
-    ///      singleton traffic never depends on the watched pool's tokens answering.
+    ///      singleton traffic never depends on the watched pool's tokens answering. Residual:
+    ///      reserves and real custody are global and can move without a watched-pool accounting
+    ///      delta, so a violation introduced by such a transaction surfaces at the pool's next
+    ///      accounting-moving transaction instead of the causing one — triggered this way for
+    ///      efficiency reasons.
     function assertPoolAccountingWithinVaultCustody() external view {
         _requireConfiguredVaultIsAdopter();
         PhEvm.ForkId memory post = _postTx();
@@ -214,10 +218,10 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
 
         PoolTokenSnapshot memory snap = _poolTokenSnapshotAt(post);
         if (!_watchedPoolAccountingChangedTxWide(snap, post)) {
-            // Nothing this check reads about the watched pool moved, so the post-state equals a
-            // state an earlier transaction already had to pass through: any violation is caught
-            // at the transaction that causes it, and unrelated singleton traffic skips the
-            // per-token custody reads.
+            // The gate keys on the watched pool's accounting only. Reserves and real custody can
+            // move without it (shared-token traffic from other pools and buffers), so a violation
+            // caused by such a transaction is examined at the next accounting-moving transaction
+            // rather than at the causing one — triggered this way for efficiency reasons.
             return;
         }
         for (uint256 i; i < snap.tokens.length; ++i) {
