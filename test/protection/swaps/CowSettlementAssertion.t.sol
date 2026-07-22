@@ -32,7 +32,7 @@ contract MockGPv2Settlement {
     }
 
     address public immutable USER;
-    address public immutable RECEIVER;
+    address public receiver;
     ERC20Mock public immutable SELL_TOKEN;
     ERC20Mock public immutable BUY_TOKEN;
 
@@ -43,7 +43,7 @@ contract MockGPv2Settlement {
 
     constructor(address user_, address receiver_, ERC20Mock sellToken_, ERC20Mock buyToken_) {
         USER = user_;
-        RECEIVER = receiver_;
+        receiver = receiver_;
         SELL_TOKEN = sellToken_;
         BUY_TOKEN = buyToken_;
     }
@@ -53,6 +53,10 @@ contract MockGPv2Settlement {
         buyAmount = buyAmount_;
         surplus = surplus_;
         mode = mode_;
+    }
+
+    function configureReceiver(address receiver_) external {
+        receiver = receiver_;
     }
 
     /// @dev Selector 0x13d79a0b — identical to mainnet GPv2Settlement.settle. Args are accepted to
@@ -94,7 +98,7 @@ contract MockGPv2Settlement {
         // Pull the user's signed sell amount into the settlement contract.
         SELL_TOKEN.transferFrom(USER, address(this), sellAmount);
         // Pay the user (receiver) their bought tokens.
-        BUY_TOKEN.transfer(RECEIVER, buyAmount);
+        BUY_TOKEN.transfer(receiver, buyAmount);
         emit Trade(USER, address(SELL_TOKEN), address(BUY_TOKEN), sellAmount, buyAmount, 0, "");
         // Malicious: route batch surplus to the solver (the caller) instead of the user / buffer.
         if (mode == Mode.SolverSiphon) {
@@ -230,6 +234,19 @@ contract CowSettlementAssertionTest is Test, CredibleTest {
         vm.expectRevert(bytes("CowSettlement: external buffer drain"));
         vm.prank(solver, solver);
         drainer.settleAndDrain(buyToken, settlement, attacker, SURPLUS);
+    }
+
+    function testSweepAndTradeVolumeCannotOverlap() public {
+        MockAllowanceDrainer drainer = new MockAllowanceDrainer();
+        settlement.configureTrade(SELL, BUY, 0, MockGPv2Settlement.Mode.Honest);
+        settlement.configureReceiver(sweepRecipient);
+        settlement.approveToken(address(buyToken), address(drainer));
+        buyToken.mint(address(settlement), BUY);
+
+        _armBufferFor(address(buyToken));
+        vm.expectRevert(bytes("CowSettlement: ambiguous sweep and trade"));
+        vm.prank(solver, solver);
+        drainer.settleAndDrain(buyToken, settlement, attacker, BUY);
     }
 
     function testWatchedTokenCanBeUsedAsSettlementLiquidity() public {
