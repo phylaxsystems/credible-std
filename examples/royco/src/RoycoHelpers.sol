@@ -158,13 +158,22 @@ interface IRoycoVaultTranche {
 abstract contract RoycoHelpers is Assertion {
     uint256 internal constant WAD = 1e18;
 
-    function _stripSelector(bytes memory input) internal pure returns (bytes memory args) {
-        require(input.length >= 4, "Royco: input too short");
-
-        args = new bytes(input.length - 4);
-        for (uint256 i; i < args.length; ++i) {
-            args[i] = input[i + 4];
+    /// @dev Reads argument word `argIndex` from selector-prefixed calldata returned by
+    ///      `ph.callinputAt`. All decoded Royco entrypoints take static tuples, so each argument
+    ///      sits at a fixed word offset past the 4-byte selector. Reading words in place replaces
+    ///      the old strip-the-selector byte-copy + `abi.decode` path, whose cost grew linearly
+    ///      with the calldata length: a call padded with trailing garbage bytes (which Solidity's
+    ///      decoder on the target accepts) would have burned the assertion's fixed gas budget
+    ///      inside that copy loop and invalidated the transaction spuriously.
+    function _inputWord(bytes memory input, uint256 argIndex) internal pure returns (uint256 word) {
+        require(input.length >= 4 + 32 * (argIndex + 1), "Royco: input too short");
+        assembly ("memory-safe") {
+            word := mload(add(input, add(36, mul(32, argIndex))))
         }
+    }
+
+    function _inputAddress(bytes memory input, uint256 argIndex) internal pure returns (address) {
+        return address(uint160(_inputWord(input, argIndex)));
     }
 }
 
@@ -297,7 +306,9 @@ abstract contract RoycoKernelHelpers is RoycoHelpers {
         pure
         returns (uint256 shares, address receiver, bool bypassRedemptionRestrictions)
     {
-        return abi.decode(_stripSelector(input), (uint256, address, bool));
+        shares = _inputWord(input, 0);
+        receiver = _inputAddress(input, 1);
+        bypassRedemptionRestrictions = _inputWord(input, 2) != 0;
     }
 
     function _computeMaxUtilizationNeutralBonus(
@@ -439,7 +450,8 @@ abstract contract RoycoVaultTrancheHelpers is RoycoHelpers {
     }
 
     function _decodeTrancheDepositInput(bytes memory input) internal pure returns (uint256 assets, address receiver) {
-        return abi.decode(_stripSelector(input), (uint256, address));
+        assets = _inputWord(input, 0);
+        receiver = _inputAddress(input, 1);
     }
 
     function _decodeTrancheRedeemInput(bytes memory input)
@@ -447,7 +459,9 @@ abstract contract RoycoVaultTrancheHelpers is RoycoHelpers {
         pure
         returns (uint256 shares, address receiver, address owner)
     {
-        return abi.decode(_stripSelector(input), (uint256, address, address));
+        shares = _inputWord(input, 0);
+        receiver = _inputAddress(input, 1);
+        owner = _inputAddress(input, 2);
     }
 
     function _protocolFeeRecipientAt(PhEvm.ForkId memory fork) internal view returns (address) {
@@ -484,7 +498,7 @@ abstract contract RoycoVaultTrancheHelpers is RoycoHelpers {
 
             // `matchingCalls` returns calldata args WITHOUT the 4-byte selector (it is the query
             // key), so decode the args tuple directly — unlike the `ph.callinputAt(...)` paths,
-            // whose raw calldata still carries the selector and needs `_stripSelector`.
+            // whose raw calldata still carries the selector and is read at selector-offset words.
             (uint256 kernelShares, address kernelReceiver, bool bypassRestrictions) =
                 abi.decode(calls[i].input, (uint256, address, bool));
             if (kernelShares != shares || kernelReceiver != receiver || bypassRestrictions) {

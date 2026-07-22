@@ -47,8 +47,11 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
     /// @notice Registers Vault selectors against their protection assertions.
     /// @dev The Vault is the assertion adopter. The swap check is call-scoped so it compares the
     ///      exact pre-call and post-call snapshots of the matched operation. The transaction-end
-    ///      checks first inspect calldata and return before reading snapshots unless swap or
-    ///      liquidity traffic touched the watched pool.
+    ///      checks gate on the watched pool's own accounting deltas — a bounded number of Vault
+    ///      storage reads — never on the transaction's call trace: the Vault is a singleton, so a
+    ///      trace scan would copy every matching call's calldata into the assertion and let one
+    ///      heavy batch transaction (or a deliberately calldata-padded one) exhaust the assertion's
+    ///      fixed gas budget and false-positively invalidate itself.
     function triggers() external view override {
         registerFnCallTrigger(this.assertSwapPreservesPoolInvariant.selector, IBalancerV3VaultLike.swap.selector);
         registerFnCallTrigger(
@@ -196,17 +199,27 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
     ///      noticing; donations may exceed it, so `>=`), and the watched pool's raw balance plus
     ///      its accrued aggregate swap/yield fees exceeding global reserves (this pool's
     ///      accounting inflated beyond anything custody could pay out).
+    ///
+    ///      Gating: the check runs only when the watched pool's own accounting moved across the
+    ///      transaction (raw balances, BPT supply, aggregate fees — all plain Vault storage
+    ///      reads). Every read here is bounded by the pool's token count, so the assertion's cost
+    ///      is independent of how large or call-heavy the triggering transaction is, and unrelated
+    ///      singleton traffic never depends on the watched pool's tokens answering.
     function assertPoolAccountingWithinVaultCustody() external view {
         _requireConfiguredVaultIsAdopter();
-        if (!_transactionTouchesWatchedPool()) {
-            return;
-        }
         PhEvm.ForkId memory post = _postTx();
         if (!_isPoolInitializedAt(post)) {
             return;
         }
 
         PoolTokenSnapshot memory snap = _poolTokenSnapshotAt(post);
+        if (!_watchedPoolAccountingChangedTxWide(snap, post)) {
+            // Nothing this check reads about the watched pool moved, so the post-state equals a
+            // state an earlier transaction already had to pass through: any violation is caught
+            // at the transaction that causes it, and unrelated singleton traffic skips the
+            // per-token custody reads.
+            return;
+        }
         for (uint256 i; i < snap.tokens.length; ++i) {
             address token = snap.tokens[i];
             uint256 reserves = _reservesOfAt(token, post);
@@ -246,9 +259,6 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
     ///        registration (pool registered within this transaction) skips the drift comparison.
     function assertTokenRatesWithinDriftBound() external view {
         _requireConfiguredVaultIsAdopter();
-        if (!_transactionTouchesWatchedPool()) {
-            return;
-        }
         PhEvm.ForkId memory preTx = _preTx();
         PhEvm.ForkId memory postTx = _postTx();
         if (!_isPoolInitializedAt(postTx)) {
@@ -322,36 +332,25 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
         return false;
     }
 
-    /// @dev Cheap tx-end gate. `getCallInputs` reads the trace without any Vault snapshots, so
-    ///      unrelated singleton traffic returns before the per-token accounting and provider work.
-    function _transactionTouchesWatchedPool() internal view returns (bool) {
-        return _structSelectorTouchesWatchedPool(IBalancerV3VaultLike.swap.selector, 32)
-            || _structSelectorTouchesWatchedPool(IBalancerV3VaultLike.addLiquidity.selector, 0)
-            || _structSelectorTouchesWatchedPool(IBalancerV3VaultLike.removeLiquidity.selector, 0)
-            || _addressSelectorTouchesWatchedPool(IBalancerV3VaultLike.initialize.selector)
-            || _addressSelectorTouchesWatchedPool(IBalancerV3VaultLike.removeLiquidityRecovery.selector)
-            || _addressSelectorTouchesWatchedPool(IBalancerV3VaultLike.collectAggregateFees.selector)
-            || _addressSelectorTouchesWatchedPool(IBalancerV3VaultLike.disableRecoveryMode.selector);
-    }
-
-    function _structSelectorTouchesWatchedPool(bytes4 selector, uint256 poolFieldOffset) internal view returns (bool) {
-        PhEvm.CallInputs[] memory calls = ph.getCallInputs(VAULT, selector);
-        for (uint256 i; i < calls.length; ++i) {
-            if (_operationPoolFromArgs(calls[i].input, poolFieldOffset) == POOL) {
-                return true;
-            }
+    /// @dev Tx-wide gate for the custody check, built exclusively from Vault storage reads about
+    ///      the watched pool. A pool that was not initialized before the transaction is treated as
+    ///      changed (this is its initialization transaction; the pre-tx token snapshot does not
+    ///      exist to compare against). Deliberately NOT a call-trace scan: `getCallInputs` /
+    ///      `matchingCalls` copy every matching call's full calldata into the assertion, so one
+    ///      transaction carrying enough successful Vault calldata (a huge batch, or a swap padded
+    ///      with megabytes of `userData`) would exhaust the assertion's fixed gas budget and
+    ///      invalidate itself spuriously. The storage gate's cost is bounded by the pool's token
+    ///      count no matter what the transaction did.
+    function _watchedPoolAccountingChangedTxWide(PoolTokenSnapshot memory postSnap, PhEvm.ForkId memory postTx)
+        internal
+        view
+        returns (bool)
+    {
+        PhEvm.ForkId memory preTx = _preTx();
+        if (!_isPoolInitializedAt(preTx)) {
+            return true;
         }
-        return false;
-    }
-
-    function _addressSelectorTouchesWatchedPool(bytes4 selector) internal view returns (bool) {
-        PhEvm.CallInputs[] memory calls = ph.getCallInputs(VAULT, selector);
-        for (uint256 i; i < calls.length; ++i) {
-            (address pool) = abi.decode(calls[i].input, (address));
-            if (pool == POOL) {
-                return true;
-            }
-        }
-        return false;
+        PoolTokenSnapshot memory preSnap = _poolTokenSnapshotAt(preTx);
+        return _poolAccountingChanged(preSnap, postSnap, preTx, postTx);
     }
 }

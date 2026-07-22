@@ -74,6 +74,11 @@ abstract contract BalancerV3VaultHelpers is Assertion {
     ///      fields (`kind`, `pool`, `tokenIn`, `tokenOut`, ...) in order. The head offset is
     ///      safe to follow because the call trigger only fires after the Vault's own ABI decoder
     ///      accepted and executed this calldata.
+    ///      Residual: `ph.callinputAt` necessarily copies the matched call's ENTIRE calldata into
+    ///      the assertion before these fixed-offset reads, so a swap deliberately padded with
+    ///      multi-megabyte `userData` can still exhaust the budget of its own trigger execution.
+    ///      That only invalidates the padded transaction itself; no bounded-input variant of the
+    ///      precompile exists today.
     function _swapPoolAndTokenOut(bytes memory input) internal pure returns (address pool_, address tokenOut_) {
         uint256 structOffset;
         assembly ("memory-safe") {
@@ -113,19 +118,6 @@ abstract contract BalancerV3VaultHelpers is Assertion {
             word := mload(add(input, 36))
         }
         value = address(uint160(word));
-    }
-
-    /// @dev Reads a pool field from `getCallInputs` bytes, which omit the selector. `fieldOffset`
-    ///      is zero for add/remove liquidity and one word for swap, where `kind` comes first.
-    function _operationPoolFromArgs(bytes memory input, uint256 fieldOffset) internal pure returns (address pool_) {
-        uint256 structOffset;
-        uint256 poolWord;
-        assembly ("memory-safe") {
-            let args := add(input, 32)
-            structOffset := mload(args)
-            poolWord := mload(add(add(args, structOffset), fieldOffset))
-        }
-        pool_ = address(uint160(poolWord));
     }
 
     // --- fork reads ---------------------------------------------------------

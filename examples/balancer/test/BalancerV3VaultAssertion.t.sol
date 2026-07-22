@@ -284,17 +284,24 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
         vault.shiftRateOnly();
     }
 
-    function testUnrelatedVaultTrafficSkipsCustodySnapshots() public {
-        vault.setRevertOnPoolReads(true);
+    /// @notice The tx-end gates are pure Vault storage comparisons on the watched pool, so
+    ///         unrelated singleton traffic is skipped without consulting the rate provider even
+    ///         when that provider is broken: the watched pool never becomes a liveness dependency
+    ///         of the rest of the singleton.
+    function testUnrelatedVaultTrafficIgnoresBrokenProvider() public {
+        rateProvider.setRate(0); // would trip "returned zero rate" if the drift loop ran
 
-        _arm(BalancerV3VaultAssertion.assertPoolAccountingWithinVaultCustody.selector);
+        _arm(BalancerV3VaultAssertion.assertTokenRatesWithinDriftBound.selector);
         vault.unrelatedVaultCall();
     }
 
-    function testUnrelatedVaultTrafficSkipsRateSnapshots() public {
-        vault.setRevertOnPoolReads(true);
+    /// @notice A custody imbalance that predates the transaction is flagged at the transaction
+    ///         that caused it, not re-litigated by every later unrelated transaction: the gate
+    ///         sees no watched-pool accounting delta and skips the per-token custody reads.
+    function testUnrelatedVaultTrafficSkipsPreexistingCustodyImbalance() public {
+        vault.seedPoolBalance(0, 2_000e18); // pool claims exceed reserves before the armed tx
 
-        _arm(BalancerV3VaultAssertion.assertTokenRatesWithinDriftBound.selector);
+        _arm(BalancerV3VaultAssertion.assertPoolAccountingWithinVaultCustody.selector);
         vault.unrelatedVaultCall();
     }
 
