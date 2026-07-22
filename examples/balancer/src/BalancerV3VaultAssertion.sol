@@ -20,13 +20,19 @@ import {IBalancerV3VaultLike} from "./BalancerV3VaultInterfaces.sol";
 ///        snapshots, so hooked pools are skipped and need a pool-specific variant.
 ///      - The custody check is a necessary-but-not-sufficient per-pool bound: Vault reserves are
 ///        global across every pool and buffer, so one pool's view cannot prove aggregate solvency.
+///        It is evaluated as a no-worsening comparison against the pre-transaction state, so it
+///        blocks the transaction that introduces or deepens a deficit — including one that moves
+///        custody without touching the watched pool's accounting — while a deficit that predates
+///        the transaction never blocks later honest traffic.
 ///      - The rate check bounds provider movement within transactions that touch the watched
 ///        pool's accounting; it is skipped in recovery mode so a broken provider can never block
 ///        the canonical recovery exit.
 ///
 ///      Because the Vault is shared across every V3 pool, the call-scoped swap check filters on the
-///      watched pool and silently ignores swaps in other pools. Tx-end checks read only the watched
-///      pool's accounting, so unrelated pool activity cannot produce false positives.
+///      watched pool and silently ignores swaps in other pools. The tx-end rate check reads only
+///      the watched pool's accounting; the tx-end custody check reads global per-token ledgers but
+///      compares deficits across the transaction, so unrelated pool activity that leaves the
+///      watched pool's bounds no worse can never produce a false positive.
 contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
     /// @notice Whether the watched pool was registered with a before- or after-swap hook.
     /// @dev Balancer fixes hook wiring when a pool is registered, so classifying it once at
@@ -47,11 +53,12 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
     /// @notice Registers Vault selectors against their protection assertions.
     /// @dev The Vault is the assertion adopter. The swap check is call-scoped so it compares the
     ///      exact pre-call and post-call snapshots of the matched operation. The transaction-end
-    ///      checks gate on the watched pool's own accounting deltas — a bounded number of Vault
-    ///      storage reads — never on the transaction's call trace: the Vault is a singleton, so a
+    ///      checks never inspect the transaction's call trace: the Vault is a singleton, so a
     ///      trace scan would copy every matching call's calldata into the assertion and let one
     ///      heavy batch transaction (or a deliberately calldata-padded one) exhaust the assertion's
-    ///      fixed gas budget and false-positively invalidate itself.
+    ///      fixed gas budget and false-positively invalidate itself. Instead the rate check gates
+    ///      on the watched pool's own accounting deltas and the custody check compares per-token
+    ///      deficits across the transaction — both bounded by the pool's token count.
     function triggers() external view override {
         registerFnCallTrigger(this.assertSwapPreservesPoolInvariant.selector, IBalancerV3VaultLike.swap.selector);
         registerFnCallTrigger(
@@ -200,15 +207,17 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
     ///      its accrued aggregate swap/yield fees exceeding global reserves (this pool's
     ///      accounting inflated beyond anything custody could pay out).
     ///
-    ///      Gating: the check runs only when the watched pool's own accounting moved across the
-    ///      transaction (raw balances, BPT supply, aggregate fees — all plain Vault storage
-    ///      reads). Every read here is bounded by the pool's token count, so the assertion's cost
-    ///      is independent of how large or call-heavy the triggering transaction is, and unrelated
-    ///      singleton traffic never depends on the watched pool's tokens answering. Residual:
-    ///      reserves and real custody are global and can move without a watched-pool accounting
-    ///      delta, so a violation introduced by such a transaction surfaces at the pool's next
-    ///      accounting-moving transaction instead of the causing one — triggered this way for
-    ///      efficiency reasons.
+    ///      Evaluation: runs at every transaction end as a no-worsening comparison. Each bound is
+    ///      computed as a per-token deficit at both transaction endpoints, and the transaction is
+    ///      rejected only when a deficit grew. This blocks the transaction that CAUSES a
+    ///      violation — including one that moves custody or reserves without touching the watched
+    ///      pool's accounting, since the ledgers involved are global — while a deficit that
+    ///      predates the transaction never blocks later honest traffic. All reads are plain Vault
+    ///      storage or ERC20 `balanceOf` reads bounded by the pool's token count, so the cost is
+    ///      independent of how large or call-heavy the triggering transaction is; pre-transaction
+    ///      reads run only for a token whose post-transaction state is already in deficit.
+    ///      Residual: the pool's registered tokens must answer `balanceOf` at both endpoints — a
+    ///      token the Vault itself could not operate with otherwise.
     function assertPoolAccountingWithinVaultCustody() external view {
         _requireConfiguredVaultIsAdopter();
         PhEvm.ForkId memory post = _postTx();
@@ -216,26 +225,45 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
             return;
         }
 
+        PhEvm.ForkId memory pre = _preTx();
         PoolTokenSnapshot memory snap = _poolTokenSnapshotAt(post);
-        if (!_watchedPoolAccountingChangedTxWide(snap, post)) {
-            // The gate keys on the watched pool's accounting only. Reserves and real custody can
-            // move without it (shared-token traffic from other pools and buffers), so a violation
-            // caused by such a transaction is examined at the next accounting-moving transaction
-            // rather than at the causing one — triggered this way for efficiency reasons.
-            return;
-        }
         for (uint256 i; i < snap.tokens.length; ++i) {
             address token = snap.tokens[i];
             uint256 reserves = _reservesOfAt(token, post);
+            uint256 custodyDeficit = _deficit(reserves, _readBalanceAt(token, VAULT, post));
+            uint256 claimDeficit = _deficit(snap.balancesRaw[i] + _aggregateFeesAt(token, post), reserves);
+            if (custodyDeficit == 0 && claimDeficit == 0) {
+                continue;
+            }
 
-            require(
-                _readBalanceAt(token, VAULT, post) >= reserves, "BalancerV3: vault reserves exceed real token custody"
-            );
-            require(
-                reserves >= snap.balancesRaw[i] + _aggregateFeesAt(token, post),
-                "BalancerV3: pool accounting exceeds vault reserves"
-            );
+            (uint256 preCustodyDeficit, uint256 preClaimDeficit) = _preTxDeficits(token, pre);
+            require(custodyDeficit <= preCustodyDeficit, "BalancerV3: vault reserves exceed real token custody");
+            require(claimDeficit <= preClaimDeficit, "BalancerV3: pool accounting exceeds vault reserves");
         }
+    }
+
+    /// @dev Pre-transaction deficits for one token, read only when its post-transaction state
+    ///      violates a bound. A pool not yet initialized at the pre-tx fork has no claims to
+    ///      compare (this is its initialization transaction), so its claim deficit baseline is
+    ///      zero and any post-transaction violation is attributed to this transaction.
+    function _preTxDeficits(address token, PhEvm.ForkId memory preTx)
+        internal
+        view
+        returns (uint256 custodyDeficit, uint256 claimDeficit)
+    {
+        uint256 reserves = _reservesOfAt(token, preTx);
+        custodyDeficit = _deficit(reserves, _readBalanceAt(token, VAULT, preTx));
+        if (!_isPoolInitializedAt(preTx)) {
+            return (custodyDeficit, 0);
+        }
+        PoolTokenSnapshot memory preSnap = _poolTokenSnapshotAt(preTx);
+        uint256 claim = preSnap.balancesRaw[_tokenIndex(preSnap.tokens, token)] + _aggregateFeesAt(token, preTx);
+        claimDeficit = _deficit(claim, reserves);
+    }
+
+    /// @dev How far `owed` exceeds `held`; zero when the bound is satisfied.
+    function _deficit(uint256 owed, uint256 held) internal pure returns (uint256) {
+        return owed > held ? owed - held : 0;
     }
 
     /// @notice Rate-provider rates feeding the watched pool may not jump within one transaction
@@ -334,27 +362,5 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
             }
         }
         return false;
-    }
-
-    /// @dev Tx-wide gate for the custody check, built exclusively from Vault storage reads about
-    ///      the watched pool. A pool that was not initialized before the transaction is treated as
-    ///      changed (this is its initialization transaction; the pre-tx token snapshot does not
-    ///      exist to compare against). Deliberately NOT a call-trace scan: `getCallInputs` /
-    ///      `matchingCalls` copy every matching call's full calldata into the assertion, so one
-    ///      transaction carrying enough successful Vault calldata (a huge batch, or a swap padded
-    ///      with megabytes of `userData`) would exhaust the assertion's fixed gas budget and
-    ///      invalidate itself spuriously. The storage gate's cost is bounded by the pool's token
-    ///      count no matter what the transaction did.
-    function _watchedPoolAccountingChangedTxWide(PoolTokenSnapshot memory postSnap, PhEvm.ForkId memory postTx)
-        internal
-        view
-        returns (bool)
-    {
-        PhEvm.ForkId memory preTx = _preTx();
-        if (!_isPoolInitializedAt(preTx)) {
-            return true;
-        }
-        PoolTokenSnapshot memory preSnap = _poolTokenSnapshotAt(preTx);
-        return _poolAccountingChanged(preSnap, postSnap, preTx, postTx);
     }
 }

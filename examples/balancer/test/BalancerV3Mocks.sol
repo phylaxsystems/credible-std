@@ -128,6 +128,13 @@ contract MockBalancerV3Vault {
 
     function unrelatedVaultCall() external pure {}
 
+    /// @notice Buggy-code-shaped custody sweep: real tokens leave the Vault while reserves, raw
+    ///         pool balances, BPT supply, and aggregate fees all stay exactly as they were — no
+    ///         watched-pool accounting delta anywhere.
+    function sweepCustodyOnly(address token, uint256 amount) external {
+        IMockERC20(token).transfer(skimReceiver, amount);
+    }
+
     // --- swap ----------------------------------------------------------------
 
     function swap(VaultSwapParams calldata params)
