@@ -121,4 +121,15 @@ contract UniswapV4PoolManagerAssertionTest is Test {
         vm.expectRevert(bytes("UniswapV4Pool: native unsupported"));
         new UniswapV4PoolManagerAssertionHarness(manager, key);
     }
+
+    function testRejectsHookedPoolWithoutHookAssertionModel() external {
+        (address c0, address c1) =
+            address(token0) < address(token1) ? (address(token0), address(token1)) : (address(token1), address(token0));
+        IUniswapV4PoolManagerLike.PoolKey memory key = IUniswapV4PoolManagerLike.PoolKey({
+            currency0: c0, currency1: c1, fee: 3000, tickSpacing: 60, hooks: makeAddr("hook")
+        });
+
+        vm.expectRevert(bytes("UniswapV4Pool: hooks unsupported"));
+        new UniswapV4PoolManagerAssertionHarness(manager, key);
+    }
 }

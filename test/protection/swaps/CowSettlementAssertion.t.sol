@@ -85,6 +85,11 @@ contract MockGPv2Settlement {
         ERC20Mock(token).transfer(to, amount);
     }
 
+    /// @notice Models a standing token allowance left by an arbitrary settlement interaction.
+    function approveToken(address token, address spender) external {
+        ERC20Mock(token).approve(spender, type(uint256).max);
+    }
+
     function _executeConfiguredTrade() internal {
         // Pull the user's signed sell amount into the settlement contract.
         SELL_TOKEN.transferFrom(USER, address(this), sellAmount);
@@ -98,8 +103,23 @@ contract MockGPv2Settlement {
     }
 }
 
-contract MockSolverForwarder {
-    function settle(MockGPv2Settlement settlement) external {
+contract MockAllowanceDrainer {
+    function prefundSettleAndDrain(ERC20Mock token, MockGPv2Settlement settlement, address recipient, uint256 amount)
+        external
+    {
+        token.transferFrom(msg.sender, address(settlement), amount);
+        _settle(settlement);
+        token.transferFrom(address(settlement), recipient, amount);
+    }
+
+    function settleAndDrain(ERC20Mock token, MockGPv2Settlement settlement, address recipient, uint256 amount)
+        external
+    {
+        _settle(settlement);
+        token.transferFrom(address(settlement), recipient, amount);
+    }
+
+    function _settle(MockGPv2Settlement settlement) internal {
         address[] memory tokens = new address[](0);
         uint256[] memory prices = new uint256[](0);
         IGPv2SettlementLike.TradeData[] memory trades = new IGPv2SettlementLike.TradeData[](0);
@@ -185,6 +205,31 @@ contract CowSettlementAssertionTest is Test, CredibleTest {
         vm.expectRevert(bytes("CowSettlement: external buffer drain"));
         vm.prank(attacker, attacker);
         settlement.drainTo(address(dai), attacker, 200_000e18);
+    }
+
+    function testSameTransactionPrefundingDoesNotHideGrossOutflow() public {
+        uint256 amount = 100_000e18;
+        MockAllowanceDrainer drainer = new MockAllowanceDrainer();
+        settlement.approveToken(address(dai), address(drainer));
+        dai.mint(attacker, amount);
+        vm.prank(attacker);
+        dai.approve(address(drainer), amount);
+
+        _armBuffer();
+        vm.expectRevert(bytes("CowSettlement: external buffer drain"));
+        vm.prank(attacker, attacker);
+        drainer.prefundSettleAndDrain(dai, settlement, attacker, amount);
+    }
+
+    function testSettlementCallOnlyAuthorizesReportedTokenVolume() public {
+        MockAllowanceDrainer drainer = new MockAllowanceDrainer();
+        settlement.configureTrade(SELL, BUY, 0, MockGPv2Settlement.Mode.Honest);
+        settlement.approveToken(address(buyToken), address(drainer));
+
+        _armBufferFor(address(buyToken));
+        vm.expectRevert(bytes("CowSettlement: external buffer drain"));
+        vm.prank(solver, solver);
+        drainer.settleAndDrain(buyToken, settlement, attacker, SURPLUS);
     }
 
     function testWatchedTokenCanBeUsedAsSettlementLiquidity() public {

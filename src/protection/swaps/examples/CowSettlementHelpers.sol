@@ -2,7 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {Assertion} from "../../../Assertion.sol";
-import {IGPv2SettlementLike} from "./CowSettlementInterfaces.sol";
+import {PhEvm} from "../../../PhEvm.sol";
 
 /// @title CowSettlementHelpers
 /// @author Phylax Systems
@@ -15,6 +15,10 @@ import {IGPv2SettlementLike} from "./CowSettlementInterfaces.sol";
 ///      All reads go through snapshot forks / call-scoped logs; the bundle keeps no assertion-owned
 ///      state of its own.
 abstract contract CowSettlementHelpers is Assertion {
+    /// @dev keccak256("Trade(address,address,address,uint256,uint256,uint256,bytes)") from GPv2Settlement.
+    bytes32 internal constant GPV2_TRADE_TOPIC =
+        keccak256("Trade(address,address,address,uint256,uint256,uint256,bytes)");
+
     /// @notice The GPv2 settlement contract this bundle protects (the assertion adopter).
     address internal immutable SETTLEMENT;
 
@@ -54,8 +58,38 @@ abstract contract CowSettlementHelpers is Assertion {
         require(ph.getAssertionAdopter() == SETTLEMENT, "CowSettlement: configured settlement is not adopter");
     }
 
-    function _settlementExecutionOccurred() internal view returns (bool) {
-        return ph.getCallInputs(SETTLEMENT, IGPv2SettlementLike.settle.selector).length != 0
-            || ph.getCallInputs(SETTLEMENT, IGPv2SettlementLike.swap.selector).length != 0;
+    /// @notice Returns token volume that GPv2 itself reported as executed for the watched token.
+    /// @dev Sums both sell and buy legs from GPv2 `Trade` events. The event does not identify the
+    ///      receiver, so this is a per-token volume allowance rather than recipient authorization.
+    function _reportedTradeVolume(address token) internal view returns (uint256 volume) {
+        PhEvm.Log[] memory logs =
+            ph.getLogsQuery(PhEvm.LogQuery({emitter: SETTLEMENT, signature: GPV2_TRADE_TOPIC}), _postTx());
+
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics.length != 2 || logs[i].data.length < 192) {
+                continue;
+            }
+
+            (address sellToken, address buyToken, uint256 sellAmount, uint256 buyAmount,,) =
+                abi.decode(logs[i].data, (address, address, uint256, uint256, uint256, bytes));
+
+            if (sellToken == token) {
+                volume += sellAmount;
+            }
+            if (buyToken == token) {
+                volume += buyAmount;
+            }
+        }
+    }
+
+    /// @notice Returns total standard ERC20 outflow from `from` for one token over the transaction.
+    function _transferredValueFrom(address token, address from) internal view returns (uint256 value) {
+        PhEvm.Erc20TransferData[] memory deltas = _reducedErc20BalanceDeltasAt(token, _postTx());
+
+        for (uint256 i; i < deltas.length; ++i) {
+            if (deltas[i].from == from) {
+                value += deltas[i].value;
+            }
+        }
     }
 }

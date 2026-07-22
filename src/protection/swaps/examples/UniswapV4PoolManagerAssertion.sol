@@ -20,7 +20,8 @@ import {IUniswapV4PoolManagerLike} from "./UniswapV4PoolManagerInterfaces.sol";
 ///
 /// Because the PoolManager is shared across every v4 pool, each call-scoped trigger must check
 /// that the call's PoolKey matches the configured pool before evaluating the per-pool invariants.
-/// Calls to other pools no-op silently.
+/// Calls to other pools no-op silently. Pools with hooks are rejected during construction because
+/// hook execution and reentrancy require a separate assertion model.
 ///
 /// The example intentionally combines per-pool state checks with manager-level custody checks:
 /// - per-pool checks protect the configured pool's price, tick, liquidity, and fee-growth state;
@@ -74,12 +75,6 @@ contract UniswapV4PoolManagerAssertion is UniswapV4PoolManagerHelpers {
         if (!_matchesConfiguredPool(key)) {
             return;
         }
-        if (key.hooks != address(0)) {
-            // Hooks are protocol execution, may consume the entire swap or reenter the manager,
-            // and cannot be attributed to the outer call arguments by boundary snapshots.
-            return;
-        }
-
         Slot0Snapshot memory pre = _slot0At(_preCall(ctx.callStart));
         Slot0Snapshot memory post = _slot0At(_postCall(ctx.callEnd));
 
@@ -111,10 +106,6 @@ contract UniswapV4PoolManagerAssertion is UniswapV4PoolManagerHelpers {
         if (!_matchesConfiguredPool(key)) {
             return;
         }
-        if (key.hooks != address(0)) {
-            return;
-        }
-
         Slot0Snapshot memory preSlot0 = _slot0At(_preCall(ctx.callStart));
         Slot0Snapshot memory postSlot0 = _slot0At(_postCall(ctx.callEnd));
         uint128 preLiquidity = _liquidityAt(_preCall(ctx.callStart));

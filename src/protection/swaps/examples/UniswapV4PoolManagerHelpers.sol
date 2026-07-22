@@ -62,6 +62,7 @@ abstract contract UniswapV4PoolManagerHelpers is Assertion {
         require(
             poolKey_.currency0 != address(0) && poolKey_.currency1 != address(0), "UniswapV4Pool: native unsupported"
         );
+        require(poolKey_.hooks == address(0), "UniswapV4Pool: hooks unsupported");
         require(poolKey_.currency0 < poolKey_.currency1, "UniswapV4Pool: currencies misordered");
         MANAGER = manager_;
         CURRENCY0 = poolKey_.currency0;
