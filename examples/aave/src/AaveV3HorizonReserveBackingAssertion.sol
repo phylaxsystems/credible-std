@@ -43,18 +43,21 @@ contract AaveV3HorizonReserveBackingAssertion is AaveV3HorizonHelpers {
     ///      field rejects official recovery accounting.
     function assertReserveBacking() external view {
         require(ph.getAssertionAdopter() == POOL, "AaveV3Horizon: configured pool is not adopter");
-        PhEvm.ForkId memory pre = _preTx();
         PhEvm.ForkId memory post = _postTx();
 
         for (uint256 i; i < RESERVE_ASSETS.length; ++i) {
-            _assertReserveBacking(RESERVE_ASSETS[i], pre, post);
+            _assertReserveBacking(RESERVE_ASSETS[i], post);
         }
     }
 
-    function _assertReserveBacking(address asset, PhEvm.ForkId memory pre, PhEvm.ForkId memory post) internal view {
-        // Read both endpoints so a dropped/misconfigured reserve fails at the transaction where
-        // the configuration changed, instead of silently beginning from an unvalidated baseline.
-        _reserveBackingAt(asset, pre);
+    function _assertReserveBacking(address asset, PhEvm.ForkId memory post) internal view {
+        // Only the post-transaction endpoint carries the safety invariant: at tx end every
+        // configured reserve's aToken supply must stay backed. `_reserveBackingAt` reverts
+        // "reserve not listed" when a reserve is dropped mid-transaction (aTokenAddress == 0),
+        // so a de-listing is still caught here. A second pre-transaction read would only add a
+        // "reserve was already listed before this tx" constraint that is not a backing invariant,
+        // while doubling the per-transaction fork-precompile calls (the reserve loop runs on every
+        // Pool transaction via the tx-end trigger) and exhausting the precompile gas budget.
         ReserveBacking memory afterBacking = _reserveBackingAt(asset, post);
         require(_isBacked(afterBacking), "AaveV3Horizon: reserve backing deficit");
     }
