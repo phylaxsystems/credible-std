@@ -29,7 +29,12 @@ jobs:
           sudo install pcl/pcl /usr/local/bin/pcl
 
       - name: Run protection PCL tests
-        run: FOUNDRY_PROFILE=ci pcl test --match-path 'test/protection/**'
+        # pcl 1.5.1 runs suites on default-stack (2 MiB) worker threads and overflows once enough
+        # suites land on one worker; the 4-core runner hits this with the full protection tree
+        # (PR #90 runs 29845819338, both attempts). 16 MiB clears it, verified 5/5 in a 4-CPU
+        # linux/amd64 container where the default crashed 3/5. Drop when phorge sizes its
+        # test-runner thread stacks explicitly.
+        run: RUST_MIN_STACK=16777216 FOUNDRY_PROFILE=ci pcl test --match-path 'test/protection/**'
 
   # Example assertion suites live under their own foundry profiles (examples/<name>) and also use the
   # Phorge-only `cl.assertion` cheatcode, so they run under `pcl test` here. Add a profile to the
