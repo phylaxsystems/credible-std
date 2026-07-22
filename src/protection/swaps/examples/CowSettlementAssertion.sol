@@ -11,11 +11,13 @@ import {CowSettlementHelpers} from "./CowSettlementHelpers.sol";
 ///         or an authorized DAO sweep.
 /// @dev A signed order may legitimately pay any receiver, and Trade events do not expose that
 ///      receiver. The assertion therefore makes no receiver-level claim about normal settlement
-///      volume. It instead reconciles each watched token's gross outflow against that token's own
-///      reported trade volume or transfers to the configured sweep Safe. Because a transfer to the
-///      Safe may also be an order payment, these allowances are non-additive: only the larger amount
-///      is credited. Gross accounting catches standing-allowance drains even when same-transaction
-///      prefunding hides the endpoint delta.
+///      volume. The two allowances are kept disjoint by destination: transfers to the sweep Safe
+///      are always an authorized destination, while outflow to anyone else must be covered by the
+///      token's reported trade volume. Because a Safe-bound transfer may itself be an order
+///      payment, a transaction that pays both destinations more than trade volume explains cannot
+///      be attributed and is explicitly quarantined rather than credited both allowances. Gross
+///      accounting catches standing-allowance drains even when same-transaction prefunding hides
+///      the endpoint delta.
 contract CowSettlementAssertion is CowSettlementHelpers {
     constructor(
         address settlement_,
@@ -41,11 +43,21 @@ contract CowSettlementAssertion is CowSettlementHelpers {
         for (uint256 i; i < bufferTokens.length; ++i) {
             address token = bufferTokens[i];
             uint256 grossOut = _transferredValueFrom(token, SETTLEMENT);
-            uint256 swept = _transferredValueAt(token, SETTLEMENT, SWEEP_RECIPIENT, _postTx());
-            uint256 settlementVolume = _reportedTradeVolume(token);
+            uint256 toSafe = _transferredValueAt(token, SETTLEMENT, SWEEP_RECIPIENT, _postTx());
+            uint256 toOthers = grossOut - toSafe;
+            if (toOthers == 0) {
+                // Whether sweep or trade payment, everything landed on the DAO Safe.
+                continue;
+            }
 
-            uint256 authorizedOutflow = swept > settlementVolume ? swept : settlementVolume;
-            require(grossOut <= authorizedOutflow, "CowSettlement: external buffer drain");
+            uint256 settlementVolume = _reportedTradeVolume(token);
+            require(toOthers <= settlementVolume, "CowSettlement: external buffer drain");
+            // A Safe-bound transfer may be either a DAO sweep or a trade payment, and Trade
+            // events do not identify receivers, so once both destinations see outflow the volume
+            // allowance cannot be attributed between them: crediting both would let a trade that
+            // pays the Safe authorize an equal-sized drain. Accept only when trade volume alone
+            // explains every outflow and quarantine the ambiguous remainder.
+            require(grossOut <= settlementVolume, "CowSettlement: unattributable sweep and trade outflow");
         }
     }
 }

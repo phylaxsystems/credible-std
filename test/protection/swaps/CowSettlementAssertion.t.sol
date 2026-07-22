@@ -84,6 +84,12 @@ contract MockGPv2Settlement {
         ERC20Mock(token).transfer(sweepRecipient, amount);
     }
 
+    /// @notice Honest configured trade plus a DAO sweep in the same transaction.
+    function settleAndSweep(address token, address sweepRecipient, uint256 amount) external {
+        _executeConfiguredTrade();
+        ERC20Mock(token).transfer(sweepRecipient, amount);
+    }
+
     /// @notice Unauthorized buffer outflow (the drain footprint of the 2023-style incident).
     function drainTo(address token, address to, uint256 amount) external {
         ERC20Mock(token).transfer(to, amount);
@@ -253,9 +259,23 @@ contract CowSettlementAssertionTest is Test, CredibleTest {
         buyToken.mint(address(settlement), BUY);
 
         _armBufferFor(address(buyToken));
-        vm.expectRevert(bytes("CowSettlement: external buffer drain"));
+        vm.expectRevert(bytes("CowSettlement: unattributable sweep and trade outflow"));
         vm.prank(solver, solver);
         drainer.settleAndDrain(buyToken, settlement, attacker, BUY);
+    }
+
+    /// @dev A trade paying ordinary receivers combined with a same-transaction Safe sweep is
+    ///      indistinguishable from a trade paying the Safe combined with an equal-sized drain
+    ///      (Trade events carry no receiver), so the bundle quarantines the combination instead of
+    ///      crediting both allowances. This documents that known false positive.
+    function testTradeVolumePlusSeparateSweepIsQuarantined() public {
+        settlement.configureTrade(SELL, BUY, 0, MockGPv2Settlement.Mode.Honest);
+        buyToken.mint(address(settlement), 50_000e18);
+
+        _armBufferFor(address(buyToken));
+        vm.expectRevert(bytes("CowSettlement: unattributable sweep and trade outflow"));
+        vm.prank(solver, solver);
+        settlement.settleAndSweep(address(buyToken), sweepRecipient, 50_000e18);
     }
 
     function testWatchedTokenCanBeUsedAsSettlementLiquidity() public {
