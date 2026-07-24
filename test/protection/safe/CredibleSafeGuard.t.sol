@@ -71,7 +71,11 @@ contract CredibleSafeGuardTest is Test {
 
     /// @dev Calls the guard with a representative full Safe transaction tuple.
     function _check() internal view {
-        guard.checkTransaction(
+        _checkGuard(guard);
+    }
+
+    function _checkGuard(CredibleSafeGuard guard_) internal view {
+        guard_.checkTransaction(
             address(0xBEEF),
             1 ether,
             hex"abcdef",
@@ -203,6 +207,67 @@ contract CredibleSafeGuardTest is Test {
         vm.roll(block.number + 1);
 
         vm.expectRevert(CredibleSafeGuard.NonCredibleBlock.selector);
+        _check();
+    }
+
+    // ---------------------------------------------------------------------
+    // Fail-open path: registry unavailable or malformed
+    // ---------------------------------------------------------------------
+
+    function test_failsOpen_whenCredibilityReadReverts() public {
+        vm.mockCallRevert(
+            address(registry), abi.encodeCall(ICredibleRegistry.isCredibleBlock, (block.number)), "registry unavailable"
+        );
+
+        assertTrue(guard.isCurrentBlockAllowed());
+        assertTrue(guard.failOpenActive());
+        _check();
+    }
+
+    function test_failsOpen_whenCredibilityReadReturnsShortData() public {
+        vm.mockCall(
+            address(registry),
+            abi.encodeCall(ICredibleRegistry.isCredibleBlock, (block.number)),
+            abi.encodePacked(uint8(1))
+        );
+
+        assertTrue(guard.isCurrentBlockAllowed());
+        _check();
+    }
+
+    function test_failsOpen_whenCredibilityReadReturnsNonCanonicalBool() public {
+        vm.mockCall(
+            address(registry), abi.encodeCall(ICredibleRegistry.isCredibleBlock, (block.number)), abi.encode(uint256(2))
+        );
+
+        assertTrue(guard.isCurrentBlockAllowed());
+        _check();
+    }
+
+    function test_failsOpen_whenLastCredibleBlockReadReverts() public {
+        registry.setCredibleBlock(block.number, false);
+        vm.mockCallRevert(
+            address(registry), abi.encodeCall(ICredibleRegistry.lastCredibleBlock, ()), "registry unavailable"
+        );
+
+        assertTrue(guard.failOpenActive());
+        assertTrue(guard.isCurrentBlockAllowed());
+        _check();
+    }
+
+    function test_failsOpen_whenRegistryHasNoCode() public {
+        CredibleSafeGuard codelessRegistryGuard = new CredibleSafeGuard(ICredibleRegistry(address(0xBEEF)), THRESHOLD);
+
+        assertTrue(codelessRegistryGuard.isCurrentBlockAllowed());
+        _checkGuard(codelessRegistryGuard);
+    }
+
+    function test_credibleHotPath_doesNotRequireLastBlockRead() public {
+        registry.markCurrentBlockCredible();
+        vm.mockCallRevert(
+            address(registry), abi.encodeCall(ICredibleRegistry.lastCredibleBlock, ()), "registry unavailable"
+        );
+
         _check();
     }
 
