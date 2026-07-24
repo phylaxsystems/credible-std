@@ -192,6 +192,16 @@ remappings = ["credible-std/=src/"]
 optimizer = true
 via_ir = false
 
+[profile.credible-block]
+src = "examples/credible-block/src"
+test = "examples/credible-block/test"
+out = "examples/credible-block/out"
+cache_path = "examples/credible-block/cache"
+libs = ["lib"]
+remappings = ["credible-std/=src/"]
+optimizer = true
+via_ir = false
+
 [profile.spark]
 src = "examples/spark/src"
 test = "examples/spark/test"
