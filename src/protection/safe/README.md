@@ -12,15 +12,18 @@ The two `*Assertion` contracts run inside the PhEvm. `CredibleSafeGuard` is a pl
 
 `CredibleSafeGuard` is a Gnosis Safe transaction guard that gates every owner-path Safe execution on block credibility, as reported by the on-chain [Credible Registry](https://github.com/phylaxsystems/credible-registry).
 
-Install it on a Safe with `setGuard(address(guard))`. Safe then calls `checkTransaction` before each `execTransaction`, and the guard reverts to block the execution.
+Install it through an owner-authorized Safe self-transaction whose calldata is `setGuard(address(guard))`; a direct owner call is not authorized. Safe then calls `checkTransaction` before each `execTransaction`, and the guard reverts to block the execution. The scripts and Safe Transaction Builder import workflow are documented in [`examples/safe-guard/README.md`](../../../examples/safe-guard/README.md).
 
 ### What It Checks
 
 On every Safe transaction the guard reads the Credible Registry and decides:
 
-1. If the current block is credible, the transaction is allowed.
-2. Otherwise, if the most recent credible block lags the current block by more than `failOpenBlockThreshold` blocks, the credible builder set is treated as offline, so the guard fails open and allows the transaction. This keeps a stalled builder set from locking the Safe.
-3. Otherwise the builder set is live and the current block is not credible, so the transaction reverts with `NonCredibleBlock`.
+1. If a required registry read reverts, exceeds its gas budget, or returns malformed data, the registry is treated as unavailable, so the guard fails open and allows the transaction. This prevents a broken registry from locking the Safe.
+2. If the current block is credible, the transaction is allowed.
+3. Otherwise, if the most recent credible block lags the current block by more than `failOpenBlockThreshold` blocks, the credible builder set is treated as offline, so the guard fails open and allows the transaction. This keeps a stalled builder set from locking the Safe.
+4. Otherwise the builder set is live and the current block is not credible, so the transaction reverts with `NonCredibleBlock`.
+
+Registry probes are limited to 50,000 gas and copy exactly one 32-byte return word. A non-canonical boolean, short or oversized response, codeless registry address, or failed call activates fail-open instead of bubbling a failure through the Safe guard hook. This also preserves the owner path for replacing or removing the guard if the registry breaks.
 
 ### Config Options
 
@@ -42,7 +45,7 @@ The target is to fail open after roughly 15 minutes with no credible blocks. The
 ### Material Effect
 
 - While the credible builder set is live, a Safe transaction cannot land in a non-credible block, such as one built by a builder that does not enforce assertions.
-- If the credible builder set goes offline for longer than the configured window, the Safe keeps working.
+- If the credible builder set goes offline for longer than the configured window, or the registry becomes unreadable, the Safe keeps working.
 - The guard gates only on block credibility and does not inspect the transaction target, value, calldata, or signatures. Pair it with `SafeConfigLockAssertion`, `SafeTxShapeAssertion`, or other assertions to constrain what the Safe may do within a credible block.
 
 ### Scope

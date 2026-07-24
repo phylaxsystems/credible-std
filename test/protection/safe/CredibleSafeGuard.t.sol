@@ -5,6 +5,8 @@ import {Test} from "forge-std/Test.sol";
 
 import {ICredibleRegistry} from "../../../src/protection/safe/ICredibleRegistry.sol";
 import {CredibleSafeGuard, Enum, IERC165, ITransactionGuard} from "../../../src/protection/safe/CredibleSafeGuard.sol";
+import {InitialProtocolManager} from "../../../src/protection/initial_protocol_manager/InitialProtocolManager.sol";
+import {IInitialProtocolManager} from "../../../src/protection/initial_protocol_manager/IInitialProtocolManager.sol";
 
 /// @notice Test double for the Credible Registry. Exposes fine-grained setters and a faithful
 ///         `markCurrentBlockCredible()` replicating `phylaxsystems/credible-registry` semantics.
@@ -59,19 +61,24 @@ contract CredibleSafeGuardTest is Test {
     /// @dev ~15 minutes of 12s blocks; chosen so boundaries are easy to reason about.
     uint256 internal constant THRESHOLD = 75;
     uint256 internal constant BASE_BLOCK = 1_000_000;
+    address internal constant PROTOCOL_MANAGER = address(0xA11CE);
 
     MockCredibleRegistry internal registry;
     CredibleSafeGuard internal guard;
 
     function setUp() public {
         registry = new MockCredibleRegistry();
-        guard = new CredibleSafeGuard(registry, THRESHOLD);
+        guard = new CredibleSafeGuard(registry, THRESHOLD, PROTOCOL_MANAGER);
         vm.roll(BASE_BLOCK);
     }
 
     /// @dev Calls the guard with a representative full Safe transaction tuple.
     function _check() internal view {
-        guard.checkTransaction(
+        _checkGuard(guard);
+    }
+
+    function _checkGuard(CredibleSafeGuard guard_) internal view {
+        guard_.checkTransaction(
             address(0xBEEF),
             1 ether,
             hex"abcdef",
@@ -93,16 +100,66 @@ contract CredibleSafeGuardTest is Test {
     function test_constructor_storesArgs() public view {
         assertEq(address(guard.credibleRegistry()), address(registry));
         assertEq(guard.failOpenBlockThreshold(), THRESHOLD);
+        assertEq(guard.initialProtocolManager(), PROTOCOL_MANAGER);
     }
 
     function test_constructor_revertsOnZeroRegistry() public {
         vm.expectRevert(CredibleSafeGuard.ZeroCredibleRegistryAddress.selector);
-        new CredibleSafeGuard(ICredibleRegistry(address(0)), THRESHOLD);
+        new CredibleSafeGuard(ICredibleRegistry(address(0)), THRESHOLD, PROTOCOL_MANAGER);
     }
 
     function test_constructor_revertsOnZeroThreshold() public {
         vm.expectRevert(CredibleSafeGuard.ZeroFailOpenBlockThreshold.selector);
-        new CredibleSafeGuard(registry, 0);
+        new CredibleSafeGuard(registry, 0, PROTOCOL_MANAGER);
+    }
+
+    function test_constructor_revertsOnZeroProtocolManager() public {
+        vm.expectRevert(InitialProtocolManager.ZeroInitialProtocolManager.selector);
+        new CredibleSafeGuard(registry, THRESHOLD, address(0));
+    }
+
+    // ---------------------------------------------------------------------
+    // IInitialProtocolManager: the guard declares its own Credible Layer manager
+    // ---------------------------------------------------------------------
+
+    /// @dev The state oracle reads the manager through {IInitialProtocolManager}; confirm the guard
+    ///      satisfies that interface's getter when called through the interface type.
+    function test_initialProtocolManager_conformsToInterface() public view {
+        IInitialProtocolManager asInterface = IInitialProtocolManager(address(guard));
+        assertEq(asInterface.initialProtocolManager(), PROTOCOL_MANAGER);
+    }
+
+    /// @dev The immutable is read from code, not storage; the value must be stable across calls.
+    function test_initialProtocolManager_isStableAcrossCalls() public view {
+        assertEq(guard.initialProtocolManager(), guard.initialProtocolManager());
+    }
+
+    /// @dev The guard must record whatever non-zero manager it was deployed with, independent of the
+    ///      registry and threshold arguments.
+    function testFuzz_initialProtocolManager_storesConstructorValue(
+        address registry_,
+        uint256 threshold_,
+        address manager_
+    ) public {
+        vm.assume(registry_ != address(0));
+        vm.assume(threshold_ != 0);
+        vm.assume(manager_ != address(0));
+
+        CredibleSafeGuard fuzzGuard = new CredibleSafeGuard(ICredibleRegistry(registry_), threshold_, manager_);
+
+        assertEq(fuzzGuard.initialProtocolManager(), manager_);
+        // The manager is stored independently of the other two immutables.
+        assertEq(address(fuzzGuard.credibleRegistry()), registry_);
+        assertEq(fuzzGuard.failOpenBlockThreshold(), threshold_);
+    }
+
+    /// @dev Two guards deployed with different managers report their own value — the manager is
+    ///      per-deployment, not shared state.
+    function test_initialProtocolManager_isPerDeployment() public {
+        CredibleSafeGuard otherGuard = new CredibleSafeGuard(registry, THRESHOLD, address(0xB0B));
+
+        assertEq(guard.initialProtocolManager(), PROTOCOL_MANAGER);
+        assertEq(otherGuard.initialProtocolManager(), address(0xB0B));
     }
 
     // ---------------------------------------------------------------------
@@ -203,6 +260,68 @@ contract CredibleSafeGuardTest is Test {
         vm.roll(block.number + 1);
 
         vm.expectRevert(CredibleSafeGuard.NonCredibleBlock.selector);
+        _check();
+    }
+
+    // ---------------------------------------------------------------------
+    // Fail-open path: registry unavailable or malformed
+    // ---------------------------------------------------------------------
+
+    function test_failsOpen_whenCredibilityReadReverts() public {
+        vm.mockCallRevert(
+            address(registry), abi.encodeCall(ICredibleRegistry.isCredibleBlock, (block.number)), "registry unavailable"
+        );
+
+        assertTrue(guard.isCurrentBlockAllowed());
+        assertTrue(guard.failOpenActive());
+        _check();
+    }
+
+    function test_failsOpen_whenCredibilityReadReturnsShortData() public {
+        vm.mockCall(
+            address(registry),
+            abi.encodeCall(ICredibleRegistry.isCredibleBlock, (block.number)),
+            abi.encodePacked(uint8(1))
+        );
+
+        assertTrue(guard.isCurrentBlockAllowed());
+        _check();
+    }
+
+    function test_failsOpen_whenCredibilityReadReturnsNonCanonicalBool() public {
+        vm.mockCall(
+            address(registry), abi.encodeCall(ICredibleRegistry.isCredibleBlock, (block.number)), abi.encode(uint256(2))
+        );
+
+        assertTrue(guard.isCurrentBlockAllowed());
+        _check();
+    }
+
+    function test_failsOpen_whenLastCredibleBlockReadReverts() public {
+        registry.setCredibleBlock(block.number, false);
+        vm.mockCallRevert(
+            address(registry), abi.encodeCall(ICredibleRegistry.lastCredibleBlock, ()), "registry unavailable"
+        );
+
+        assertTrue(guard.failOpenActive());
+        assertTrue(guard.isCurrentBlockAllowed());
+        _check();
+    }
+
+    function test_failsOpen_whenRegistryHasNoCode() public {
+        CredibleSafeGuard codelessRegistryGuard =
+            new CredibleSafeGuard(ICredibleRegistry(address(0xBEEF)), THRESHOLD, PROTOCOL_MANAGER);
+
+        assertTrue(codelessRegistryGuard.isCurrentBlockAllowed());
+        _checkGuard(codelessRegistryGuard);
+    }
+
+    function test_credibleHotPath_doesNotRequireLastBlockRead() public {
+        registry.markCurrentBlockCredible();
+        vm.mockCallRevert(
+            address(registry), abi.encodeCall(ICredibleRegistry.lastCredibleBlock, ()), "registry unavailable"
+        );
+
         _check();
     }
 

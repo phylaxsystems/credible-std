@@ -20,6 +20,7 @@ contract CredibleSafeGuardSafeIntegrationTest is Test {
 
     uint256 internal constant THRESHOLD = 75;
     uint256 internal constant BASE_BLOCK = 1_000_000;
+    address internal constant PROTOCOL_MANAGER = address(0xA11CE);
 
     uint256 internal ownerPk = uint256(keccak256("safe.owner"));
     address internal owner;
@@ -32,7 +33,7 @@ contract CredibleSafeGuardSafeIntegrationTest is Test {
         owner = vm.addr(ownerPk);
 
         registry = new CredibleRegistryMock();
-        guard = new CredibleSafeGuard(registry, THRESHOLD);
+        guard = new CredibleSafeGuard(registry, THRESHOLD, PROTOCOL_MANAGER);
 
         Safe singleton = new Safe();
         SafeProxyFactory factory = new SafeProxyFactory();
@@ -95,6 +96,52 @@ contract CredibleSafeGuardSafeIntegrationTest is Test {
         bool ok = _execSafeTx(owner, 0, "");
 
         assertTrue(ok);
+        assertEq(safe.nonce(), nonceBefore + 1);
+    }
+
+    function test_realSafe_failsOpenWhenCredibilityReadReverts() public {
+        vm.mockCallRevert(
+            address(registry), abi.encodeWithSignature("isCredibleBlock(uint256)", block.number), "registry unavailable"
+        );
+
+        uint256 nonceBefore = safe.nonce();
+        assertTrue(_execSafeTx(owner, 0, ""));
+        assertEq(safe.nonce(), nonceBefore + 1);
+    }
+
+    function test_realSafe_canRemoveGuardWhenRegistryReadReverts() public {
+        vm.mockCallRevert(
+            address(registry), abi.encodeWithSignature("isCredibleBlock(uint256)", block.number), "registry unavailable"
+        );
+
+        bytes memory setGuardData = abi.encodeWithSignature("setGuard(address)", address(0));
+        bytes memory sig = _signTx(address(safe), 0, setGuardData);
+        uint256 nonceBefore = safe.nonce();
+
+        assertTrue(
+            safe.execTransaction(
+                address(safe), 0, setGuardData, Enum.Operation.Call, 0, 0, 0, address(0), payable(address(0)), sig
+            )
+        );
+        assertEq(safe.nonce(), nonceBefore + 1);
+        assertEq(_installedGuard(), address(0));
+    }
+
+    function test_realSafe_failsOpenWhenCredibilityReadIsMalformed() public {
+        vm.mockCall(
+            address(registry), abi.encodeWithSignature("isCredibleBlock(uint256)", block.number), abi.encode(uint256(2))
+        );
+
+        uint256 nonceBefore = safe.nonce();
+        assertTrue(_execSafeTx(owner, 0, ""));
+        assertEq(safe.nonce(), nonceBefore + 1);
+    }
+
+    function test_realSafe_failsOpenWhenLastBlockReadReverts() public {
+        vm.mockCallRevert(address(registry), abi.encodeWithSignature("lastCredibleBlock()"), "registry unavailable");
+
+        uint256 nonceBefore = safe.nonce();
+        assertTrue(_execSafeTx(owner, 0, ""));
         assertEq(safe.nonce(), nonceBefore + 1);
     }
 
