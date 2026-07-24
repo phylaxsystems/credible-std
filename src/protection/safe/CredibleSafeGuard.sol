@@ -108,11 +108,9 @@ contract CredibleSafeGuard is ITransactionGuard, InitialProtocolManager {
     /// @param failOpenBlockThreshold_ Blocks of builder silence tolerated before failing open.
     /// @param initialProtocolManager_ Address allowed to manage this deployment's assertions in the
     ///        Credible Layer, exposed via {initialProtocolManager}. Must be non-zero.
-    constructor(
-        ICredibleRegistry credibleRegistry_,
-        uint256 failOpenBlockThreshold_,
-        address initialProtocolManager_
-    ) InitialProtocolManager(initialProtocolManager_) {
+    constructor(ICredibleRegistry credibleRegistry_, uint256 failOpenBlockThreshold_, address initialProtocolManager_)
+        InitialProtocolManager(initialProtocolManager_)
+    {
         if (address(credibleRegistry_) == address(0)) revert ZeroCredibleRegistryAddress();
         if (failOpenBlockThreshold_ == 0) revert ZeroFailOpenBlockThreshold();
 
