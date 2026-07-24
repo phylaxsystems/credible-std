@@ -70,6 +70,28 @@ interface ITransactionGuard is IERC165 {
 ///      4. Otherwise the builder set is live and the current block is not credible, so the
 ///         transaction is blocked with {NonCredibleBlock}.
 ///
+///      Fail-open on registry failure (intentional, signed-off product decision).
+///      Every registry probe is a bounded staticcall (see {_tryIsCredibleBlock} /
+///      {_tryLastCredibleBlock}). The guard treats the registry as UNAVAILABLE and FAILS OPEN,
+///      allowing the owner transaction, whenever a probe:
+///        - reverts, or
+///        - hits an address with no deployed code, or
+///        - returns malformed data (a non-canonical boolean, or fewer/more than exactly 32 bytes,
+///          so an over-long "returndata bomb" cannot be trusted or copied unbounded), or
+///        - exceeds the {REGISTRY_READ_GAS_LIMIT} (50k) gas budget and runs out of gas.
+///      Rationale: this guard must NEVER permanently brick the Safe's owner-transaction path
+///      because of an unavailable, broken, or misconfigured registry. Registry unavailability
+///      therefore degrades to "no credibility protection" rather than a frozen Safe. This is a
+///      deliberate, reviewed decision, not an accidental side effect of the bounded-call
+///      hardening.
+///      Security tradeoff (stated plainly): a broken, absent, or malicious registry that fails
+///      any of the above ways lets ALL owner transactions through unchecked. The mitigation is at
+///      DEPLOY TIME, not runtime: the deployment script's `validateRegistry` step rejects a
+///      codeless / EOA registry address and verifies that both `isCredibleBlock` and
+///      `lastCredibleBlock` return well-formed data before broadcasting, so a guard is never
+///      deployed already pointed at a permanently-fail-open registry. The registry address is
+///      immutable, so this deploy-time check is the enforcement point for a sound registry.
+///
 ///      Fail-open window. The product requirement is "fail open after ~15 minutes with no
 ///      credible blocks". The {ICredibleRegistry} records credibility by block number and does
 ///      not expose timestamps, so the window is expressed as a block count that the credible
@@ -156,6 +178,15 @@ contract CredibleSafeGuard is ITransactionGuard {
     /// @dev Core gate: allow credible blocks, otherwise fail open when a required registry read
     ///      fails or the builder set is offline. The credibility check runs first so the expected
     ///      hot path (credible block, live builder set) costs a single registry call.
+    ///
+    ///      The `!readable` disjunct is the intentional, signed-off fail-open-on-registry-failure
+    ///      decision (see the contract-level NatSpec): when the bounded probe cannot get a
+    ///      well-formed answer within its gas/returndata budget the transaction is ALLOWED rather
+    ///      than blocked, so an unavailable/broken/misconfigured registry can never permanently
+    ///      brick the Safe's owner path. Security tradeoff: such a registry lets all owner
+    ///      transactions through; this is mitigated at deploy time by the deployment script's
+    ///      `validateRegistry` check, not here. Only reachable if the builder set is live and the
+    ///      current block is genuinely not credible do we `revert NonCredibleBlock()`.
     function _checkCredibleBlock() internal view {
         (bool readable, bool credible) = _tryIsCredibleBlock(block.number);
         if (!readable || credible || _failOpenActive()) return;
@@ -173,7 +204,11 @@ contract CredibleSafeGuard is ITransactionGuard {
     }
 
     /// @dev Probes `isCredibleBlock` without allowing a revert, malformed boolean, or returndata
-    ///      bomb from the registry to bubble into the Safe transaction.
+    ///      bomb from the registry to bubble into the Safe transaction. Returns `readable == false`
+    ///      (the intentional fail-open signal, see {_checkCredibleBlock}) when the staticcall
+    ///      reverts, the registry has no code, the call exceeds {REGISTRY_READ_GAS_LIMIT} and runs
+    ///      out of gas, the returndata is not exactly 32 bytes (rejecting an over-long returndata
+    ///      bomb while copying at most one word), or the word is a non-canonical boolean (> 1).
     function _tryIsCredibleBlock(uint256 blockNumber) internal view returns (bool readable, bool credible) {
         address registry = address(credibleRegistry);
         uint256 selector = uint32(ICredibleRegistry.isCredibleBlock.selector);
@@ -191,7 +226,10 @@ contract CredibleSafeGuard is ITransactionGuard {
         return (true, value == 1);
     }
 
-    /// @dev Probes `lastCredibleBlock` while copying at most one word of returndata.
+    /// @dev Probes `lastCredibleBlock` while copying at most one word of returndata. Returns
+    ///      `readable == false` on the same failure set as {_tryIsCredibleBlock} (revert, no code,
+    ///      >50k gas / OOG, or returndata not exactly 32 bytes); {_failOpenActive} maps that to
+    ///      fail-open, consistent with the intentional signed-off registry-failure policy.
     function _tryLastCredibleBlock() internal view returns (bool readable, uint256 lastCredibleBlock_) {
         address registry = address(credibleRegistry);
         uint256 selector = uint32(ICredibleRegistry.lastCredibleBlock.selector);
