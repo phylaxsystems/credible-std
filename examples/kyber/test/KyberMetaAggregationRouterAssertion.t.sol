@@ -376,13 +376,19 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
     }
 
     /// @notice The same legitimate partial fill FALSE-POSITIVES when the assertion is deployed with
-    ///         `originalRouterFamily_ = false`, pinning the root cause of the mainnet backtest trip.
-    /// @dev `_arm` uses the correct `true`; here we deploy with `false` — the exact misconfiguration
-    ///      that the backtest harness introduced by encoding a single-arg `constructor(address)` (the
-    ///      missing trailing bool reads as zero). With the family flag false the `_PARTIAL_FILL` skip
-    ///      short-circuits off, so the flat `>= minReturnAmount` floor rejects a swap the router
-    ///      legitimately filled pro-rata. The assertion logic is unchanged and correct; the trip was
-    ///      a deployment-arity bug, not a false positive in the check.
+    ///         an explicit `originalRouterFamily_ = false`, isolating the behavioural consequence of a
+    ///         wrong family flag.
+    /// @dev `_arm` uses the correct `true`; here we deploy with an explicit `false`. With the family
+    ///      flag false the `_PARTIAL_FILL` skip short-circuits off, so the flat `>= minReturnAmount`
+    ///      floor rejects a swap the router legitimately filled pro-rata. The assertion logic is
+    ///      unchanged and correct.
+    ///
+    ///      NOTE: this is the *explicit-false* misconfiguration, NOT the mainnet backtest harness's
+    ///      actual bug. The harness encoded a single-`address` constructor tail, which does not read
+    ///      the missing bool as zero — it reverts construction outright
+    ///      (`AssertionContractDeployFailed`). See
+    ///      `testDeployment_OneArgPayload_RevertsDuringConstruction` for the real root cause; this
+    ///      test only demonstrates what a *successfully deployed* wrong-family assertion would do.
     function testMinReturn_PartialFill_MisconfiguredFamilyFalse_Trips() public {
         uint256 spent = AMOUNT_IN / 2;
         uint256 fullMinimum = _expectedOut();
@@ -414,6 +420,45 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
 
         vm.expectRevert(bytes("Kyber: dstReceiver credited below minReturnAmount"));
         router.swap(p);
+    }
+
+    /// @notice The REAL one-argument deployment payload `creationCode || abi.encode(address(router))`
+    ///         REVERTS during construction — it does NOT silently zero the trailing bool.
+    /// @dev This pins the actual root cause of the mainnet backtest trip. The harness built the
+    ///      assertion create data with a single-arg `constructor(address)` ABI encoding (32 bytes of
+    ///      constructor tail), but the assertion's constructor is the 2-arg
+    ///      `constructor(address,bool)`. The compiler-generated constructor prologue ABI-decodes its
+    ///      arguments from the code-appended tail and reverts when the tail is too short to contain
+    ///      the `bool` — so construction aborts and `CREATE` returns `address(0)`. The trailing bool
+    ///      never "reads as zero".
+    ///
+    ///      Under `pcl`/`cl.assertion` this same construction revert surfaces as
+    ///      `AssertionContractDeployFailed` before the triggered `router.swap` ever runs (verified on
+    ///      PCL 1.5.1 / Solc 0.8.30 by fredo, and reproduced here on PCL 1.6.0 / Solc 0.8.34). That
+    ///      cheatcode path aborts the whole `pcl test` process rather than raising a catchable
+    ///      Solidity revert, so this regression is pinned deterministically at the construction layer
+    ///      via low-level `CREATE`: the exact one-argument payload fails, the correct two-argument
+    ///      payload succeeds.
+    function testDeployment_OneArgPayload_RevertsDuringConstruction() public {
+        // The exact payload the backtest harness built: creation code + a single `address` arg.
+        bytes memory oneArgPayload =
+            abi.encodePacked(type(KyberMetaAggregationRouterAssertion).creationCode, abi.encode(address(router)));
+        address oneArgDeployed;
+        assembly {
+            oneArgDeployed := create(0, add(oneArgPayload, 0x20), mload(oneArgPayload))
+        }
+        // Construction reverted: the too-short constructor tail cannot be decoded into (address,bool).
+        assertEq(oneArgDeployed, address(0), "one-arg payload must fail construction, not zero the bool");
+
+        // The correct two-argument payload constructs successfully.
+        bytes memory twoArgPayload = abi.encodePacked(
+            type(KyberMetaAggregationRouterAssertion).creationCode, abi.encode(address(router), true)
+        );
+        address twoArgDeployed;
+        assembly {
+            twoArgDeployed := create(0, add(twoArgPayload, 0x20), mload(twoArgPayload))
+        }
+        assertTrue(twoArgDeployed != address(0), "two-arg payload must construct");
     }
 
     /// @notice swapSimpleMode underpayment trips when the router guard is absent.
