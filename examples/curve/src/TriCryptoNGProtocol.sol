@@ -21,6 +21,7 @@ interface ITriCryptoNGPool {
     function fee_gamma() external view returns (uint256);
     function A() external view returns (uint256);
     function gamma() external view returns (uint256);
+    function future_A_gamma_time() external view returns (uint256);
 }
 
 library TriCryptoNGSelectors {
@@ -70,7 +71,6 @@ abstract contract TriCryptoNGProtocolHelpers is Assertion {
     uint256 internal constant N_COINS = 3;
     uint256 internal constant N_PRICE_PAIRS = 2;
     uint256 internal constant WAD = 1e18;
-    uint256 internal constant MIN_FEE = 5e5;
     uint256 internal constant MAX_FEE = 1e10;
 
     address internal immutable pool;
@@ -114,6 +114,11 @@ abstract contract TriCryptoNGProtocolHelpers is Assertion {
         uint256 virtualPriceToleranceBps_,
         uint256 profitTolerance_
     ) {
+        require(pool_ != address(0), "TriCryptoNG: zero pool");
+        // The pinned three-coin implementation treats WETH as an ordinary ERC-20. Passing a
+        // nonzero token used to skip custody for that leg and silently weakened the assertion.
+        require(wrappedNativeToken_ == address(0), "TriCryptoNG: native-token mode unsupported");
+        require(virtualPriceToleranceBps_ < 10_000, "TriCryptoNG: bad VP tolerance");
         pool = pool_;
         wrappedNativeToken = wrappedNativeToken_;
         dustTolerance = dustTolerance_;
@@ -124,26 +129,14 @@ abstract contract TriCryptoNGProtocolHelpers is Assertion {
     function _registerTriCryptoVirtualPriceTriggers(bytes4 assertionSelector) internal view {
         registerFnCallTrigger(assertionSelector, TriCryptoNGSelectors.EXCHANGE);
         registerFnCallTrigger(assertionSelector, TriCryptoNGSelectors.EXCHANGE_RECEIVER);
-        registerFnCallTrigger(assertionSelector, TriCryptoNGSelectors.WETH_EXCHANGE_USE_ETH);
-        registerFnCallTrigger(assertionSelector, TriCryptoNGSelectors.WETH_EXCHANGE_USE_ETH_RECEIVER);
         registerFnCallTrigger(assertionSelector, TriCryptoNGSelectors.EXCHANGE_RECEIVED);
         registerFnCallTrigger(assertionSelector, TriCryptoNGSelectors.EXCHANGE_RECEIVED_RECEIVER);
-        registerFnCallTrigger(assertionSelector, TriCryptoNGSelectors.EXCHANGE_UNDERLYING);
-        registerFnCallTrigger(assertionSelector, TriCryptoNGSelectors.EXCHANGE_UNDERLYING_RECEIVER);
-        registerFnCallTrigger(assertionSelector, TriCryptoNGSelectors.EXCHANGE_EXTENDED);
         registerFnCallTrigger(assertionSelector, TriCryptoNGSelectors.ADD_LIQUIDITY);
         registerFnCallTrigger(assertionSelector, TriCryptoNGSelectors.ADD_LIQUIDITY_RECEIVER);
-        registerFnCallTrigger(assertionSelector, TriCryptoNGSelectors.WETH_ADD_LIQUIDITY_USE_ETH);
-        registerFnCallTrigger(assertionSelector, TriCryptoNGSelectors.WETH_ADD_LIQUIDITY_USE_ETH_RECEIVER);
         registerFnCallTrigger(assertionSelector, TriCryptoNGSelectors.REMOVE_LIQUIDITY);
         registerFnCallTrigger(assertionSelector, TriCryptoNGSelectors.REMOVE_LIQUIDITY_RECEIVER);
-        registerFnCallTrigger(assertionSelector, TriCryptoNGSelectors.WETH_REMOVE_LIQUIDITY_USE_ETH);
-        registerFnCallTrigger(assertionSelector, TriCryptoNGSelectors.WETH_REMOVE_LIQUIDITY_USE_ETH_RECEIVER);
-        registerFnCallTrigger(assertionSelector, TriCryptoNGSelectors.WETH_REMOVE_LIQUIDITY_USE_ETH_RECEIVER_CLAIM);
         registerFnCallTrigger(assertionSelector, TriCryptoNGSelectors.REMOVE_ONE);
         registerFnCallTrigger(assertionSelector, TriCryptoNGSelectors.REMOVE_ONE_RECEIVER);
-        registerFnCallTrigger(assertionSelector, TriCryptoNGSelectors.WETH_REMOVE_ONE_USE_ETH);
-        registerFnCallTrigger(assertionSelector, TriCryptoNGSelectors.WETH_REMOVE_ONE_USE_ETH_RECEIVER);
     }
 
     function _triCryptoCoinAt(uint256 i, PhEvm.ForkId memory fork) internal view returns (address) {
@@ -160,11 +153,9 @@ abstract contract TriCryptoNGProtocolHelpers is Assertion {
         returns (TriCryptoNGCoinAccounting memory accounting)
     {
         accounting.coin = _triCryptoCoinAt(i, fork);
-        accounting.shouldCheckCustody = accounting.coin != wrappedNativeToken || wrappedNativeToken == address(0);
+        accounting.shouldCheckCustody = true;
         accounting.accounted = _triCryptoBalanceAt(i, fork);
-        if (accounting.shouldCheckCustody) {
-            accounting.actual = _readBalanceAt(accounting.coin, pool, fork);
-        }
+        accounting.actual = _readBalanceAt(accounting.coin, pool, fork);
     }
 
     function _triCryptoTotalSupplyAt(PhEvm.ForkId memory fork) internal view returns (uint256) {
@@ -228,6 +219,10 @@ abstract contract TriCryptoNGProtocolHelpers is Assertion {
         return _readUintAt(pool, abi.encodeCall(ITriCryptoNGPool.gamma, ()), fork);
     }
 
+    function _triCryptoFutureAGammaTimeAt(PhEvm.ForkId memory fork) internal view returns (uint256) {
+        return _readUintAt(pool, abi.encodeCall(ITriCryptoNGPool.future_A_gamma_time, ()), fork);
+    }
+
     function _triCryptoCanCheckVirtualPrice(PhEvm.ForkId memory beforeFork, PhEvm.ForkId memory afterFork)
         internal
         view
@@ -237,6 +232,11 @@ abstract contract TriCryptoNGProtocolHelpers is Assertion {
             return false;
         }
         if (_triCryptoXcpProfitAAt(beforeFork) != _triCryptoXcpProfitAAt(afterFork)) {
+            return false;
+        }
+        // A and gamma are time-derived views during a ramp and therefore equal at two snapshots
+        // within one transaction. The explicit ramp deadline is the reliable guard.
+        if (_triCryptoFutureAGammaTimeAt(beforeFork) > block.timestamp) {
             return false;
         }
         if (_triCryptoAAt(beforeFork) != _triCryptoAAt(afterFork)) {

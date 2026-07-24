@@ -16,14 +16,15 @@ Verified with `pcl` 1.4.0 (commit `a600e1d`).
 
 ## Files
 
-### Backing conservation — no infinite mint of cUSD
+### Quarantined policy prototypes
 
-- `CapMintBackingAssertion.sol` — cUSD supply must stay covered by oracle-valued backing
-  (`Σ totalSupplies(asset) * price(asset)`) on every mint/burn/redeem, plus a cumulative-inflow
-  circuit breaker that rejects unaccounted reserve donations/stuffing.
+- `CapMintBackingAssertion.sol` — currently registers no triggers. Its fixed-$1 valuation conflicts
+  with Cap's NAV conversions and its static reserve list cannot follow the live Vault asset set.
 - `CapMintBackingHelpers.sol` — fork-aware reads and USD valuation (cUSD valued at its $1 face
   peg, not the self-referential CapToken oracle).
 - `CapMintBackingInterfaces.sol`
+- `CapRedemptionGateAssertion.sol` — currently registers no triggers. Strategy divest inflows net
+  against redemption outflows in the executor, while the watcher denominator is idle custody.
 
 ### Liquidations — debt is repaid, proceeds stay in the protocol
 
@@ -49,8 +50,9 @@ Verified with `pcl` 1.4.0 (commit `a600e1d`).
 
 ### Existing examples
 
-- `CapOfacComplianceAssertion.sol` / `CapOfacComplianceInterfaces.sol` — sanctions screening.
-- `CapRedemptionGateAssertion.sol` / `CapRedemptionGateInterfaces.sol` — tiered bank-run outflow gate.
+- `CapOfacComplianceAssertion.sol` / `CapOfacComplianceInterfaces.sol` — sanctions screening using
+  an explicitly configured on-chain oracle. Address arguments are decoded from the low 160 bits of
+  their ABI words.
 
 ## Operational contract & open decisions
 

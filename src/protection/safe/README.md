@@ -61,7 +61,7 @@ It watches:
 
 The pack exposes one assertion function per enforced policy: `assertSafeModulePolicy`, `assertSafeDelegateCallPolicy`, `assertSafeTargetSelectorPolicy`, `assertSafeBatchPolicy`, and `assertSafeApprovalPolicy`.
 
-Every watched execution is normalized into one or more actions. A normal owner or module transaction is one action. An approved `MultiSend` transaction is expanded into its packed inner actions, and every inner action is checked with the same rules.
+Every watched execution is normalized into one or more actions. A normal owner or module transaction is one action. An approved `MultiSend` or `MultiSendCallOnly` transaction is expanded into its packed inner actions, and every inner action is checked with the same rules.
 
 ### What It Protects
 
@@ -70,9 +70,11 @@ Every watched execution is normalized into one or more actions. A normal owner o
 - Empty calldata (zero bytes) is blocked unless the target sets `allowEmptyCalldata`.
 - Sub-selector calldata (one to three bytes, routed to the fallback) is blocked unless the target sets `allowFallbackCalldata`.
 - Native value attached to a selector is blocked unless that selector or target allows nonzero value.
+- Owner transactions with nonzero signed `gasPrice` are blocked because Safe's refund payment has a separate token and receiver that this action policy does not model.
 - Direct Safe `DELEGATECALL` and module `DELEGATECALL` are blocked.
 - The only delegatecall exception is a configured batch executor such as Safe `MultiSend`.
-- `MultiSend` payloads are parsed strictly using Safe's packed format: operation byte, target address, value, data length, and data bytes.
+- Configured CALL-based batch executors such as `MultiSendCallOnly` are expanded as well.
+- Batch payloads are parsed strictly using Safe's packed format: operation byte, target address, value, data length, and data bytes.
 - Malformed, truncated, overlong, nested, or delegatecall-containing batches are blocked.
 - ERC-20 `approve`, ERC-20 `increaseAllowance`, ERC-721 `approve`, ERC-721 `setApprovalForAll`, and ERC-1155 `setApprovalForAll` receive a separate approval-policy check.
 

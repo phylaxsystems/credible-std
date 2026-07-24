@@ -23,12 +23,10 @@ import {PhEvm} from "credible-std/PhEvm.sol";
 ///     pre/post state of the proxy constrains even the privileged paths the contract itself trusts.
 ///
 /// Invariants:
-///   - **Ordering**: `executed <= verified <= committed` for batches and for priority requests at
-///     transaction end. You can never execute funds you have not verified, nor verify a batch you
-///     have not committed.
-///   - **Finality**: verified and executed counters never decrease across a transaction. Once funds
-///     are finalized they cannot be un-finalized (e.g. by a revert that reaches below the executed
-///     tip, or by an upgrade that rewinds the counters).
+///   - **Ordering**: `executed <= verified <= committed` for batches. Priority execution is also
+///     bounded by verification in active mode and by commitment during desert cancellation.
+///   - **Finality**: executed counters never decrease. Verified-but-unexecuted state may be rolled
+///     back by the official `revertBatches` path.
 ///   - **State-root continuity**: the executed state root may only change when the executed-batch
 ///     count advanced (the normal execute path), or when an authorized one-shot state-root
 ///     migration call was made in the same transaction. Any other state-root mutation is an operator
@@ -91,10 +89,17 @@ abstract contract RollupBridgeStateMachineAssertion is Assertion {
             post.verifiedPriorityRequests <= post.committedPriorityRequests,
             "RollupBridge: verified exceeds committed priority"
         );
-        require(
-            post.executedPriorityRequests <= post.verifiedPriorityRequests,
-            "RollupBridge: executed exceeds verified priority"
-        );
+        if (post.inDesertMode) {
+            require(
+                post.executedPriorityRequests <= post.committedPriorityRequests,
+                "RollupBridge: executed exceeds committed priority"
+            );
+        } else {
+            require(
+                post.executedPriorityRequests <= post.verifiedPriorityRequests,
+                "RollupBridge: executed exceeds verified priority"
+            );
+        }
 
         // Committed-but-unexecuted priority requests must still be open. Otherwise a queued deposit
         // or forced transaction has been committed yet dropped from the open queue.
@@ -104,21 +109,14 @@ abstract contract RollupBridgeStateMachineAssertion is Assertion {
         );
     }
 
-    /// @notice Verified and executed counters never decrease across the transaction.
-    /// @dev Compares pre-transaction to post-transaction. `committed` is intentionally allowed to
-    ///      decrease, because the legitimate revert path rolls back committed-but-unverified batches.
-    ///      Verified and executed are finality: a decrease means already-proven or already-paid
-    ///      state was rewound — a critical safety break that the local revert `require`s are meant
-    ///      to prevent but an upgrade could bypass.
+    /// @notice Executed counters never decrease across the transaction.
+    /// @dev Lighter may revert verified-but-unexecuted batches and priority requests. Execution is
+    ///      the final boundary that the official rollback path cannot cross.
     function assertFinalityNonDecreasing() external view {
         RollupState memory pre = _readRollupState(_preTx());
         RollupState memory post = _readRollupState(_postTx());
 
-        require(post.verifiedBatches >= pre.verifiedBatches, "RollupBridge: verified batches decreased");
         require(post.executedBatches >= pre.executedBatches, "RollupBridge: executed batches decreased");
-        require(
-            post.verifiedPriorityRequests >= pre.verifiedPriorityRequests, "RollupBridge: verified priority decreased"
-        );
         require(
             post.executedPriorityRequests >= pre.executedPriorityRequests, "RollupBridge: executed priority decreased"
         );

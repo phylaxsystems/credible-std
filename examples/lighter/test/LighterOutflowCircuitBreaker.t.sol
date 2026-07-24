@@ -33,8 +33,8 @@ contract LighterOutflowCircuitBreakerTest is Test {
 
     // --- Decision logic ---------------------------------------------------
 
-    function testTripsAtThresholdDuringNormalOperation() public view {
-        assertTrue(breaker.trips(THRESHOLD_BPS, THRESHOLD_BPS, false));
+    function testDoesNotTripAtThresholdDuringNormalOperation() public view {
+        assertFalse(breaker.trips(THRESHOLD_BPS, THRESHOLD_BPS, false));
     }
 
     function testTripsAboveThresholdDuringNormalOperation() public view {
@@ -63,12 +63,17 @@ contract LighterOutflowCircuitBreakerTest is Test {
     }
 
     function testRejectsZeroThreshold() public {
-        vm.expectRevert(bytes("LighterBreaker: threshold zero"));
+        vm.expectRevert(bytes("LighterBreaker: invalid threshold"));
         new LighterOutflowCircuitBreaker(BRIDGE, COLLATERAL, 0, WINDOW);
     }
 
     function testRejectsZeroWindow() public {
-        vm.expectRevert(bytes("LighterBreaker: window zero"));
+        vm.expectRevert(bytes("LighterBreaker: invalid window"));
         new LighterOutflowCircuitBreaker(BRIDGE, COLLATERAL, THRESHOLD_BPS, 0);
+    }
+
+    function testRejectsDisabledThreshold() public {
+        vm.expectRevert(bytes("LighterBreaker: invalid threshold"));
+        new LighterOutflowCircuitBreaker(BRIDGE, COLLATERAL, 10_000, WINDOW);
     }
 }

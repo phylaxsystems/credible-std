@@ -54,6 +54,26 @@ contract LighterBridgeAssertion is LighterBridgeHelpers {
         require(!(pre.inDesertMode && !post.inDesertMode), "LighterBridge: desert mode exited");
 
         if (!pre.inDesertMode) {
+            if (!post.inDesertMode) return;
+
+            require(pre.openPriorityRequests != 0, "LighterBridge: desert mode activated without open requests");
+            require(post.committedBatches == pre.committedBatches, "LighterBridge: committed changed on activation");
+            require(post.verifiedBatches == pre.verifiedBatches, "LighterBridge: verified changed on activation");
+            require(post.executedBatches == pre.executedBatches, "LighterBridge: executed changed on activation");
+            require(
+                post.committedPriorityRequests == pre.committedPriorityRequests,
+                "LighterBridge: committed priority changed on activation"
+            );
+            require(
+                post.verifiedPriorityRequests == pre.verifiedPriorityRequests,
+                "LighterBridge: verified priority changed on activation"
+            );
+            require(
+                post.executedPriorityRequests == pre.executedPriorityRequests,
+                "LighterBridge: executed priority changed on activation"
+            );
+            require(post.openPriorityRequests == pre.openPriorityRequests, "LighterBridge: open queue changed on activation");
+            require(post.stateRoot == pre.stateRoot, "LighterBridge: state root changed on activation");
             return;
         }
 
@@ -61,5 +81,22 @@ contract LighterBridgeAssertion is LighterBridgeHelpers {
         require(post.verifiedBatches == pre.verifiedBatches, "LighterBridge: verified advanced in desert mode");
         require(post.executedBatches == pre.executedBatches, "LighterBridge: executed advanced in desert mode");
         require(post.stateRoot == pre.stateRoot, "LighterBridge: state root moved in desert mode");
+        require(
+            post.committedPriorityRequests == pre.committedPriorityRequests,
+            "LighterBridge: committed priority changed in desert mode"
+        );
+        require(
+            post.verifiedPriorityRequests == pre.verifiedPriorityRequests,
+            "LighterBridge: verified priority changed in desert mode"
+        );
+        require(
+            post.openPriorityRequests <= pre.openPriorityRequests,
+            "LighterBridge: open priority increased in desert mode"
+        );
+        require(
+            post.executedPriorityRequests - pre.executedPriorityRequests
+                == pre.openPriorityRequests - post.openPriorityRequests,
+            "LighterBridge: desert cancellation does not conserve priority requests"
+        );
     }
 }

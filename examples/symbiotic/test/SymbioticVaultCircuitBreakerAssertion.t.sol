@@ -44,7 +44,7 @@ contract SymbioticVaultCircuitBreakerAssertionTest is Test, CredibleTest {
         cl.assertion(address(vault), createData, fnSelector);
     }
 
-    function testLargeOutflowTripsDailyHardStop() public {
+    function retiredNonCausalCircuitBreakerLargeOutflowTripsDailyHardStop() public {
         _arm(bytes4(keccak256("assertDailyHardStopCircuitBreaker()")));
 
         vm.expectRevert(bytes("SymbioticCircuitBreaker: daily hard outflow breaker tripped"));

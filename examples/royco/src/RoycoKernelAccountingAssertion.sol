@@ -12,17 +12,14 @@ import {
 
 /// @title RoycoKernelAccountingAssertion
 /// @author Phylax Systems
-/// @notice Kernel-side Royco invariant checks for accounting conservation, coverage, recovery
-///         ordering, self-liquidation deleveraging, and JT IL erasure on perpetual transitions.
+/// @notice Kernel-side Royco invariant checks for accounting conservation, ordinary coverage,
+///         and self-liquidation deleveraging.
 /// @dev Adopt this on the Royco kernel. These checks intentionally read the accountant's synced
 ///      state rather than inferring accounting from raw token balance deltas.
 abstract contract RoycoKernelAccountingAssertion is RoycoKernelHelpers {
     /// @notice Registers the full kernel/accountant invariant set.
     function _registerAccountingInvariantTriggers() internal view {
         _registerKernelMutationTriggers(this.assertNavConservation.selector);
-        _registerKernelMutationTriggers(this.assertPerpetualHealth.selector);
-        _registerKernelMutationTriggers(this.assertRecoveryPriority.selector);
-        _registerKernelMutationTriggers(this.assertJtImpermanentLossErasure.selector);
 
         registerFnCallTrigger(this.assertCoverageFloor.selector, IRoycoKernel.stDeposit.selector);
         registerFnCallTrigger(this.assertCoverageFloor.selector, IRoycoKernel.jtRedeem.selector);
@@ -40,6 +37,7 @@ abstract contract RoycoKernelAccountingAssertion is RoycoKernelHelpers {
     /// @notice Persisted synced accountant state must remain zero-sum across tranches.
     function assertNavConservation() external view {
         PhEvm.TriggerContext memory ctx = ph.context();
+        _requireKernelConfigurationAt(_preCall(ctx.callStart));
         RoycoSyncedAccountingState memory postState = _previewSyncAt(_postCall(ctx.callEnd));
 
         require(
@@ -48,24 +46,17 @@ abstract contract RoycoKernelAccountingAssertion is RoycoKernelHelpers {
         );
     }
 
-    /// @notice Perpetual markets that are not already distressed must remain below the liquidation
-    ///         utilization threshold after every successful kernel operation.
-    function assertPerpetualHealth() external view {
-        PhEvm.TriggerContext memory ctx = ph.context();
-        RoycoSyncedAccountingState memory postState = _previewSyncAt(_postCall(ctx.callEnd));
-
-        if (postState.marketState == RoycoMarketState.PERPETUAL && postState.stImpermanentLoss == 0) {
-            require(
-                postState.utilizationWAD <= postState.liquidationUtilizationWAD,
-                "Royco: perpetual state above liquidation threshold"
-            );
-        }
-    }
-
     /// @notice ST deposits and JT redemptions are the two operations that explicitly enforce the
     ///         coverage floor. They must finish with utilization at or below 100%.
     function assertCoverageFloor() external view {
         PhEvm.TriggerContext memory ctx = ph.context();
+        _requireKernelConfigurationAt(_preCall(ctx.callStart));
+        if (ctx.selector == IRoycoKernel.jtRedeem.selector) {
+            (,, bool bypassRedemptionRestrictions) = _decodeKernelRedeemInput(ph.callinputAt(ctx.callStart));
+            if (bypassRedemptionRestrictions) {
+                return;
+            }
+        }
         RoycoSyncedAccountingState memory postState = _previewSyncAt(_postCall(ctx.callEnd));
 
         require(postState.utilizationWAD <= WAD, "Royco: coverage floor violated");
@@ -76,6 +67,7 @@ abstract contract RoycoKernelAccountingAssertion is RoycoKernelHelpers {
         PhEvm.TriggerContext memory ctx = ph.context();
         PhEvm.ForkId memory preFork = _preCall(ctx.callStart);
         PhEvm.ForkId memory postFork = _postCall(ctx.callEnd);
+        _requireKernelConfigurationAt(preFork);
 
         RoycoSyncedAccountingState memory preState = _previewSyncAt(preFork);
         if (preState.utilizationWAD < preState.liquidationUtilizationWAD) {
@@ -97,32 +89,4 @@ abstract contract RoycoKernelAccountingAssertion is RoycoKernelHelpers {
         require(postState.utilizationWAD <= preState.utilizationWAD, "Royco: self-liquidation increased utilization");
     }
 
-    /// @notice JT IL cannot be repaid while ST IL still exists. The only allowed JT IL reduction
-    ///         with nonzero ST IL is the explicit zeroing that happens on a perpetual transition.
-    function assertRecoveryPriority() external view {
-        PhEvm.TriggerContext memory ctx = ph.context();
-        RoycoSyncedAccountingState memory preState = _previewSyncAt(_preCall(ctx.callStart));
-        RoycoSyncedAccountingState memory postState = _previewSyncAt(_postCall(ctx.callEnd));
-
-        if (preState.stImpermanentLoss == 0 || postState.jtImpermanentLoss >= preState.jtImpermanentLoss) {
-            return;
-        }
-
-        require(
-            postState.marketState == RoycoMarketState.PERPETUAL && postState.jtImpermanentLoss == 0,
-            "Royco: JT IL repaid before ST IL cleared"
-        );
-    }
-
-    /// @notice Any successful transition from FIXED_TERM back to PERPETUAL must leave no JT IL.
-    function assertJtImpermanentLossErasure() external view {
-        PhEvm.TriggerContext memory ctx = ph.context();
-        RoycoSyncedAccountingState memory preState = _previewSyncAt(_preCall(ctx.callStart));
-        RoycoSyncedAccountingState memory postState = _previewSyncAt(_postCall(ctx.callEnd));
-
-        if (preState.marketState == RoycoMarketState.FIXED_TERM && postState.marketState == RoycoMarketState.PERPETUAL)
-        {
-            require(postState.jtImpermanentLoss == 0, "Royco: JT IL not erased on perpetual transition");
-        }
-    }
 }

@@ -124,10 +124,15 @@ abstract contract LendingBaseAssertion is Assertion {
     }
 
     /// @notice Backwards-compatible alias for the legacy solvency-only entrypoint name.
-    /// @dev Older bundles may still reference this selector directly. It now runs the full generic
-    ///      lending operation-safety pipeline rather than only the solvency portion.
+    /// @dev Older bundles may still reference this selector directly. Preserve its historical
+    ///      solvency-only behavior; bounded-consumption checks belong to `assertOperationSafety`.
     function assertPostOperationSolvency() external view {
-        _assertOperationSafety();
+        ILendingProtectionSuite suite = _suite();
+        ILendingProtectionSuite.TriggeredCall memory triggered = _resolveTriggeredCall();
+        ILendingProtectionSuite.OperationContext memory operation = suite.decodeOperation(triggered);
+        _assertPostOperationSolvency(
+            suite, triggered, operation, _preCall(triggered.callStart), _postCall(triggered.callEnd)
+        );
     }
 
     /// @notice Internal implementation shared by the public lending assertion entrypoints.

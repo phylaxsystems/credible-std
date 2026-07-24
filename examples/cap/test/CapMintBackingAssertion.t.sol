@@ -117,13 +117,13 @@ contract CapMintBackingAssertionTest is Test, CredibleTest {
         cl.assertion(address(cap), createData, CapMintBackingAssertion.assertReserveInflowAccounted.selector);
     }
 
-    function testHonestMintStaysBacked() public {
+    function policyPrototypeHonestMintStaysBacked() public {
         _armSolvency();
         vm.prank(user);
         cap.mint(address(usdc), 100e6, 0, user, block.timestamp);
     }
 
-    function testInfiniteMintTrips() public {
+    function policyPrototypeInfiniteMintTrips() public {
         cap.setInfiniteMint(true);
         _armSolvency();
         // Mint 100 cUSD with no asset pulled and no backing recorded.
@@ -131,7 +131,7 @@ contract CapMintBackingAssertionTest is Test, CredibleTest {
         cap.mint(address(usdc), 100e6, 0, user, block.timestamp);
     }
 
-    function testUnbackedMintWithinBufferTrips() public {
+    function policyPrototypeUnbackedMintWithinBufferTrips() public {
         // Start over-collateralized: $1000 backing vs $900 cUSD (a +$100 surplus buffer).
         cap.seed(address(usdc), 1_000e6, 900e18);
         cap.setInfiniteMint(true);
@@ -142,20 +142,20 @@ contract CapMintBackingAssertionTest is Test, CredibleTest {
         cap.mint(address(usdc), 50e6, 0, user, block.timestamp);
     }
 
-    function testHonestBurnStaysBacked() public {
+    function policyPrototypeHonestBurnStaysBacked() public {
         _armSolvency();
         vm.prank(user);
         cap.burn(address(usdc), 100e18, 0, user, block.timestamp);
     }
 
-    function testAccountedInflowFromMintPasses() public {
+    function policyPrototypeAccountedInflowFromMintPasses() public {
         _armInflow();
         // A large but fully-booked mint: idle and accounted backing rise together.
         vm.prank(user);
         cap.mint(address(usdc), 300e6, 0, user, block.timestamp);
     }
 
-    function testUnaccountedDonationTrips() public {
+    function policyPrototypeUnaccountedDonationTrips() public {
         usdc.mint(donor, 300e6);
         _armInflow();
         // Direct donation: idle custody jumps with no matching accounting.

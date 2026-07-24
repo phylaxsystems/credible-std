@@ -87,6 +87,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
 
     struct Action {
         address safe;
+        address caller;
         address module;
         address target;
         uint256 value;
@@ -129,6 +130,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
         address token, address spender, uint8 kind, uint256 amount, uint256 maxAmount
     );
     error SafeTxShapeAllowanceReadFailed(address token, address spender);
+    error SafeTxShapeGasRefundBlocked(uint256 gasPrice);
 
     TargetPolicy[] public targetPolicies;
     SelectorPolicy[] public selectorPolicies;
@@ -301,7 +303,12 @@ abstract contract SafeTxShapeHelpers is Assertion {
         view
         returns (uint256 transactionsOffset, uint256 transactionsLength)
     {
-        if (!batchPolicy.allowDelegateCall) revert SafeTxShapeBatchDelegateCallNotAllowed(action.target);
+        if (action.operation == OPERATION_CALL && action.value != 0) {
+            revert SafeTxShapeNativeValueBlocked(action.target, batchPolicy.selector, action.value);
+        }
+        if (action.operation == OPERATION_DELEGATECALL && !batchPolicy.allowDelegateCall) {
+            revert SafeTxShapeBatchDelegateCallNotAllowed(action.target);
+        }
 
         return _decodeSingleBytesArgument(action.data, action.dataOffset, action.dataLength, batchPolicy.selector);
     }
@@ -321,7 +328,6 @@ abstract contract SafeTxShapeHelpers is Assertion {
         if (operation > OPERATION_DELEGATECALL) revert SafeTxShapeUnknownOperation(operation);
 
         address target = _readPackedAddress(parent.data, entryOffset + 1);
-        if (target == address(0)) target = parent.safe;
 
         uint256 value = _readUint256(parent.data, entryOffset + 21);
         uint256 dataLength = _readUint256(parent.data, entryOffset + 53);
@@ -333,6 +339,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
 
         innerAction = Action({
             safe: parent.safe,
+            caller: parent.operation == OPERATION_CALL ? parent.target : parent.caller,
             module: parent.module,
             target: target,
             value: value,
@@ -426,7 +433,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
             // `increaseAllowance(spender, addedValue)` adds to the current allowance; treating `addedValue`
             // as the final amount would let two inner calls land above `maxAmount`. Verify the post-state
             // allowance instead so the cap binds the actual final allowance after the transaction.
-            _validateIncreaseAllowanceFinalState(action.safe, action.target, spender);
+            _validateIncreaseAllowanceFinalState(action.caller, action.target, spender);
             return;
         }
 
@@ -475,7 +482,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
         }
     }
 
-    function _validateIncreaseAllowanceFinalState(address safe, address token, address spender) internal view {
+    function _validateIncreaseAllowanceFinalState(address owner, address token, address spender) internal view {
         if (!_approvalPolicyExists[token][spender][APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE]) {
             revert SafeTxShapeApprovalSpenderNotAllowed(token, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE);
         }
@@ -484,7 +491,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
         PhEvm.ForkId memory postFork = _postCall(triggerCtx.callEnd);
 
         PhEvm.StaticCallResult memory result = ph.staticcallAt(
-            token, abi.encodeWithSignature("allowance(address,address)", safe, spender), ALLOWANCE_READ_GAS, postFork
+            token, abi.encodeWithSignature("allowance(address,address)", owner, spender), ALLOWANCE_READ_GAS, postFork
         );
         if (!result.ok || result.data.length < 32) {
             revert SafeTxShapeAllowanceReadFailed(token, spender);
@@ -584,9 +591,12 @@ abstract contract SafeTxShapeHelpers is Assertion {
             revert SafeTxShapeBatchPayloadMalformed();
         }
 
+        _requireNoOwnerGasRefund(input);
+
         (uint256 dataOffset, uint256 dataLength) = _dynamicBytesBounds(input, 4, _readUint256(input, 68));
         action = Action({
             safe: safe,
+            caller: safe,
             module: address(0),
             target: _readAbiAddress(input, 4),
             value: _readUint256(input, 36),
@@ -597,6 +607,18 @@ abstract contract SafeTxShapeHelpers is Assertion {
             fromModule: false,
             fromBatch: false
         });
+    }
+
+    function _requireNoOwnerGasRefund(bytes memory input) internal pure {
+        if (input.length < 388 || _selector(input) != EXEC_TRANSACTION_SELECTOR) {
+            revert SafeTxShapeBatchPayloadMalformed();
+        }
+
+        // Safe performs a second, protocol-native transfer after the requested action whenever
+        // signed gasPrice is nonzero. That recipient/token is outside the action tuple, so this
+        // policy explicitly disables refunds instead of silently leaving the transfer free.
+        uint256 gasPrice = _readUint256(input, 196);
+        if (gasPrice != 0) revert SafeTxShapeGasRefundBlocked(gasPrice);
     }
 
     function _decodeModuleAction(address safe, address module, bytes memory input)
@@ -615,6 +637,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
         (uint256 dataOffset, uint256 dataLength) = _dynamicBytesBounds(input, 4, _readUint256(input, 68));
         action = Action({
             safe: safe,
+            caller: safe,
             module: module,
             target: _readAbiAddress(input, 4),
             value: _readUint256(input, 36),

@@ -8,7 +8,7 @@ import {CredibleTest} from "../../../src/CredibleTest.sol";
 import {AssertionSpec} from "../../../src/SpecRecorder.sol";
 import {ILendingProtectionSuite} from "../../../src/protection/lending/ILendingProtectionSuite.sol";
 import {IAaveV3LikePool} from "../../../src/protection/lending/examples/AaveV3LikeInterfaces.sol";
-import {TydroProtectionSuite, ITydroL2Pool} from "../src/TydroOperationSafety.sol";
+import {TydroProtectionSuite, ITydroL2Pool, ITydroPoolCurrent} from "../src/TydroOperationSafety.sol";
 
 contract TydroCompactBorrowAssertion is Assertion {
     uint256 internal constant L2_SHORTENED_AMOUNT_MASK = type(uint128).max;
@@ -49,6 +49,10 @@ contract MockTydroPool is ITydroL2Pool {
         return reserves;
     }
 
+    function getReserveAddressById(uint16 id) external view returns (address) {
+        return reserves[id];
+    }
+
     function borrow(bytes32) external override {}
 
     function withdraw(bytes32) external pure override returns (uint256) {
@@ -75,7 +79,7 @@ contract TydroOperationSafetyTest is Test, CredibleTest {
     function testCompactSelectorsAreIncluded() public view {
         bytes4[] memory selectors = suite.getMonitoredSelectors();
 
-        assertEq(selectors.length, 10);
+        assertEq(selectors.length, 13);
         assertEq(selectors[6], ITydroL2Pool.borrow.selector);
         assertEq(selectors[7], ITydroL2Pool.withdraw.selector);
         assertEq(selectors[8], ITydroL2Pool.liquidationCall.selector);
@@ -103,6 +107,23 @@ contract TydroOperationSafetyTest is Test, CredibleTest {
         assertTrue(suite.shouldCheckPostOperationSolvency(op));
     }
 
+    function testL2BorrowDecodesMaxAmountSentinel() public view {
+        // The compact uint128 max sentinel must expand to a full uint256 max borrow, matching how
+        // the Pool interprets it; a shortened value would misreport the operation amount.
+        bytes32 args = _packL2Amount(0, type(uint128).max);
+
+        ILendingProtectionSuite.OperationContext memory op = suite.decodeOperation(
+            _triggered(ITydroL2Pool.borrow.selector, abi.encodeCall(ITydroL2Pool.borrow, (args)))
+        );
+
+        assertEq(uint256(op.kind), uint256(ILendingProtectionSuite.OperationKind.Borrow));
+        assertEq(op.account, caller);
+        assertEq(op.asset, reserve);
+        assertEq(op.amount, type(uint256).max);
+        assertTrue(op.increasesDebt);
+        assertTrue(suite.shouldCheckPostOperationSolvency(op));
+    }
+
     function testL2WithdrawDecodesMaxAmountSentinel() public view {
         // The compact uint128 max sentinel must expand to a full uint256 max withdrawal.
         bytes32 args = _packL2Amount(0, type(uint128).max);
@@ -125,7 +146,7 @@ contract TydroOperationSafetyTest is Test, CredibleTest {
         uint256 debtToCover = 55e6;
         // args1: user packed above bit 32; both compact asset ids resolve to reserve index 0.
         bytes32 args1 = bytes32(uint256(uint160(user)) << 32);
-        bytes32 args2 = _packL2Amount(0, debtToCover);
+        bytes32 args2 = bytes32(debtToCover);
 
         ILendingProtectionSuite.OperationContext memory op = suite.decodeOperation(
             _triggered(
@@ -143,9 +164,34 @@ contract TydroOperationSafetyTest is Test, CredibleTest {
         assertFalse(suite.shouldCheckPostOperationSolvency(op));
     }
 
+    function testL2LiquidationExpandsMaxAmountAndDecodesSettlementToken() public {
+        address user = makeAddr("borrower");
+        bytes32 args1 = bytes32(uint256(uint160(user)) << 32);
+
+        ILendingProtectionSuite.OperationContext memory aTokenOp = suite.decodeOperation(
+            _triggered(
+                ITydroL2Pool.liquidationCall.selector,
+                abi.encodeCall(ITydroL2Pool.liquidationCall, (args1, bytes32(uint256(type(uint128).max))))
+            )
+        );
+        ILendingProtectionSuite.OperationContext memory underlyingOp = suite.decodeOperation(
+            _triggered(
+                ITydroL2Pool.liquidationCall.selector,
+                abi.encodeCall(
+                    ITydroL2Pool.liquidationCall, (args1, bytes32(uint256(type(uint128).max) | (uint256(1) << 128)))
+                )
+            )
+        );
+
+        assertEq(aTokenOp.amount, type(uint256).max);
+        assertTrue(abi.decode(aTokenOp.metadata, (bool)));
+        assertEq(underlyingOp.amount, type(uint256).max);
+        assertFalse(abi.decode(underlyingOp.metadata, (bool)));
+    }
+
     function testL2DisableCollateralOnlyTriggersWhenTurningOff() public view {
-        bytes32 disableArgs = bytes32((uint256(1) << 16) | 0); // disable bit set, asset id 0
-        bytes32 enableArgs = bytes32(uint256(0)); // disable bit clear
+        bytes32 enableArgs = bytes32(uint256(0)); // bit clear means enable collateral
+        bytes32 disableArgs = bytes32(uint256(1) << 16); // bit set means disable collateral
 
         ILendingProtectionSuite.OperationContext memory disableOp = suite.decodeOperation(
             _triggered(
@@ -168,6 +214,25 @@ contract TydroOperationSafetyTest is Test, CredibleTest {
 
         assertEq(uint256(enableOp.kind), uint256(ILendingProtectionSuite.OperationKind.Unknown));
         assertFalse(suite.shouldCheckPostOperationSolvency(enableOp));
+    }
+
+    function testFinalizeTransferUsesCanonicalSelectorAndAmount() public {
+        address recipient = makeAddr("recipient");
+        uint256 amount = 42e18;
+        bytes memory input =
+            abi.encodeCall(ITydroPoolCurrent.finalizeTransfer, (reserve, caller, recipient, amount, 0, 0));
+
+        ILendingProtectionSuite.OperationContext memory op =
+            suite.decodeOperation(_triggered(ITydroPoolCurrent.finalizeTransfer.selector, input));
+
+        assertEq(ITydroPoolCurrent.finalizeTransfer.selector, IAaveV3LikePool.finalizeTransfer.selector);
+        assertEq(uint256(op.kind), uint256(ILendingProtectionSuite.OperationKind.TransferCollateral));
+        assertEq(op.account, caller);
+        assertEq(op.asset, reserve);
+        assertEq(op.counterparty, recipient);
+        assertEq(op.amount, amount);
+        assertTrue(op.reducesEffectiveCollateral);
+        assertTrue(suite.shouldCheckPostOperationSolvency(op));
     }
 
     function testStandardAaveBorrowDelegatesToBaseDecoder() public {

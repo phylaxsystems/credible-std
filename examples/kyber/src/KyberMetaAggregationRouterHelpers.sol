@@ -31,9 +31,12 @@ abstract contract KyberMetaAggregationRouterHelpers is Assertion {
 
     /// @notice The single fixed-address MetaAggregationRouterV2 this assertion protects.
     address internal immutable ROUTER;
+    bool internal immutable ORIGINAL_ROUTER_FAMILY;
 
-    constructor(address router_) {
+    constructor(address router_, bool originalRouterFamily_) {
+        require(router_ != address(0), "Kyber: router zero");
         ROUTER = router_;
+        ORIGINAL_ROUTER_FAMILY = originalRouterFamily_;
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 

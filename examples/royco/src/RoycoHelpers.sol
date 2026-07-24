@@ -158,13 +158,22 @@ interface IRoycoVaultTranche {
 abstract contract RoycoHelpers is Assertion {
     uint256 internal constant WAD = 1e18;
 
-    function _stripSelector(bytes memory input) internal pure returns (bytes memory args) {
-        require(input.length >= 4, "Royco: input too short");
-
-        args = new bytes(input.length - 4);
-        for (uint256 i; i < args.length; ++i) {
-            args[i] = input[i + 4];
+    /// @dev Reads argument word `argIndex` from selector-prefixed calldata returned by
+    ///      `ph.callinputAt`. All decoded Royco entrypoints take static tuples, so each argument
+    ///      sits at a fixed word offset past the 4-byte selector. Reading words in place replaces
+    ///      the old strip-the-selector byte-copy + `abi.decode` path, whose cost grew linearly
+    ///      with the calldata length: a call padded with trailing garbage bytes (which Solidity's
+    ///      decoder on the target accepts) would have burned the assertion's fixed gas budget
+    ///      inside that copy loop and invalidated the transaction spuriously.
+    function _inputWord(bytes memory input, uint256 argIndex) internal pure returns (uint256 word) {
+        require(input.length >= 4 + 32 * (argIndex + 1), "Royco: input too short");
+        assembly ("memory-safe") {
+            word := mload(add(input, add(36, mul(32, argIndex))))
         }
+    }
+
+    function _inputAddress(bytes memory input, uint256 argIndex) internal pure returns (address) {
+        return address(uint160(_inputWord(input, argIndex)));
     }
 }
 
@@ -191,12 +200,40 @@ abstract contract RoycoKernelHelpers is RoycoHelpers {
         address juniorTranche_,
         address jtAsset_
     ) {
+        require(kernel_ != address(0), "Royco: kernel zero");
+        require(accountant_ != address(0), "Royco: accountant zero");
+        require(seniorTranche_ != address(0) && juniorTranche_ != address(0), "Royco: tranche zero");
+        require(stAsset_ != address(0) && jtAsset_ != address(0), "Royco: asset zero");
         kernel = kernel_;
         accountant = accountant_;
         seniorTranche = seniorTranche_;
         stAsset = stAsset_;
         juniorTranche = juniorTranche_;
         jtAsset = jtAsset_;
+    }
+
+    function _requireKernelConfigurationAt(PhEvm.ForkId memory fork) internal view {
+        require(ph.getAssertionAdopter() == kernel, "Royco: configured kernel is not adopter");
+        require(
+            _readAddressAt(kernel, abi.encodeCall(IRoycoKernel.ACCOUNTANT, ()), fork) == accountant,
+            "Royco: accountant mismatch"
+        );
+        require(
+            _readAddressAt(kernel, abi.encodeCall(IRoycoKernel.SENIOR_TRANCHE, ()), fork) == seniorTranche,
+            "Royco: senior tranche mismatch"
+        );
+        require(
+            _readAddressAt(kernel, abi.encodeCall(IRoycoKernel.JUNIOR_TRANCHE, ()), fork) == juniorTranche,
+            "Royco: junior tranche mismatch"
+        );
+        require(
+            _readAddressAt(kernel, abi.encodeCall(IRoycoKernel.ST_ASSET, ()), fork) == stAsset,
+            "Royco: senior asset mismatch"
+        );
+        require(
+            _readAddressAt(kernel, abi.encodeCall(IRoycoKernel.JT_ASSET, ()), fork) == jtAsset,
+            "Royco: junior asset mismatch"
+        );
     }
 
     function _hasIdenticalAssets() internal view returns (bool) {
@@ -269,7 +306,9 @@ abstract contract RoycoKernelHelpers is RoycoHelpers {
         pure
         returns (uint256 shares, address receiver, bool bypassRedemptionRestrictions)
     {
-        return abi.decode(_stripSelector(input), (uint256, address, bool));
+        shares = _inputWord(input, 0);
+        receiver = _inputAddress(input, 1);
+        bypassRedemptionRestrictions = _inputWord(input, 2) != 0;
     }
 
     function _computeMaxUtilizationNeutralBonus(
@@ -332,9 +371,27 @@ abstract contract RoycoVaultTrancheHelpers is RoycoHelpers {
     ///      from the adopter; live tranche reads during construction would revert with
     ///      EXTCODESIZE = 0.
     constructor(address tranche_, address kernel_, RoycoTrancheType trancheType_) {
+        require(tranche_ != address(0), "Royco: tranche zero");
+        require(kernel_ != address(0), "Royco: kernel zero");
         tranche = tranche_;
         kernel = kernel_;
         trancheType = trancheType_;
+    }
+
+    function _requireTrancheConfigurationAt(PhEvm.ForkId memory fork) internal view {
+        require(ph.getAssertionAdopter() == tranche, "Royco: configured tranche is not adopter");
+        require(
+            _readAddressAt(tranche, abi.encodeCall(IRoycoVaultTranche.KERNEL, ()), fork) == kernel,
+            "Royco: tranche kernel mismatch"
+        );
+        require(
+            _readUintAt(tranche, abi.encodeCall(IRoycoVaultTranche.TRANCHE_TYPE, ()), fork) == uint256(trancheType),
+            "Royco: tranche type mismatch"
+        );
+    }
+
+    function _balanceOfAt(address account, PhEvm.ForkId memory fork) internal view returns (uint256) {
+        return _readUintAt(tranche, abi.encodeCall(IRoycoVaultTranche.balanceOf, (account)), fork);
     }
 
     function _totalSupplyAt(PhEvm.ForkId memory fork) internal view returns (uint256) {
@@ -393,7 +450,8 @@ abstract contract RoycoVaultTrancheHelpers is RoycoHelpers {
     }
 
     function _decodeTrancheDepositInput(bytes memory input) internal pure returns (uint256 assets, address receiver) {
-        return abi.decode(_stripSelector(input), (uint256, address));
+        assets = _inputWord(input, 0);
+        receiver = _inputAddress(input, 1);
     }
 
     function _decodeTrancheRedeemInput(bytes memory input)
@@ -401,35 +459,28 @@ abstract contract RoycoVaultTrancheHelpers is RoycoHelpers {
         pure
         returns (uint256 shares, address receiver, address owner)
     {
-        return abi.decode(_stripSelector(input), (uint256, address, address));
+        shares = _inputWord(input, 0);
+        receiver = _inputAddress(input, 1);
+        owner = _inputAddress(input, 2);
     }
 
-    function _convertToSharesWithVirtualOffsets(uint256 assetsNAV, uint256 totalSupply_, uint256 totalAssetsNAV)
-        internal
-        view
-        returns (uint256 shares)
-    {
-        return ph.mulDivDown(totalSupply_ + 1, assetsNAV, totalAssetsNAV + 1);
+    function _protocolFeeRecipientAt(PhEvm.ForkId memory fork) internal view returns (address) {
+        RoycoKernelStateView memory state =
+            abi.decode(_viewAt(kernel, abi.encodeCall(IRoycoKernel.getState, ()), fork), (RoycoKernelStateView));
+        return state.protocolFeeRecipient;
     }
 
-    function _expectedDepositMathAt(uint256 assets_, PhEvm.ForkId memory fork, uint256 preSupply)
+    function _expectedProtocolFeeSharesAt(uint256 preSupply, PhEvm.ForkId memory fork)
         internal
         view
-        returns (uint256 expectedFeeSharesMinted, uint256 expectedFormulaShares)
+        returns (uint256 expectedFeeShares)
     {
-        (RoycoSyncedAccountingState memory stateBeforeDeposit, uint256 valueAllocated) =
-            _kernelPreviewDepositAt(assets_, fork);
-
-        uint256 feeAccrued = trancheType == RoycoTrancheType.SENIOR
-            ? stateBeforeDeposit.stProtocolFeeAccrued
-            : stateBeforeDeposit.jtProtocolFeeAccrued;
-        uint256 effectiveNAV = trancheType == RoycoTrancheType.SENIOR
-            ? stateBeforeDeposit.stEffectiveNAV
-            : stateBeforeDeposit.jtEffectiveNAV;
-
-        (expectedFeeSharesMinted,) = _previewMintProtocolFeeSharesAt(feeAccrued, effectiveNAV, fork);
-        expectedFormulaShares =
-            _convertToSharesWithVirtualOffsets(valueAllocated, preSupply + expectedFeeSharesMinted, effectiveNAV);
+        (,, uint256 synchronizedSupply) = abi.decode(
+            _viewAt(kernel, abi.encodeCall(IRoycoKernel.previewSyncTrancheAccounting, (trancheType)), fork),
+            (RoycoSyncedAccountingState, RoycoAssetClaims, uint256)
+        );
+        require(synchronizedSupply >= preSupply, "Royco: preview supply underflow");
+        return synchronizedSupply - preSupply;
     }
 
     function _resolveTriggeredKernelRedeemCall(PhEvm.TriggerContext memory ctx, uint256 shares, address receiver)
@@ -437,7 +488,7 @@ abstract contract RoycoVaultTrancheHelpers is RoycoHelpers {
         view
         returns (PhEvm.TriggerCall memory redeemCall)
     {
-        PhEvm.TriggerCall[] memory calls = _matchingCalls(kernel, _kernelRedeemSelector(), 32);
+        PhEvm.TriggerCall[] memory calls = _matchingCalls(kernel, _kernelRedeemSelector(), type(uint256).max);
         uint256 matchCount;
 
         for (uint256 i; i < calls.length; ++i) {
@@ -447,7 +498,7 @@ abstract contract RoycoVaultTrancheHelpers is RoycoHelpers {
 
             // `matchingCalls` returns calldata args WITHOUT the 4-byte selector (it is the query
             // key), so decode the args tuple directly — unlike the `ph.callinputAt(...)` paths,
-            // whose raw calldata still carries the selector and needs `_stripSelector`.
+            // whose raw calldata still carries the selector and is read at selector-offset words.
             (uint256 kernelShares, address kernelReceiver, bool bypassRestrictions) =
                 abi.decode(calls[i].input, (uint256, address, bool));
             if (kernelShares != shares || kernelReceiver != receiver || bypassRestrictions) {

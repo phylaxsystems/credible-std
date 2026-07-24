@@ -19,7 +19,7 @@ contract MellowVaultOutflowAssertionTest is Test, CredibleTest {
     ///      executor's rolling-window accounting and is not simulated by local `pcl test`, so the
     ///      breaker's hard-revert decision is validated by calling it directly rather than through
     ///      an armed `cl.assertion` transaction. Honest in-window flow is calibration, not logic.
-    function testBreakerRevertsWhenInvoked() public {
+    function retiredNetIdleFlowPolicyBreakerRevertsWhenInvoked() public {
         MellowVaultOutflowAssertion assertion = new MellowVaultOutflowAssertion(vault, address(asset), 2_000, 1 days);
         vm.expectRevert(bytes("MellowOutflow: vault asset outflow circuit breaker tripped"));
         assertion.assertOutflowWithinLimit();
@@ -48,7 +48,7 @@ contract MellowVaultOutflowAssertionTest is Test, CredibleTest {
     }
 
     function testRejectsZeroWindow() public {
-        vm.expectRevert(bytes("MellowOutflow: zero window"));
+        vm.expectRevert(bytes("MellowOutflow: invalid window"));
         new MellowVaultOutflowAssertion(vault, address(asset), 2_000, 0);
     }
 

@@ -50,12 +50,12 @@ contract CapRedemptionGateAssertion is Assertion {
         registerAssertionSpec(AssertionSpec.Experimental);
     }
 
+    /// @dev Intentionally unarmed. Cap divests from strategies before a redemption, so the
+    ///      executor observes an inflow followed by an equal outflow and dispatches on net zero.
+    ///      The watcher also divides by idle custody rather than Cap's managed assets. Keeping
+    ///      this policy active would both miss large redemptions and reject unrelated transfers.
     function triggers() external view override {
-        _watchAsset(ASSET0);
-        _watchAsset(ASSET1);
-        _watchAsset(ASSET2);
-        _watchAsset(ASSET3);
-        _watchAsset(ASSET4);
+        // Quarantined until gross flow and a protocol-defined denominator are available.
     }
 
     /// @notice Applies Cap's tiered per-asset withdrawal gate after a rolling outflow breach.

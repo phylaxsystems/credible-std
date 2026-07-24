@@ -74,8 +74,8 @@ contract LidoStEthVaultPegAssertion is LidoVaultHelpers {
 
     /// @notice Wires the supply-change depeg gate and the wstETH rate-integrity check.
     function triggers() external view override {
-        registerTxEndTrigger(this.assertMintBurnPegSafety.selector);
-        registerTxEndTrigger(this.assertWstEthRateIntegrity.selector);
+        // Intentionally empty. Supply changes are not the pricing boundary for asynchronous
+        // Mellow flows, and blocking burns during depeg prevents legitimate exits and recovery.
     }
 
     /// @notice Checks that shares are not minted or burned while stETH trades off peg.

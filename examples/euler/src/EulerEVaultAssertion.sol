@@ -4,7 +4,6 @@ pragma solidity ^0.8.13;
 import {PhEvm} from "credible-std/PhEvm.sol";
 import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 
-import {EulerEVaultCircuitBreakerMixin} from "./EulerEVaultCircuitBreakerAssertion.sol";
 import {EulerEVaultBase} from "./EulerEVaultHelpers.sol";
 import {IEulerEVaultLike} from "./EulerEVaultInterfaces.sol";
 
@@ -89,6 +88,7 @@ abstract contract EulerPerCallSharePriceMixin is EulerEVaultBase {
     uint256 public immutable sharePriceToleranceBps;
 
     constructor(uint256 toleranceBps_) {
+        require(toleranceBps_ < 10_000, "EulerEVault: bad share price tolerance");
         sharePriceToleranceBps = toleranceBps_;
     }
 
@@ -170,9 +170,30 @@ abstract contract EulerPerCallSharePriceMixin is EulerEVaultBase {
     function _socializedDebtInCall(address vault, uint256 callId) internal view returns (uint256 socialized) {
         PhEvm.LogQuery memory query = PhEvm.LogQuery({emitter: vault, signature: DEBT_SOCIALIZED_SIG});
         PhEvm.Log[] memory logs = ph.getLogsForCall(query, callId);
+        PhEvm.ForkId memory pre = _preCall(callId);
+        PhEvm.ForkId memory post = _postCall(ph.context().callEnd);
 
         for (uint256 i; i < logs.length; ++i) {
-            socialized += _eventAmount(logs[i].data);
+            require(logs[i].topics.length >= 2, "EulerEVault: malformed DebtSocialized topics");
+            address account = _topicAddress(logs[i].topics[1]);
+            uint256 accountSocialized;
+            for (uint256 j; j < logs.length; ++j) {
+                if (_topicAddress(logs[j].topics[1]) == account) accountSocialized += _eventAmount(logs[j].data);
+            }
+
+            // Validate each account once. An event can compensate the share-price equation only
+            // when independently-read exact debt decreased by at least the reported amount.
+            bool seen;
+            for (uint256 j; j < i; ++j) {
+                if (_topicAddress(logs[j].topics[1]) == account) seen = true;
+            }
+            if (!seen) {
+                uint256 preDebt = _debtOfExactAt(vault, account, pre);
+                uint256 postDebt = _debtOfExactAt(vault, account, post);
+                require(preDebt >= postDebt, "EulerEVault: socialization increased debt");
+                require(preDebt - postDebt >= accountSocialized, "EulerEVault: socialization event exceeds debt drop");
+                socialized += accountSocialized;
+            }
         }
     }
 }
@@ -279,31 +300,15 @@ abstract contract EulerLiquidationQuoteMixin is EulerEVaultBase {
 /// @title EulerEVaultAssertion
 /// @author Phylax Systems
 /// @notice Example assertion bundle for Euler Vault Kit EVaults.
-/// @dev Covers five EVK-specific properties:
+/// @dev Covers two EVK-specific properties:
 ///      - changed user storage stays consistent with direct account views
 ///      - per-call virtual share price cannot drop except for same-call debt socialization
-///      - liquidations stay within the exact pre-call `checkLiquidation()` quote
-///      - cumulative underlying inflow hard-pauses after the threshold trips
-///      - cumulative underlying outflow response: liquidation-only at 10%, full pause at 15% in 24h
-contract EulerEVaultAssertion is
-    EulerUserStorageAccountingMixin,
-    EulerPerCallSharePriceMixin,
-    EulerLiquidationQuoteMixin,
-    EulerEVaultCircuitBreakerMixin
-{
-    /// @param asset_ Underlying asset of the EVault adopter, used by the flow watchers.
+///
+///      Liquidation-quote and rolling-flow policies are standalone only. A pre-call quote can be
+///      changed by EVK's official pre-operation hook, while net idle-token flow is not vault TVL.
+contract EulerEVaultAssertion is EulerUserStorageAccountingMixin, EulerPerCallSharePriceMixin {
     /// @param sharePriceToleranceBps_ Maximum tolerated call-level virtual share-price decrease.
-    /// @param inflowThresholdBps_ Rolling-window inflow cap as basis points of TVL.
-    /// @param inflowWindowDuration_ Rolling-window inflow duration in seconds.
-    constructor(
-        address asset_,
-        uint256 sharePriceToleranceBps_,
-        uint256 inflowThresholdBps_,
-        uint256 inflowWindowDuration_
-    )
-        EulerPerCallSharePriceMixin(sharePriceToleranceBps_)
-        EulerEVaultCircuitBreakerMixin(asset_, inflowThresholdBps_, inflowWindowDuration_)
-    {
+    constructor(uint256 sharePriceToleranceBps_) EulerPerCallSharePriceMixin(sharePriceToleranceBps_) {
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
@@ -312,8 +317,6 @@ contract EulerEVaultAssertion is
     function triggers() external view override {
         _registerUserStorageAccounting();
         _registerPerCallSharePrice();
-        _registerLiquidationQuote();
-        _registerCircuitBreakers();
     }
 }
 
@@ -355,6 +358,8 @@ contract EulerLiquidationQuoteAssertion is EulerLiquidationQuoteMixin {
 
     /// @notice Registers EVK liquidation quote triggers.
     function triggers() external view override {
-        _registerLiquidationQuote();
+        // Deliberately unarmed. EVK calls its configurable hook before computing liquidation, so
+        // a pre-call quote is not authoritative. A production adapter must bind a hook policy or
+        // reproduce the post-hook calculation boundary before enabling this check.
     }
 }

@@ -24,13 +24,13 @@ contract MockBoringVault is ERC20 {
     constructor() ERC20("Mock Boring Vault", "MBV") {}
 
     function enter(address from, address asset, uint256 assetAmount, address to, uint256 shareAmount) external {
-        ERC20Mock(asset).transferFrom(from, address(this), assetAmount);
+        if (assetAmount != 0) ERC20Mock(asset).transferFrom(from, address(this), assetAmount);
         _mint(to, shareAmount);
     }
 
     function exit(address to, address asset, uint256 assetAmount, address from, uint256 shareAmount) external {
         _burn(from, shareAmount);
-        ERC20Mock(asset).transfer(to, assetAmount);
+        if (assetAmount != 0) ERC20Mock(asset).transfer(to, assetAmount);
     }
 }
 
@@ -51,11 +51,11 @@ contract BoringVaultAssertionTest is Test, CredibleTest {
     }
 
     function _arm(bytes4 fnSelector) internal {
-        address[] memory monitoredAssets = new address[](1);
-        monitoredAssets[0] = address(asset);
+        address[] memory shareOnlyCallers = new address[](1);
+        shareOnlyCallers[0] = address(this);
         bytes memory createData = abi.encodePacked(
             type(BoringVaultAssertion).creationCode,
-            abi.encode(address(vault), address(accountant), uint8(18), monitoredAssets, 0, 0, 2_500, 2_500, 1 days)
+            abi.encode(address(vault), address(accountant), uint8(18), shareOnlyCallers, 0, 0)
         );
         cl.assertion(address(vault), createData, fnSelector);
     }
@@ -73,5 +73,40 @@ contract BoringVaultAssertionTest is Test, CredibleTest {
         vm.prank(alice);
         vm.expectRevert(bytes("BoringVault: enter over-minted shares"));
         vault.enter(alice, address(asset), 100 ether, alice, 101 ether);
+    }
+
+    function testAuthorizedShareOnlyEnterPasses() public {
+        _arm(BoringVaultAssertion.assertEnterAccounting.selector);
+        vault.enter(address(0), address(0), 0, alice, 100 ether);
+    }
+
+    function testUnauthorizedShareOnlyEnterTrips() public {
+        _arm(BoringVaultAssertion.assertEnterAccounting.selector);
+        vm.prank(alice);
+        vm.expectRevert(bytes("BoringVault: unauthorized share-only caller"));
+        vault.enter(address(0), address(0), 0, alice, 100 ether);
+    }
+
+    function testNonzeroAssetZeroAmountExitPasses() public {
+        vault.enter(address(0), address(0), 0, alice, 100 ether);
+        _arm(BoringVaultAssertion.assertExitAccounting.selector);
+
+        vault.exit(alice, address(asset), 0, alice, 50 ether);
+    }
+
+    function testAuthorizedShareOnlyExitPasses() public {
+        vault.enter(address(0), address(0), 0, address(this), 100 ether);
+        _arm(BoringVaultAssertion.assertExitAccounting.selector);
+
+        vault.exit(address(0), address(0), 0, address(this), 50 ether);
+    }
+
+    function testUnauthorizedShareOnlyExitTrips() public {
+        vault.enter(address(0), address(0), 0, alice, 100 ether);
+        _arm(BoringVaultAssertion.assertExitAccounting.selector);
+
+        vm.prank(alice);
+        vm.expectRevert(bytes("BoringVault: unauthorized share-only caller"));
+        vault.exit(address(0), address(0), 0, alice, 50 ether);
     }
 }

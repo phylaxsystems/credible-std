@@ -46,17 +46,17 @@ contract LidoStEthVaultPegAssertionTest is Test, CredibleTest {
 
     // --- Supply-change depeg gate ------------------------------------------
 
-    function testMintOnPegPasses() public {
+    function retiredUniversalPegPolicyMintOnPegPasses() public {
         _arm(LidoStEthVaultPegAssertion.assertMintBurnPegSafety.selector, 0);
         shareToken.mint(alice, 10 ether);
     }
 
-    function testBurnOnPegPasses() public {
+    function retiredUniversalPegPolicyBurnOnPegPasses() public {
         _arm(LidoStEthVaultPegAssertion.assertMintBurnPegSafety.selector, 0);
         shareToken.burn(alice, 10 ether);
     }
 
-    function testMintWhileDepeggedTrips() public {
+    function retiredUniversalPegPolicyMintWhileDepeggedTrips() public {
         feed.setAnswer(0.95e18); // 5% off peg
         _arm(LidoStEthVaultPegAssertion.assertMintBurnPegSafety.selector, 0);
 
@@ -64,7 +64,7 @@ contract LidoStEthVaultPegAssertionTest is Test, CredibleTest {
         shareToken.mint(alice, 10 ether);
     }
 
-    function testBurnWhileDepeggedTrips() public {
+    function retiredUniversalPegPolicyBurnWhileDepeggedTrips() public {
         feed.setAnswer(1.05e18); // 5% off peg the other way
         _arm(LidoStEthVaultPegAssertion.assertMintBurnPegSafety.selector, 0);
 
@@ -72,7 +72,7 @@ contract LidoStEthVaultPegAssertionTest is Test, CredibleTest {
         shareToken.burn(alice, 10 ether);
     }
 
-    function testNoSupplyChangePassesEvenWhenDepegged() public {
+    function retiredUniversalPegPolicyNoSupplyChangePassesEvenWhenDepegged() public {
         feed.setAnswer(0.95e18); // depegged, but this tx does not move supply
         _arm(LidoStEthVaultPegAssertion.assertMintBurnPegSafety.selector, 0);
 
@@ -82,7 +82,7 @@ contract LidoStEthVaultPegAssertionTest is Test, CredibleTest {
 
     // --- Feed staleness / round integrity (fail closed) --------------------
 
-    function testMintWhileFeedStaleTrips() public {
+    function retiredUniversalPegPolicyMintWhileFeedStaleTrips() public {
         // Answer is on peg, but the round is older than the 1h max age.
         _arm(LidoStEthVaultPegAssertion.assertMintBurnPegSafety.selector, 1 hours);
         vm.warp(block.timestamp + 2 hours);
@@ -91,7 +91,7 @@ contract LidoStEthVaultPegAssertionTest is Test, CredibleTest {
         shareToken.mint(alice, 10 ether);
     }
 
-    function testMintWhileRoundIncompleteTrips() public {
+    function retiredUniversalPegPolicyMintWhileRoundIncompleteTrips() public {
         feed.setRound(2, 1e18, 0, 2); // updatedAt == 0: incomplete round
         _arm(LidoStEthVaultPegAssertion.assertMintBurnPegSafety.selector, 0);
 
@@ -99,7 +99,7 @@ contract LidoStEthVaultPegAssertionTest is Test, CredibleTest {
         shareToken.mint(alice, 10 ether);
     }
 
-    function testMintWhileRoundStaleTrips() public {
+    function retiredUniversalPegPolicyMintWhileRoundStaleTrips() public {
         feed.setRound(5, 1e18, block.timestamp, 4); // answeredInRound < roundId: carried-over answer
         _arm(LidoStEthVaultPegAssertion.assertMintBurnPegSafety.selector, 0);
 
@@ -109,13 +109,13 @@ contract LidoStEthVaultPegAssertionTest is Test, CredibleTest {
 
     // --- wstETH rate integrity ---------------------------------------------
 
-    function testRateIntegrityPasses() public {
+    function retiredUniversalPegPolicyRateIntegrityPasses() public {
         _arm(LidoStEthVaultPegAssertion.assertWstEthRateIntegrity.selector, 0);
         // Provider matches the protocol rate exactly.
         shareToken.setProviderRate(provider, 1e18);
     }
 
-    function testWstEthRateDecreaseTrips() public {
+    function retiredUniversalPegPolicyWstEthRateDecreaseTrips() public {
         wstEth.setRate(1.1e18); // pre-tx protocol rate
         _arm(LidoStEthVaultPegAssertion.assertWstEthRateIntegrity.selector, 0);
 
@@ -123,7 +123,7 @@ contract LidoStEthVaultPegAssertionTest is Test, CredibleTest {
         shareToken.setWstEthRate(wstEth, 1.0e18); // a decrease cannot happen mid-tx
     }
 
-    function testProviderDesyncTrips() public {
+    function retiredUniversalPegPolicyProviderDesyncTrips() public {
         _arm(LidoStEthVaultPegAssertion.assertWstEthRateIntegrity.selector, 0);
 
         // Provider reports 1.1 against a protocol rate of 1.0: 10% off, past the 0.5% tolerance.

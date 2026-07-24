@@ -72,7 +72,6 @@ contract MockBalancerV3Vault {
     address public skimReceiver;
     bool public swapHooks;
     bool public recoveryMode;
-    bool public revertOnPoolReads;
 
     constructor(address pool_, address token0_, address token1_, MockRateProvider rateProvider0_) {
         pool = pool_;
@@ -99,10 +98,6 @@ contract MockBalancerV3Vault {
 
     function setRecoveryMode(bool enabled) external {
         recoveryMode = enabled;
-    }
-
-    function setRevertOnPoolReads(bool enabled) external {
-        revertOnPoolReads = enabled;
     }
 
     function registerNewRateProvider() external {
@@ -132,6 +127,13 @@ contract MockBalancerV3Vault {
     }
 
     function unrelatedVaultCall() external pure {}
+
+    /// @notice Buggy-code-shaped custody sweep: real tokens leave the Vault while reserves, raw
+    ///         pool balances, BPT supply, and aggregate fees all stay exactly as they were — no
+    ///         watched-pool accounting delta anywhere.
+    function sweepCustodyOnly(address token, uint256 amount) external {
+        IMockERC20(token).transfer(skimReceiver, amount);
+    }
 
     // --- swap ----------------------------------------------------------------
 
@@ -238,7 +240,6 @@ contract MockBalancerV3Vault {
             uint256[] memory lastBalancesLiveScaled18
         )
     {
-        require(!revertOnPoolReads, "MockVault: unexpected pool read");
         tokens = _tokens;
         tokenInfo = new TokenInfo[](2);
         tokenInfo[0] =

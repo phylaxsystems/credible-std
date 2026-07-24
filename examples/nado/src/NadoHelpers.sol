@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import {Assertion} from "credible-std/Assertion.sol";
 import {PhEvm} from "credible-std/PhEvm.sol";
 
-import {INadoErc20MetadataLike, INadoSpotEngineLike} from "./NadoInterfaces.sol";
+import {INadoClearinghouseLike, INadoErc20MetadataLike, INadoSpotEngineLike} from "./NadoInterfaces.sol";
 
 /// @title NadoHelpers
 /// @author Phylax Systems
@@ -29,12 +29,34 @@ abstract contract NadoHelpers is Assertion {
         address withdrawPool_,
         uint256 collateralDeltaToleranceX18_
     ) {
+        require(endpoint_ != address(0), "Nado: endpoint zero");
+        require(clearinghouse_ != address(0), "Nado: clearinghouse zero");
+        require(spotEngine_ != address(0), "Nado: spot engine zero");
+        require(quoteAsset_ != address(0), "Nado: quote asset zero");
+        require(withdrawPool_ != address(0), "Nado: withdraw pool zero");
+        require(
+            collateralDeltaToleranceX18_ >= 1 && collateralDeltaToleranceX18_ <= INT128_MAX,
+            "Nado: invalid collateral tolerance"
+        );
         endpoint = endpoint_;
         clearinghouse = clearinghouse_;
         spotEngine = spotEngine_;
         quoteAsset = quoteAsset_;
         withdrawPool = withdrawPool_;
         collateralDeltaToleranceX18 = collateralDeltaToleranceX18_;
+    }
+
+    function _requireConfigurationAt(PhEvm.ForkId memory fork) internal view {
+        require(ph.getAssertionAdopter() == clearinghouse, "Nado: configured clearinghouse is not adopter");
+        require(
+            _readAddressAt(clearinghouse, abi.encodeCall(INadoClearinghouseLike.getQuote, ()), fork) == quoteAsset,
+            "Nado: quote asset mismatch"
+        );
+        require(
+            _readAddressAt(clearinghouse, abi.encodeCall(INadoClearinghouseLike.getWithdrawPool, ()), fork)
+                == withdrawPool,
+            "Nado: withdraw pool mismatch"
+        );
     }
 
     function _spotBalanceAt(uint32 productId, bytes32 subaccount, PhEvm.ForkId memory fork)

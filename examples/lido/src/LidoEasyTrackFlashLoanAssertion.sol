@@ -5,6 +5,23 @@ import {PhEvm} from "credible-std/PhEvm.sol";
 import {Assertion} from "credible-std/Assertion.sol";
 import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 
+interface ILidoEasyTrackLike {
+    struct Motion {
+        uint256 id;
+        address evmScriptFactory;
+        address creator;
+        uint256 duration;
+        uint256 startDate;
+        uint256 snapshotBlock;
+        uint256 objectionsThreshold;
+        uint256 objectionsAmount;
+        bytes32 evmScriptHash;
+    }
+
+    function objectToMotion(uint256 motionId) external;
+    function getMotion(uint256 motionId) external view returns (Motion memory);
+}
+
 /// @title LidoEasyTrackFlashLoanAssertion
 /// @author Phylax Systems
 /// @notice Blocks flash-loaned governance power from being exercised against a Lido governance
@@ -32,7 +49,7 @@ import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 ///      the "snapshot a block earlier" property from the outside: same-block (flash-loaned) balance
 ///      no longer counts, because the transaction that relies on it is never included.
 ///
-///      ## Two detection layers (the two approaches discussed on the call), both armable
+///      ## Detection boundary
 ///      - **`assertNoFlashLoanedVotingPower` (primary, precise).** For the protected call that fired
 ///        this invocation, compare the caller's `governanceToken` balance at the start of the
 ///        transaction (`PreTx`) against its balance immediately before the governance call executes
@@ -40,7 +57,7 @@ import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 ///        the transaction — revert. This reads the balance at *exactly* the point the governance
 ///        snapshot would, so it neither misses a borrow that lands just before the call nor flags a
 ///        borrow that was already repaid before it.
-///      - **`assertNoSameTxGovTokenInflow` (corroborating, coarser).** For the firing call's caller,
+///      - **`assertNoSameTxGovTokenInflow` (retained diagnostic, not registered).** For the firing call's caller,
 ///        sum the gross `governanceToken` transferred *to* it anywhere in the transaction. Any inflow
 ///        beyond `maxIntraTxAcquired` reverts. This is the "read the transfer logs" approach: cheaper
 ///        and it catches power routed through the caller even if intermediate balances net out, at the
@@ -48,10 +65,10 @@ import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 ///        transaction. Arm it alongside the primary layer when the governance entrypoint can be
 ///        reached by a contract that only holds the token transiently.
 ///
-///      Both layers are wired with `registerFnCallTrigger`, so each fires once per matching protected
-///      call with the firing call exposed via `ph.context()` — a transaction that does not touch
-///      governance pays nothing, and a transaction with multiple protected calls checks each exactly
-///      once instead of re-scanning every call on every invocation.
+///      Only the primary layer is registered. The gross-log variant is temporally overbroad because
+///      it can count transfers after the objection or unrelated transfers elsewhere in the
+///      transaction. Both checks return immediately for a motion whose snapshot predates the
+///      current block, because current balance changes cannot affect that motion's objection weight.
 contract LidoEasyTrackFlashLoanAssertion is Assertion {
     /// @notice The governance contract this assertion protects (the assertion adopter). Protected
     ///         selectors are matched against calls received here.
@@ -78,29 +95,27 @@ contract LidoEasyTrackFlashLoanAssertion is Assertion {
     ) {
         require(governanceContract_ != address(0), "LidoGov: zero governance contract");
         require(governanceToken_ != address(0), "LidoGov: zero governance token");
-        require(protectedSelectors_.length != 0, "LidoGov: no protected selectors");
+        require(protectedSelectors_.length == 1, "LidoGov: protect only objectToMotion");
 
         governanceContract = governanceContract_;
         governanceToken = governanceToken_;
         maxIntraTxAcquired = maxIntraTxAcquired_;
 
         for (uint256 i; i < protectedSelectors_.length; ++i) {
-            require(protectedSelectors_[i] != bytes4(0), "LidoGov: zero selector");
+            require(
+                protectedSelectors_[i] == ILidoEasyTrackLike.objectToMotion.selector,
+                "LidoGov: unsupported protected selector"
+            );
             protectedSelectors.push(protectedSelectors_[i]);
         }
 
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
-    /// @notice Wires both detection layers to every protected selector.
-    /// @dev Each protected selector gets an `onFnCall` trigger for both assertion functions, so the
-    ///      armed layer fires once per matching call with the firing call available via `ph.context()`.
-    ///      An operator arms whichever layer(s) they want; only the armed function executes, and only
-    ///      when its selector is called on the governance contract.
+    /// @notice Wires the current-block snapshot check to `objectToMotion`.
     function triggers() external view override {
         for (uint256 i; i < protectedSelectors.length; ++i) {
             registerFnCallTrigger(this.assertNoFlashLoanedVotingPower.selector, protectedSelectors[i]);
-            registerFnCallTrigger(this.assertNoSameTxGovTokenInflow.selector, protectedSelectors[i]);
         }
     }
 
@@ -114,6 +129,10 @@ contract LidoEasyTrackFlashLoanAssertion is Assertion {
     ///      is no need to re-scan every selector and every matching call here.
     function assertNoFlashLoanedVotingPower() external view {
         PhEvm.TriggerContext memory ctx = ph.context();
+        require(ph.getAssertionAdopter() == governanceContract, "LidoGov: configured governance is not adopter");
+        if (!_usesCurrentBlockSnapshot(ctx)) {
+            return;
+        }
         address actor = _triggerCaller(ctx);
 
         uint256 atTxStart = _readBalanceAt(governanceToken, actor, _preTx());
@@ -135,6 +154,10 @@ contract LidoEasyTrackFlashLoanAssertion is Assertion {
     ///      transiently-funded caller. Arm it as defense in depth.
     function assertNoSameTxGovTokenInflow() external view {
         PhEvm.TriggerContext memory ctx = ph.context();
+        require(ph.getAssertionAdopter() == governanceContract, "LidoGov: configured governance is not adopter");
+        if (!_usesCurrentBlockSnapshot(ctx)) {
+            return;
+        }
         address actor = _triggerCaller(ctx);
 
         PhEvm.Erc20TransferData[] memory deltas = ph.getErc20Transfers(governanceToken, _postTx());
@@ -159,5 +182,26 @@ contract LidoEasyTrackFlashLoanAssertion is Assertion {
             if (calls[i].id == ctx.callStart) return calls[i].caller;
         }
         revert("LidoGov: trigger call not found");
+    }
+
+    function _usesCurrentBlockSnapshot(PhEvm.TriggerContext memory ctx) private view returns (bool) {
+        uint256 motionId = abi.decode(_stripSelector(ph.callinputAt(ctx.callStart)), (uint256));
+        ILidoEasyTrackLike.Motion memory motion = abi.decode(
+            _viewAt(
+                governanceContract,
+                abi.encodeCall(ILidoEasyTrackLike.getMotion, (motionId)),
+                _preCall(ctx.callStart)
+            ),
+            (ILidoEasyTrackLike.Motion)
+        );
+        return motion.snapshotBlock == block.number;
+    }
+
+    function _stripSelector(bytes memory input) private pure returns (bytes memory args) {
+        require(input.length >= 4, "LidoGov: short calldata");
+        args = new bytes(input.length - 4);
+        for (uint256 i; i < args.length; ++i) {
+            args[i] = input[i + 4];
+        }
     }
 }

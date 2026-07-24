@@ -79,7 +79,7 @@ contract MellowSubvaultAllocationAssertionTest is Test, CredibleTest {
     }
 
     function testRejectsZeroExitLiquidityBps() public {
-        vm.expectRevert(bytes("MellowSubvault: zero exit liquidity bps"));
+        vm.expectRevert(bytes("MellowSubvault: invalid exit bps"));
         new MellowSubvaultAllocationAssertion(address(subvault), address(asset), address(aToken), 0);
     }
 

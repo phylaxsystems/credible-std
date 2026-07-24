@@ -22,7 +22,7 @@ contract FluidLiquidityFlowBreakerAssertion is FluidLiquidityBase {
     uint256 public constant WARN_OUTFLOW_BPS = 1_000; // 10%
     uint256 public constant CRITICAL_OUTFLOW_BPS = 2_000; // 20%
     uint256 public constant OUTFLOW_WINDOW = 24 hours;
-    uint256 internal constant MAX_SUCCESSFUL_OPERATE_CALLS = 256;
+    uint256 internal constant MAX_SUCCESSFUL_OPERATE_CALLS = type(uint256).max;
 
     /// @notice `operate`'s `token_` is calldata arg 0 and `borrowAmount_` is calldata arg 2.
     uint256 internal constant OPERATE_TOKEN_ARG = 0;
@@ -34,9 +34,14 @@ contract FluidLiquidityFlowBreakerAssertion is FluidLiquidityBase {
     /// @param tokens_ Monitored token addresses (the Liquidity Layer markets to rate-limit).
     constructor(address[] memory tokens_) {
         uint256 length = tokens_.length;
+        require(length != 0, "Fluid: empty token list");
         for (uint256 i; i < length; ++i) {
+            require(tokens_[i] != address(0), "Fluid: zero token");
             require(tokens_[i] != NATIVE_TOKEN, "Fluid: native token breaker unsupported");
             require(!_hasFluidExternalCustody(tokens_[i]), "Fluid: external custody breaker unsupported");
+            for (uint256 j; j < i; ++j) {
+                require(tokens_[j] != tokens_[i], "Fluid: duplicate token");
+            }
         }
 
         tokens = tokens_;

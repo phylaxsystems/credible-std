@@ -113,15 +113,23 @@ contract UniswapV4PoolManagerAssertionTest is Test {
         new UniswapV4PoolManagerAssertionHarness(address(0), key);
     }
 
-    function testAcceptsNativeCurrencyPool() external {
+    function testRejectsNativeCurrencyPoolWithoutForkAwareBalanceSupport() external {
         IUniswapV4PoolManagerLike.PoolKey memory key = IUniswapV4PoolManagerLike.PoolKey({
             currency0: address(0), currency1: address(token0), fee: 3000, tickSpacing: 60, hooks: address(0)
         });
 
-        UniswapV4PoolManagerAssertionHarness nativeHarness = new UniswapV4PoolManagerAssertionHarness(manager, key);
+        vm.expectRevert(bytes("UniswapV4Pool: native unsupported"));
+        new UniswapV4PoolManagerAssertionHarness(manager, key);
+    }
 
-        assertEq(nativeHarness.poolId(), keccak256(abi.encode(key)));
-        assertTrue(nativeHarness.isNativeCurrency(address(0)));
-        assertFalse(nativeHarness.isNativeCurrency(address(token0)));
+    function testRejectsHookedPoolWithoutHookAssertionModel() external {
+        (address c0, address c1) =
+            address(token0) < address(token1) ? (address(token0), address(token1)) : (address(token1), address(token0));
+        IUniswapV4PoolManagerLike.PoolKey memory key = IUniswapV4PoolManagerLike.PoolKey({
+            currency0: c0, currency1: c1, fee: 3000, tickSpacing: 60, hooks: makeAddr("hook")
+        });
+
+        vm.expectRevert(bytes("UniswapV4Pool: hooks unsupported"));
+        new UniswapV4PoolManagerAssertionHarness(manager, key);
     }
 }

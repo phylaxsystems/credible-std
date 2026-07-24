@@ -68,13 +68,24 @@ contract MockZkLighter is IZkLighterLike {
         _stateRoot = newRoot;
     }
 
-    /// @notice Privileged one-shot state-root migration: moves the root with no executed advance.
-    function updateStateRoot(bytes32, bytes32, bytes32 newStateRoot, bytes calldata) external {
+    /// @notice Test shim for the deployed proof-gated migration selector.
+    fallback() external {
+        require(msg.sig == bytes4(0x7271277e), "MockZkLighter: unknown selector");
+        bytes32 newStateRoot;
+        assembly {
+            newStateRoot := calldataload(4)
+        }
         _stateRoot = newStateRoot;
     }
 
     function activateDesertMode() external {
         _desertMode = true;
+    }
+
+    function cancelOutstandingDeposits(uint256 count) external {
+        require(_desertMode && count <= _openPriority, "bad cancellation");
+        _executedPriority += count;
+        _openPriority -= count;
     }
 
     // --- Malicious / buggy mutations (one knob per failure mode) -----------
@@ -85,6 +96,15 @@ contract MockZkLighter is IZkLighterLike {
 
     function rollbackExecutedBatch() external {
         _executedBatches -= 1;
+    }
+
+    function rollbackVerifiedBatch() external {
+        _verifiedBatches -= 1;
+        _verifiedPriority -= 1;
+    }
+
+    function corruptDesertPriorityAccounting() external {
+        _executedPriority += 1;
     }
 
     function rewriteStateRoot(bytes32 root) external {
@@ -179,6 +199,11 @@ contract LighterBridgeAssertionTest is Test, CredibleTest {
         bridge.rollbackExecutedBatch(); // executed 6->5
     }
 
+    function testFinalityAllowsVerifiedRollbackAboveExecutedTip() public {
+        _arm(RollupBridgeStateMachineAssertion.assertFinalityNonDecreasing.selector);
+        bridge.rollbackVerifiedBatch(); // verified 8->7 while executed remains 6
+    }
+
     // --- State-root continuity --------------------------------------------
 
     function testStateRootHonestExecuteAdvancePasses() public {
@@ -189,7 +214,8 @@ contract LighterBridgeAssertionTest is Test, CredibleTest {
     function testStateRootAuthorizedMigrationPasses() public {
         _arm(RollupBridgeStateMachineAssertion.assertStateRootContinuity.selector);
         // Root moves with no executed advance, but through the authorized migration selector.
-        bridge.updateStateRoot(ROOT_A, bytes32(0), ROOT_B, hex"");
+        (bool ok,) = address(bridge).call(abi.encodePacked(bytes4(0x7271277e), ROOT_B));
+        assertTrue(ok);
     }
 
     function testStateRootRewriteWithoutExecutionTrips() public {
@@ -203,6 +229,26 @@ contract LighterBridgeAssertionTest is Test, CredibleTest {
     function testDesertActivationFromActiveStatePasses() public {
         _arm(LighterBridgeAssertion.assertDesertModeIntegrity.selector);
         bridge.activateDesertMode(); // pre: not desert -> freeze checks skipped
+    }
+
+    function testDesertActivationWithoutOpenRequestsTrips() public {
+        bridge.seed(10, 8, 6, 6, 6, 6, 0, ROOT_A, false);
+        _arm(LighterBridgeAssertion.assertDesertModeIntegrity.selector);
+        vm.expectRevert(bytes("LighterBridge: desert mode activated without open requests"));
+        bridge.activateDesertMode();
+    }
+
+    function testDesertCancellationConservesPriorityRequests() public {
+        bridge.seed(10, 8, 6, 10, 8, 6, 4, ROOT_A, true);
+        _arm(LighterBridgeAssertion.assertDesertModeIntegrity.selector);
+        bridge.cancelOutstandingDeposits(4);
+    }
+
+    function testDesertPriorityAccountingCorruptionTrips() public {
+        bridge.seed(10, 8, 6, 10, 8, 6, 4, ROOT_A, true);
+        _arm(LighterBridgeAssertion.assertDesertModeIntegrity.selector);
+        vm.expectRevert(bytes("LighterBridge: desert cancellation does not conserve priority requests"));
+        bridge.corruptDesertPriorityAccounting();
     }
 
     function testDesertModeExitTrips() public {

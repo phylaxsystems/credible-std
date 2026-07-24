@@ -5,7 +5,6 @@ import {PhEvm} from "credible-std/PhEvm.sol";
 import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 
 import {MellowCuratorHelpers} from "./MellowCuratorHelpers.sol";
-import {IMellowRiskManager} from "./MellowCuratorInterfaces.sol";
 
 /// @title MellowRiskManagerBalanceAssertion
 /// @author Phylax Systems
@@ -55,14 +54,10 @@ contract MellowRiskManagerBalanceAssertion is MellowCuratorHelpers {
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
-    /// @notice Fires one bounded-magnitude check per balance-correction entrypoint.
+    /// @notice Quarantined: these methods are routine queue and strategy accounting hot paths.
     function triggers() external view override {
-        registerFnCallTrigger(
-            this.assertVaultBalanceModifyBounded.selector, IMellowRiskManager.modifyVaultBalance.selector
-        );
-        registerFnCallTrigger(
-            this.assertSubvaultBalanceModifyBounded.selector, IMellowRiskManager.modifySubvaultBalance.selector
-        );
+        // Intentionally empty. A per-call percentage cap rejects valid deposits, redeems, pushes,
+        // and pulls while repeated calls can still bypass the intended transaction-wide bound.
     }
 
     /// @notice Bounds the change to the vault's accounted balance from one `modifyVaultBalance` call.

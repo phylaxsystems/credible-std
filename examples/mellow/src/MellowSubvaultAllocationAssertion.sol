@@ -57,7 +57,7 @@ contract MellowSubvaultAllocationAssertion is MellowCuratorHelpers {
         require(subvault_ != address(0), "MellowSubvault: zero subvault");
         require(asset_ != address(0), "MellowSubvault: zero asset");
         require(aToken_ != address(0), "MellowSubvault: zero aToken");
-        require(minExitLiquidityBps_ != 0, "MellowSubvault: zero exit liquidity bps");
+        require(minExitLiquidityBps_ != 0 && minExitLiquidityBps_ <= 10_000, "MellowSubvault: invalid exit bps");
 
         subvault = subvault_;
         asset = asset_;
@@ -85,6 +85,7 @@ contract MellowSubvaultAllocationAssertion is MellowCuratorHelpers {
     ///      failure means the transaction parked more of the vault's funds in a market that cannot
     ///      currently be unwound.
     function assertHealthyAllocation() external view {
+        require(ph.getAssertionAdopter() == subvault, "MellowSubvault: configured subvault is not adopter");
         PhEvm.ForkId memory pre = _preTx();
         PhEvm.ForkId memory post = _postTx();
 

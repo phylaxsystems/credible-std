@@ -38,6 +38,7 @@ abstract contract ERC4626AssetFlowAssertion is ERC4626BaseAssertion {
 
     /// @notice Verifies the change in totalAssets across the tx matches the net ERC-20 flow.
     function assertAssetFlowMatchesAccounting() external {
+        _requireVaultConfigurationAt(_postTx());
         uint256 preAssets = _totalAssetsAt(_preTx());
         uint256 postAssets = _totalAssetsAt(_postTx());
 
@@ -71,6 +72,7 @@ abstract contract ERC4626AssetFlowAssertion is ERC4626BaseAssertion {
     /// @dev Uses ph.context() to check at PostCall of the triggering call.
     function assertZeroAddressHasNoShares() external {
         PhEvm.TriggerContext memory ctx = ph.context();
+        _requireVaultConfigurationAt(_postCall(ctx.callEnd));
         require(_shareBalanceAt(address(0), _postCall(ctx.callEnd)) == 0, "ERC4626: zero address holds shares");
     }
 }

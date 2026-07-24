@@ -48,6 +48,10 @@ abstract contract SymbioticHelpers is Assertion {
         return _readUintAt(vault, abi.encodeCall(ISymbioticVaultLike.currentEpoch, ()), fork);
     }
 
+    function _epochAt(address vault, uint48 timestamp, PhEvm.ForkId memory fork) internal view returns (uint256) {
+        return _readUintAt(vault, abi.encodeCall(ISymbioticVaultLike.epochAt, (timestamp)), fork);
+    }
+
     function _depositWhitelistAt(address vault, PhEvm.ForkId memory fork) internal view returns (bool) {
         return _readBoolAt(vault, abi.encodeCall(ISymbioticVaultLike.depositWhitelist, ()), fork);
     }
@@ -152,16 +156,16 @@ abstract contract SymbioticHelpers is Assertion {
         return ISymbioticOpNetVaultAutoDeployLike(provider);
     }
 
-    /// @notice Returns the trigger call matching the current `TriggerContext` for `target`.
-    function _currentTriggerCall(address target, PhEvm.TriggerContext memory ctx)
+    /// @notice Returns the caller for the exact call matching the current trigger context.
+    function _currentTriggerCaller(address target, PhEvm.TriggerContext memory ctx)
         internal
         view
-        returns (PhEvm.TriggerCall memory)
+        returns (address)
     {
-        PhEvm.TriggerCall[] memory calls = _matchingCalls(target, ctx.selector, 256);
+        PhEvm.CallInputs[] memory calls = ph.getCallInputs(target, ctx.selector);
         for (uint256 i; i < calls.length; ++i) {
-            if (calls[i].callId == ctx.callStart) {
-                return calls[i];
+            if (calls[i].id == ctx.callStart) {
+                return calls[i].caller;
             }
         }
         revert("SymbioticHelpers: missing trigger call");

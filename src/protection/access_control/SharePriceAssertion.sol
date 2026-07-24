@@ -5,29 +5,25 @@ import {AccessControlBaseAssertion} from "./AccessControlBaseAssertion.sol";
 
 /// @title SharePriceAssertion
 /// @author Phylax Systems
-/// @notice Asserts that ERC-4626 vault share prices do not deviate beyond a configurable
-///         tolerance, protecting against admin-driven share price manipulation.
+/// @notice Applies a symmetric endpoint share-price policy to configured ERC-4626 vaults.
 ///
 /// Invariants covered:
-///   - **Share price stability**: the ratio totalAssets / totalSupply must not shift more
-///     than `toleranceBps` across any fork point in the transaction.
-///   - **Donation attack prevention**: catches inflated totalAssets without proportional
-///     share minting.
-///   - **First-depositor exploit prevention**: detects exchange rate manipulation with
-///     tiny initial deposits followed by large donations.
-///   - **Flash-loan manipulation**: flags temporary share price distortion within a
-///     transaction.
+///   - **Endpoint share price stability**: the ratio totalAssets / totalSupply must not shift more
+///     than `toleranceBps` between transaction start and transaction end.
+///   - **Donation policy**: catches endpoint increases without proportional share minting once the
+///     vault already has nonzero supply.
 ///
-/// @dev Uses the V2 `assetsMatchSharePrice` precompile for a comprehensive all-forks check.
+/// @dev Uses the V2 `assetsMatchSharePriceAt` precompile at transaction endpoints only.
 ///      This is a simpler mixin than the full ERC4626SharePriceAssertion -- it omits per-call
 ///      triggers and focuses on tx-wide share price envelope protection. Use this when the
 ///      access-control concern is preventing admin manipulation of share prices, rather than
 ///      enforcing full ERC-4626 compliance.
 ///
-///      Implementers must override `_protectedVaults()` to declare which vault addresses and
-///      tolerances to check. Each configured vault produces one all-forks precompile call, so
-///      large vault families should split coverage or move to a batched primitive when one is
-///      available.
+///      This is a symmetric operator policy, not an ERC-4626 invariant: legitimate yield can move
+///      the ratio upward. The executor skips comparisons when either endpoint supply is zero, so
+///      first deposit, full burn, and zero-supply donation transitions are explicitly outside its
+///      protection. Implementers must override `_protectedVaults()` to declare supported vaults
+///      and must calibrate tolerances from those concrete implementations.
 abstract contract SharePriceAssertion is AccessControlBaseAssertion {
     error SharePriceChanged(address vault, uint256 toleranceBps);
 
@@ -54,15 +50,19 @@ abstract contract SharePriceAssertion is AccessControlBaseAssertion {
         registerTxEndTrigger(this.assertSharePrice.selector);
     }
 
-    /// @notice Verifies that all protected vault share prices are stable across the transaction.
-    /// @dev Uses `ph.assetsMatchSharePrice()` for each vault, which reads totalAssets() and
-    ///      totalSupply() at every fork point and checks for deviation beyond the tolerance.
+    /// @notice Verifies that all protected vault endpoint share prices are stable across the transaction.
+    /// @dev Uses `ph.assetsMatchSharePriceAt()` for each vault at PreTx and PostTx. Intermediate
+    ///      snapshots are excluded because healthy vaults often update assets and shares at
+    ///      different moments inside one operation.
     ///      Reverts on the first vault whose share price moved beyond tolerance.
     function assertSharePrice() external view {
         ProtectedVault[] memory vaults = _protectedVaults();
 
         for (uint256 i = 0; i < vaults.length; i++) {
-            if (!ph.assetsMatchSharePrice(vaults[i].vault, vaults[i].toleranceBps)) {
+            if (vaults[i].vault == address(0) || vaults[i].toleranceBps >= 10_000) {
+                revert SharePriceChanged(vaults[i].vault, vaults[i].toleranceBps);
+            }
+            if (!ph.assetsMatchSharePriceAt(vaults[i].vault, vaults[i].toleranceBps, _preTx(), _postTx())) {
                 revert SharePriceChanged(vaults[i].vault, vaults[i].toleranceBps);
             }
         }

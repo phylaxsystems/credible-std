@@ -20,7 +20,8 @@ import {IUniswapV4PoolManagerLike} from "./UniswapV4PoolManagerInterfaces.sol";
 ///
 /// Because the PoolManager is shared across every v4 pool, each call-scoped trigger must check
 /// that the call's PoolKey matches the configured pool before evaluating the per-pool invariants.
-/// Calls to other pools no-op silently.
+/// Calls to other pools no-op silently. Pools with hooks are rejected during construction because
+/// hook execution and reentrancy require a separate assertion model.
 ///
 /// The example intentionally combines per-pool state checks with manager-level custody checks:
 /// - per-pool checks protect the configured pool's price, tick, liquidity, and fee-growth state;
@@ -74,11 +75,10 @@ contract UniswapV4PoolManagerAssertion is UniswapV4PoolManagerHelpers {
         if (!_matchesConfiguredPool(key)) {
             return;
         }
-
         Slot0Snapshot memory pre = _slot0At(_preCall(ctx.callStart));
         Slot0Snapshot memory post = _slot0At(_postCall(ctx.callEnd));
 
-        require(post.sqrtPriceX96 > MIN_SQRT_PRICE, "UniswapV4Pool: price below min");
+        require(post.sqrtPriceX96 >= MIN_SQRT_PRICE, "UniswapV4Pool: price below min");
         require(post.sqrtPriceX96 < MAX_SQRT_PRICE, "UniswapV4Pool: price above max");
 
         if (params.zeroForOne) {
@@ -106,7 +106,6 @@ contract UniswapV4PoolManagerAssertion is UniswapV4PoolManagerHelpers {
         if (!_matchesConfiguredPool(key)) {
             return;
         }
-
         Slot0Snapshot memory preSlot0 = _slot0At(_preCall(ctx.callStart));
         Slot0Snapshot memory postSlot0 = _slot0At(_postCall(ctx.callEnd));
         uint128 preLiquidity = _liquidityAt(_preCall(ctx.callStart));
@@ -174,7 +173,7 @@ contract UniswapV4PoolManagerAssertion is UniswapV4PoolManagerHelpers {
                 pre.managerBalance0,
                 post.managerBalance0,
                 "0",
-                _isNativeCurrency(CURRENCY0)
+                false
             );
             require(
                 post.protocolFeesAccrued1 == pre.protocolFeesAccrued1,
@@ -188,7 +187,7 @@ contract UniswapV4PoolManagerAssertion is UniswapV4PoolManagerHelpers {
                 pre.managerBalance1,
                 post.managerBalance1,
                 "1",
-                _isNativeCurrency(CURRENCY1)
+                false
             );
             require(
                 post.protocolFeesAccrued0 == pre.protocolFeesAccrued0,

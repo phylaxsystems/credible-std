@@ -33,6 +33,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
     bytes4 public constant SET_APPROVAL_FOR_ALL_SELECTOR = bytes4(keccak256("setApprovalForAll(address,bool)"));
 
     uint256 internal constant MULTISEND_HEADER_LENGTH = 85;
+    uint64 internal constant ALLOWANCE_READ_GAS = 500_000;
 
     struct TargetPolicy {
         address target;
@@ -129,6 +130,8 @@ abstract contract SafeTxShapeHelpers is Assertion {
     error SafeTxShapeApprovalAmountAboveCap(
         address token, address spender, uint8 kind, uint256 amount, uint256 maxAmount
     );
+    error SafeTxShapeGasRefundBlocked(uint256 gasPrice);
+    error SafeTxShapeAllowanceReadFailed(address token, address spender);
 
     TargetPolicy[] public targetPolicies;
     SelectorPolicy[] public selectorPolicies;
@@ -316,7 +319,9 @@ abstract contract SafeTxShapeHelpers is Assertion {
         view
         returns (uint256 transactionsOffset, uint256 transactionsLength)
     {
-        if (!batchPolicy.allowDelegateCall) revert SafeTxShapeBatchDelegateCallNotAllowed(action.target);
+        if (action.operation == OPERATION_DELEGATECALL && !batchPolicy.allowDelegateCall) {
+            revert SafeTxShapeBatchDelegateCallNotAllowed(action.target);
+        }
 
         return _decodeSingleBytesArgument(action.data, action.dataOffset, action.dataLength, batchPolicy.selector);
     }
@@ -336,7 +341,6 @@ abstract contract SafeTxShapeHelpers is Assertion {
         if (operation > OPERATION_DELEGATECALL) revert SafeTxShapeUnknownOperation(operation);
 
         address target = _readPackedAddress(parent.data, entryOffset + 1);
-        if (target == address(0)) target = parent.safe;
 
         uint256 value = _readUint256(parent.data, entryOffset + 21);
         uint256 dataLength = _readUint256(parent.data, entryOffset + 53);
@@ -438,7 +442,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
             uint256 addedValue = _readUint256(action.data, action.dataOffset + 36);
             if (addedValue == 0) return;
 
-            _validateNumericApproval(action.target, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE, addedValue);
+            _validateIncreaseAllowanceFinalState(action.safe, action.target, spender);
             return;
         }
 
@@ -487,6 +491,46 @@ abstract contract SafeTxShapeHelpers is Assertion {
             }
         }
 
+        revert SafeTxShapeApprovalSpenderNotAllowed(token, spender, kind);
+    }
+
+    function _validateIncreaseAllowanceFinalState(address safe, address token, address spender) internal view {
+        ApprovalPolicy storage policy = _approvalPolicy(token, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE);
+
+        PhEvm.TriggerContext memory triggerCtx = ph.context();
+        PhEvm.StaticCallResult memory result = ph.staticcallAt(
+            token,
+            abi.encodeWithSignature("allowance(address,address)", safe, spender),
+            ALLOWANCE_READ_GAS,
+            _postCall(triggerCtx.callEnd)
+        );
+        if (!result.ok || result.data.length < 32) {
+            revert SafeTxShapeAllowanceReadFailed(token, spender);
+        }
+
+        uint256 finalAllowance = abi.decode(result.data, (uint256));
+        if (finalAllowance == type(uint256).max) {
+            if (!policy.allowUnlimited) {
+                revert SafeTxShapeApprovalUnlimitedBlocked(token, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE);
+            }
+            return;
+        }
+        if (finalAllowance > policy.maxAmount) {
+            revert SafeTxShapeApprovalAmountAboveCap(
+                token, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE, finalAllowance, policy.maxAmount
+            );
+        }
+    }
+
+    function _approvalPolicy(address token, address spender, uint8 kind)
+        internal
+        view
+        returns (ApprovalPolicy storage policy)
+    {
+        for (uint256 i; i < approvalPolicies.length; ++i) {
+            policy = approvalPolicies[i];
+            if (policy.token == token && policy.spender == spender && policy.kind == kind) return policy;
+        }
         revert SafeTxShapeApprovalSpenderNotAllowed(token, spender, kind);
     }
 
@@ -543,6 +587,9 @@ abstract contract SafeTxShapeHelpers is Assertion {
         if (input.length < 324 || _selector(input) != EXEC_TRANSACTION_SELECTOR) {
             revert SafeTxShapeBatchPayloadMalformed();
         }
+
+        uint256 gasPrice = _readUint256(input, 196);
+        if (gasPrice != 0) revert SafeTxShapeGasRefundBlocked(gasPrice);
 
         ownerTx.to = _readAbiAddress(input, 4);
         ownerTx.value = _readUint256(input, 36);

@@ -24,7 +24,6 @@ interface IMarketReferenceOracle {
 contract SparkLendOraclePriceGuardAssertion is Assertion {
     uint256 internal constant PRICE_SCALE = 1e18;
     uint256 internal constant BPS = 10_000;
-    uint256 internal constant CALL_LOOKUP_LIMIT = 16;
 
     struct WatchEntry {
         address asset;
@@ -77,9 +76,20 @@ contract SparkLendOraclePriceGuardAssertion is Assertion {
         baseCurrency = baseCurrency_;
         baseCurrencyUnit = baseCurrencyUnit_;
 
+        require(watchEntries_.length != 0, "SparkLendOracle: empty watch list");
         for (uint256 i; i < watchEntries_.length; ++i) {
-            if (watchEntries_[i].asset == address(0) || watchEntries_[i].toleranceBps == 0) {
+            if (
+                watchEntries_[i].asset == address(0) || watchEntries_[i].toleranceBps == 0
+                    || watchEntries_[i].toleranceBps >= BPS
+            ) {
                 revert SparkLendOraclePriceGuardInvalidEntry(watchEntries_[i].asset, watchEntries_[i].toleranceBps);
+            }
+            for (uint256 j; j < i; ++j) {
+                if (watchEntries_[j].asset == watchEntries_[i].asset) {
+                    revert SparkLendOraclePriceGuardInvalidEntry(
+                        watchEntries_[i].asset, watchEntries_[i].toleranceBps
+                    );
+                }
             }
 
             watchEntries.push(watchEntries_[i]);
@@ -94,8 +104,9 @@ contract SparkLendOraclePriceGuardAssertion is Assertion {
     function triggers() external view override {
         registerFnCallTrigger(this.assertOraclePricesTrackMarket.selector, IAaveV3LikePool.borrow.selector);
         registerFnCallTrigger(this.assertOraclePricesTrackMarket.selector, IAaveV3LikePool.withdraw.selector);
-        registerFnCallTrigger(this.assertOraclePricesTrackMarket.selector, IAaveV3LikePool.liquidationCall.selector);
-        registerFnCallTrigger(this.assertOraclePricesTrackMarket.selector, IAaveV3LikePool.setUserEMode.selector);
+        // Liquidations are deliberately not gated: rejecting them during a depeg prevents the
+        // permissionless risk-reducing path this policy is meant to preserve. eMode needs an
+        // old/new-category-aware adapter so exits and no-op selections remain available.
     }
 
     /// @notice Checks touched watched assets against off-chain market reference prices.
@@ -104,6 +115,7 @@ contract SparkLendOraclePriceGuardAssertion is Assertion {
     ///      the user's active watched collateral/debt bits because Aave health-factor
     ///      calculations consume account-wide oracle prices, not only the calldata asset.
     function assertOraclePricesTrackMarket() external view {
+        require(ph.getAssertionAdopter() == pool, "SparkLendOracle: configured pool is not adopter");
         PhEvm.TriggerContext memory ctx = ph.context();
         bytes memory input = ph.callinputAt(ctx.callStart);
         PhEvm.ForkId memory fork = _preCall(ctx.callStart);
@@ -121,19 +133,6 @@ contract SparkLendOraclePriceGuardAssertion is Assertion {
             address caller = _triggerCaller(ctx);
             _checkIfWatched(asset, fork);
             _checkWatchedAccountPositions(caller, fork, asset);
-            return;
-        }
-
-        if (ctx.selector == IAaveV3LikePool.liquidationCall.selector) {
-            (address collateralAsset, address debtAsset,,,) =
-                abi.decode(_stripSelector(input), (address, address, address, uint256, bool));
-            _checkIfWatched(collateralAsset, fork);
-            _checkIfWatched(debtAsset, fork);
-            return;
-        }
-
-        if (ctx.selector == IAaveV3LikePool.setUserEMode.selector) {
-            _checkWatchedAccountPositions(_triggerCaller(ctx), fork, address(0));
             return;
         }
 
@@ -225,7 +224,7 @@ contract SparkLendOraclePriceGuardAssertion is Assertion {
     }
 
     function _triggerCaller(PhEvm.TriggerContext memory ctx) internal view returns (address) {
-        PhEvm.TriggerCall[] memory calls = _matchingCalls(pool, ctx.selector, CALL_LOOKUP_LIMIT);
+        PhEvm.TriggerCall[] memory calls = _matchingCalls(pool, ctx.selector, type(uint256).max);
 
         for (uint256 i; i < calls.length; ++i) {
             if (calls[i].callId == ctx.callStart) {

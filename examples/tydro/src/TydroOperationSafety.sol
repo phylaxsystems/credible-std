@@ -2,7 +2,10 @@
 pragma solidity ^0.8.13;
 
 import {ILendingProtectionSuite} from "credible-std/protection/lending/ILendingProtectionSuite.sol";
-import {AaveV3LikeOperationSafetyAssertionBase, AaveV3LikeProtectionSuite} from "credible-std/protection/lending/examples/AaveV3LikeOperationSafety.sol";
+import {
+    AaveV3LikeOperationSafetyAssertionBase
+} from "credible-std/protection/lending/examples/AaveV3LikeOperationSafety.sol";
+import {AaveV3LikeProtectionSuite} from "credible-std/protection/lending/examples/AaveV3LikeHelpers.sol";
 import {IAaveV3LikePool} from "credible-std/protection/lending/examples/AaveV3LikeInterfaces.sol";
 
 /// @notice Compact L2 Pool surface exposed by Tydro's Ink deployment.
@@ -11,6 +14,29 @@ interface ITydroL2Pool {
     function withdraw(bytes32 args) external returns (uint256);
     function liquidationCall(bytes32 args1, bytes32 args2) external;
     function setUserUseReserveAsCollateral(bytes32 args) external;
+}
+
+interface ITydroPoolCurrent {
+    function finalizeTransfer(
+        address asset,
+        address from,
+        address to,
+        uint256 amount,
+        uint256 scaledBalanceFromBefore,
+        uint256 scaledBalanceToBefore
+    ) external;
+    function setUserUseReserveAsCollateralOnBehalfOf(address asset, bool useAsCollateral, address onBehalfOf) external;
+    function setUserEModeOnBehalfOf(uint8 categoryId, address onBehalfOf) external;
+    function flashLoan(
+        address receiverAddress,
+        address[] calldata assets,
+        uint256[] calldata amounts,
+        uint256[] calldata interestRateModes,
+        address onBehalfOf,
+        bytes calldata params,
+        uint16 referralCode
+    ) external;
+    function getReserveAddressById(uint16 id) external view returns (address);
 }
 
 /// @title TydroProtectionSuite
@@ -28,17 +54,20 @@ contract TydroProtectionSuite is AaveV3LikeProtectionSuite {
 
     /// @notice Returns standard Aave v3 selectors plus Tydro's compact L2 operation selectors.
     function getMonitoredSelectors() external pure override returns (bytes4[] memory selectors) {
-        selectors = new bytes4[](10);
+        selectors = new bytes4[](13);
         selectors[0] = IAaveV3LikePool.borrow.selector;
         selectors[1] = IAaveV3LikePool.withdraw.selector;
         selectors[2] = IAaveV3LikePool.liquidationCall.selector;
         selectors[3] = IAaveV3LikePool.setUserUseReserveAsCollateral.selector;
-        selectors[4] = IAaveV3LikePool.finalizeTransfer.selector;
+        selectors[4] = ITydroPoolCurrent.finalizeTransfer.selector;
         selectors[5] = IAaveV3LikePool.setUserEMode.selector;
         selectors[6] = ITydroL2Pool.borrow.selector;
         selectors[7] = ITydroL2Pool.withdraw.selector;
         selectors[8] = ITydroL2Pool.liquidationCall.selector;
         selectors[9] = ITydroL2Pool.setUserUseReserveAsCollateral.selector;
+        selectors[10] = ITydroPoolCurrent.setUserUseReserveAsCollateralOnBehalfOf.selector;
+        selectors[11] = ITydroPoolCurrent.setUserEModeOnBehalfOf.selector;
+        selectors[12] = ITydroPoolCurrent.flashLoan.selector;
     }
 
     /// @notice Decodes standard Aave v3 operations and Tydro's compact L2 operation wrappers.
@@ -53,7 +82,7 @@ contract TydroProtectionSuite is AaveV3LikeProtectionSuite {
                 && triggered.selector != ITydroL2Pool.liquidationCall.selector
                 && triggered.selector != ITydroL2Pool.setUserUseReserveAsCollateral.selector
         ) {
-            return _decodeAaveV3Operation(triggered);
+            return _decodeCurrentOrStandardOperation(triggered);
         }
 
         operation.selector = triggered.selector;
@@ -65,7 +94,10 @@ contract TydroProtectionSuite is AaveV3LikeProtectionSuite {
             operation.kind = OperationKind.Borrow;
             operation.account = triggered.caller;
             operation.asset = _assetByL2Id(args);
-            operation.amount = _decodeL2Amount(args);
+            // Borrow shares the compact uint128 max sentinel: the Pool reads type(uint128).max as a
+            // full type(uint256).max borrow, so the operation context must expand it the same way
+            // withdraw does, or downstream amount checks see a shortened value.
+            operation.amount = _decodeL2Amount(args, true);
             operation.increasesDebt = operation.amount != 0;
             return operation;
         }
@@ -77,7 +109,7 @@ contract TydroProtectionSuite is AaveV3LikeProtectionSuite {
             operation.account = triggered.caller;
             operation.asset = _assetByL2Id(args);
             operation.counterparty = triggered.caller;
-            operation.amount = _decodeL2Amount(args);
+            operation.amount = _decodeL2Amount(args, true);
             operation.reducesEffectiveCollateral = operation.amount != 0;
             return operation;
         }
@@ -90,16 +122,19 @@ contract TydroProtectionSuite is AaveV3LikeProtectionSuite {
             operation.asset = _assetByL2Id(args1 >> 16);
             operation.relatedAsset = _assetByL2Id(args1);
             operation.counterparty = triggered.caller;
-            operation.amount = _decodeL2Amount(args2);
+            operation.amount = uint256(args2) & L2_SHORTENED_AMOUNT_MASK;
+            if (operation.amount == L2_MAX_AMOUNT) {
+                operation.amount = type(uint256).max;
+            }
             operation.metadata = abi.encode(((uint256(args2) >> 128) & 1) == 0);
             return operation;
         }
 
         if (triggered.selector == ITydroL2Pool.setUserUseReserveAsCollateral.selector) {
             bytes32 args = abi.decode(triggered.input[4:], (bytes32));
-            bool disableCollateral = ((uint256(args) >> 16) & 1) != 0;
+            bool useAsCollateral = ((uint256(args) >> 16) & 1) == 0;
 
-            if (disableCollateral) {
+            if (!useAsCollateral) {
                 operation.kind = OperationKind.DisableCollateral;
                 operation.account = triggered.caller;
                 operation.asset = _assetByL2Id(args);
@@ -108,8 +143,7 @@ contract TydroProtectionSuite is AaveV3LikeProtectionSuite {
         }
     }
 
-    /// @notice Internal standard ABI decoder kept overridable for the Tydro L2 extension.
-    function _decodeAaveV3Operation(TriggeredCall calldata triggered)
+    function _decodeCurrentOrStandardOperation(TriggeredCall calldata triggered)
         internal
         pure
         returns (OperationContext memory operation)
@@ -117,61 +151,9 @@ contract TydroProtectionSuite is AaveV3LikeProtectionSuite {
         operation.selector = triggered.selector;
         operation.caller = triggered.caller;
 
-        if (triggered.selector == IAaveV3LikePool.borrow.selector) {
-            (address asset, uint256 amount,,, address onBehalfOf) =
-                abi.decode(triggered.input[4:], (address, uint256, uint256, uint16, address));
-
-            operation.kind = OperationKind.Borrow;
-            operation.account = onBehalfOf;
-            operation.asset = asset;
-            operation.amount = amount;
-            operation.increasesDebt = amount != 0;
-            return operation;
-        }
-
-        if (triggered.selector == IAaveV3LikePool.withdraw.selector) {
-            (address asset, uint256 amount, address to) = abi.decode(triggered.input[4:], (address, uint256, address));
-
-            operation.kind = OperationKind.WithdrawCollateral;
-            operation.account = triggered.caller;
-            operation.asset = asset;
-            operation.counterparty = to;
-            operation.amount = amount;
-            operation.reducesEffectiveCollateral = amount != 0;
-            return operation;
-        }
-
-        if (triggered.selector == IAaveV3LikePool.liquidationCall.selector) {
-            (address collateralAsset, address debtAsset, address user, uint256 debtToCover, bool receiveAToken) =
-                abi.decode(triggered.input[4:], (address, address, address, uint256, bool));
-
-            operation.kind = OperationKind.Liquidation;
-            operation.account = user;
-            operation.asset = debtAsset;
-            operation.relatedAsset = collateralAsset;
-            operation.counterparty = triggered.caller;
-            operation.amount = debtToCover;
-            operation.metadata = abi.encode(receiveAToken);
-            return operation;
-        }
-
-        if (triggered.selector == IAaveV3LikePool.setUserUseReserveAsCollateral.selector) {
-            (address asset, bool useAsCollateral) = abi.decode(triggered.input[4:], (address, bool));
-
-            if (!useAsCollateral) {
-                operation.kind = OperationKind.DisableCollateral;
-                operation.account = triggered.caller;
-                operation.asset = asset;
-                operation.reducesEffectiveCollateral = true;
-            }
-
-            return operation;
-        }
-
-        if (triggered.selector == IAaveV3LikePool.finalizeTransfer.selector) {
+        if (triggered.selector == ITydroPoolCurrent.finalizeTransfer.selector) {
             (address asset, address from, address to, uint256 amount,,) =
                 abi.decode(triggered.input[4:], (address, address, address, uint256, uint256, uint256));
-
             operation.kind = OperationKind.TransferCollateral;
             operation.account = from;
             operation.asset = asset;
@@ -181,28 +163,74 @@ contract TydroProtectionSuite is AaveV3LikeProtectionSuite {
             return operation;
         }
 
-        if (triggered.selector == IAaveV3LikePool.setUserEMode.selector) {
-            (uint8 categoryId) = abi.decode(triggered.input[4:], (uint8));
+        if (triggered.selector == ITydroPoolCurrent.setUserUseReserveAsCollateralOnBehalfOf.selector) {
+            (address asset, bool useAsCollateral, address onBehalfOf) =
+                abi.decode(triggered.input[4:], (address, bool, address));
+            if (!useAsCollateral) {
+                operation.kind = OperationKind.DisableCollateral;
+                operation.account = onBehalfOf;
+                operation.asset = asset;
+                operation.reducesEffectiveCollateral = true;
+            }
+            return operation;
+        }
 
+        if (triggered.selector == ITydroPoolCurrent.setUserEModeOnBehalfOf.selector) {
+            (uint8 categoryId, address onBehalfOf) = abi.decode(triggered.input[4:], (uint8, address));
             operation.kind = OperationKind.SetEMode;
-            operation.account = triggered.caller;
-            operation.amount = uint256(categoryId);
+            operation.account = onBehalfOf;
+            operation.amount = categoryId;
             operation.metadata = abi.encode(categoryId);
             return operation;
         }
+
+        if (triggered.selector == ITydroPoolCurrent.flashLoan.selector) {
+            (,,, uint256[] memory interestRateModes, address onBehalfOf,,) =
+                abi.decode(triggered.input[4:], (address, address[], uint256[], uint256[], address, bytes, uint16));
+            for (uint256 i; i < interestRateModes.length; ++i) {
+                if (interestRateModes[i] != 0) {
+                    operation.kind = OperationKind.Borrow;
+                    operation.account = onBehalfOf;
+                    operation.increasesDebt = true;
+                    break;
+                }
+            }
+            return operation;
+        }
+
+        if (triggered.selector == IAaveV3LikePool.borrow.selector) {
+            return _decodeBorrowOperation(triggered);
+        }
+
+        if (triggered.selector == IAaveV3LikePool.withdraw.selector) {
+            return _decodeWithdrawOperation(triggered);
+        }
+
+        if (triggered.selector == IAaveV3LikePool.liquidationCall.selector) {
+            return _decodeLiquidationOperation(triggered);
+        }
+
+        if (triggered.selector == IAaveV3LikePool.setUserUseReserveAsCollateral.selector) {
+            return _decodeCollateralToggleOperation(triggered);
+        }
+
+        if (triggered.selector == IAaveV3LikePool.setUserEMode.selector) {
+            return _decodeSetUserEModeOperation(triggered);
+        }
+
+        return operation;
     }
 
     /// @notice Resolves the reserve address encoded by a compact L2 asset id.
     function _assetByL2Id(bytes32 args) internal view returns (address) {
-        address[] memory reserves = IAaveV3LikePool(POOL).getReservesList();
-        uint256 assetId = uint256(args) & L2_ASSET_ID_MASK;
-        return reserves[assetId];
+        uint16 assetId = uint16(uint256(args) & L2_ASSET_ID_MASK);
+        return ITydroPoolCurrent(POOL).getReserveAddressById(assetId);
     }
 
     /// @notice Decodes Aave/Tydro's compact uint128 amount, including the max sentinel.
-    function _decodeL2Amount(bytes32 args) internal pure returns (uint256 amount) {
+    function _decodeL2Amount(bytes32 args, bool expandMax) internal pure returns (uint256 amount) {
         amount = (uint256(args) >> 16) & L2_SHORTENED_AMOUNT_MASK;
-        if (amount == L2_MAX_AMOUNT) {
+        if (expandMax && amount == L2_MAX_AMOUNT) {
             return type(uint256).max;
         }
     }

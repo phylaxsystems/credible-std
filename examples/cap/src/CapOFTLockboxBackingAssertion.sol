@@ -32,10 +32,8 @@ contract CapOFTLockboxBackingAssertion is Assertion {
     /// @dev `Transfer(address,address,uint256)` topic0.
     bytes32 internal constant TRANSFER_SIG = keccak256("Transfer(address,address,uint256)");
 
-    /// @dev Rolling window for the outflow watcher and its (low) trip threshold in bps. Any
-    ///      material release of locked cUSD fires the check; the assertion then validates it.
-    uint256 internal constant WINDOW = 1 hours;
-    uint256 internal constant WATCH_TRIGGER_BPS = 1;
+    /// @notice The OFT adapter that must adopt this assertion.
+    address internal immutable LOCKBOX;
 
     /// @notice The canonical token locked by the adapter (cUSD on the home chain).
     address internal immutable LOCKED_TOKEN;
@@ -48,7 +46,12 @@ contract CapOFTLockboxBackingAssertion is Assertion {
     ///         LayerZero's default 6 shared decimals).
     uint256 internal immutable DECIMAL_CONVERSION_RATE;
 
-    constructor(address lockedToken_, address endpoint_, uint256 decimalConversionRate_) {
+    constructor(address lockbox_, address lockedToken_, address endpoint_, uint256 decimalConversionRate_) {
+        require(lockbox_ != address(0), "CapLockbox: lockbox zero");
+        require(lockedToken_ != address(0), "CapLockbox: token zero");
+        require(endpoint_ != address(0), "CapLockbox: endpoint zero");
+        require(decimalConversionRate_ != 0, "CapLockbox: conversion rate zero");
+        LOCKBOX = lockbox_;
         LOCKED_TOKEN = lockedToken_;
         ENDPOINT = endpoint_;
         DECIMAL_CONVERSION_RATE = decimalConversionRate_;
@@ -56,7 +59,11 @@ contract CapOFTLockboxBackingAssertion is Assertion {
     }
 
     function triggers() external view override {
-        watchCumulativeOutflow(LOCKED_TOKEN, WATCH_TRIGGER_BPS, WINDOW, this.assertReleaseOnlyOnReceive.selector);
+        // Covers every transaction that calls the adapter, including a valid receive combined
+        // with an unrelated outflow. The ERC-20 change trigger additionally covers direct token
+        // allowance pulls that never call the adapter itself.
+        registerTxEndTrigger(this.assertReleaseOnlyOnReceive.selector);
+        registerErc20ChangeTrigger(this.assertReleaseOnlyOnReceive.selector, LOCKED_TOKEN);
     }
 
     /// @notice Locked cUSD may only leave the lockbox via a verified endpoint `lzReceive`, and only
@@ -67,10 +74,8 @@ contract CapOFTLockboxBackingAssertion is Assertion {
     ///      an unauthorized drain, or a drain riding alongside a legitimate (or reverted) bridge-in
     ///      — is unbacked and reverts.
     function assertReleaseOnlyOnReceive() external view {
-        PhEvm.OutflowContext memory ctx = ph.outflowContext();
-        require(ctx.token == LOCKED_TOKEN, "CapLockbox: unwatched token");
-
         address lockbox = ph.getAssertionAdopter();
+        require(lockbox == LOCKBOX, "CapLockbox: wrong adopter");
         uint256 released = _grossOutflow(lockbox);
         uint256 credited = _creditedByVerifiedReceives(lockbox);
 

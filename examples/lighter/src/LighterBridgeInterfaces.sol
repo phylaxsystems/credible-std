@@ -44,8 +44,4 @@ interface IZkLighterLike {
     /// @notice True once the escape hatch is active; irreversible.
     function desertMode() external view returns (bool);
 
-    /// @notice Privileged one-shot, proof-gated state-root migration. Only its selector is used.
-    /// @dev Verify the real signature on the deployment; only the 4-byte selector must match.
-    function updateStateRoot(bytes32 oldStateRoot, bytes32 oldValidiumRoot, bytes32 newStateRoot, bytes calldata proof)
-        external;
 }

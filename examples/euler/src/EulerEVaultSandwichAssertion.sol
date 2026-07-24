@@ -44,57 +44,69 @@ contract EulerERC4626CallSandwichAssertion is EulerEVaultSandwichBase {
 
         if (ctx.selector == IEulerEVaultLike.deposit.selector) {
             // deposit(assets, receiver): pre-call previewDeposit must match the post-call shares returned.
-            (uint256 assets,) = abi.decode(_stripSelector(input), (uint256, address));
-            if (assets != type(uint256).max) {
-                uint256 expectedShares = _readUintAt(
-                    vault, abi.encodeCall(IEulerEVaultSandwichLike.previewDeposit, (assets)), _preCall(ctx.callStart)
-                );
-                require(actualReturn == expectedShares, "EulerEVault: deposit return != pre-call preview");
-            }
+            (uint256 assets, address receiver) = abi.decode(_stripSelector(input), (uint256, address));
+            PhEvm.ForkId memory pre = _preCall(ctx.callStart);
+            PhEvm.ForkId memory post = _postCall(ctx.callEnd);
+            uint256 expectedShares =
+                _readUintAt(vault, abi.encodeCall(IEulerEVaultSandwichLike.previewDeposit, (assets)), pre);
+            require(actualReturn == expectedShares, "EulerEVault: deposit return != pre-call preview");
 
             // Same-call Deposit event must report the requested assets and post-call returned shares.
-            _assertDepositLogForCall(vault, ctx.callStart, assets, actualReturn, assets == type(uint256).max);
+            _assertDepositLogForCall(vault, ctx.callStart, receiver, assets, actualReturn);
+            _assertSharesIncreasedBy(vault, receiver, actualReturn, pre, post);
+            _assertVaultAssetsIncreasedBy(vault, assets, pre, post);
             return;
         }
 
         if (ctx.selector == IEulerEVaultLike.mint.selector) {
             // mint(shares, receiver): shares are the input, returned assets must match pre-call previewMint.
-            (uint256 shares,) = abi.decode(_stripSelector(input), (uint256, address));
+            (uint256 shares, address receiver) = abi.decode(_stripSelector(input), (uint256, address));
+            PhEvm.ForkId memory pre = _preCall(ctx.callStart);
+            PhEvm.ForkId memory post = _postCall(ctx.callEnd);
             uint256 expectedAssets = _readUintAt(
-                vault, abi.encodeCall(IEulerEVaultSandwichLike.previewMint, (shares)), _preCall(ctx.callStart)
+                vault, abi.encodeCall(IEulerEVaultSandwichLike.previewMint, (shares)), pre
             );
             require(actualReturn == expectedAssets, "EulerEVault: mint return != pre-call preview");
 
             // mint must report returned assets and requested shares.
-            _assertDepositLogForCall(vault, ctx.callStart, actualReturn, shares, false);
+            _assertDepositLogForCall(vault, ctx.callStart, receiver, actualReturn, shares);
+            _assertSharesIncreasedBy(vault, receiver, shares, pre, post);
+            _assertVaultAssetsIncreasedBy(vault, actualReturn, pre, post);
             return;
         }
 
         if (ctx.selector == IEulerEVaultLike.withdraw.selector) {
             // withdraw(assets, receiver, owner): assets are the input, returned shares match pre-call previewWithdraw.
-            (uint256 assets,,) = abi.decode(_stripSelector(input), (uint256, address, address));
+            (uint256 assets, address receiver, address owner) =
+                abi.decode(_stripSelector(input), (uint256, address, address));
+            PhEvm.ForkId memory pre = _preCall(ctx.callStart);
+            PhEvm.ForkId memory post = _postCall(ctx.callEnd);
             uint256 expectedShares = _readUintAt(
-                vault, abi.encodeCall(IEulerEVaultSandwichLike.previewWithdraw, (assets)), _preCall(ctx.callStart)
+                vault, abi.encodeCall(IEulerEVaultSandwichLike.previewWithdraw, (assets)), pre
             );
             require(actualReturn == expectedShares, "EulerEVault: withdraw return != pre-call preview");
 
             // Same-call Withdraw event must report requested assets and returned burned shares.
-            _assertWithdrawLogForCall(vault, ctx.callStart, assets, actualReturn, false);
+            _assertWithdrawLogForCall(vault, ctx.callStart, receiver, owner, assets, actualReturn);
+            _assertSharesDecreasedBy(vault, owner, actualReturn, pre, post);
+            _assertReceiverAssetsIncreasedBy(vault, receiver, assets, pre, post);
             return;
         }
 
         if (ctx.selector == IEulerEVaultLike.redeem.selector) {
             // redeem(shares, receiver, owner): shares are the input, returned assets match pre-call previewRedeem.
-            (uint256 shares,,) = abi.decode(_stripSelector(input), (uint256, address, address));
-            if (shares != type(uint256).max) {
-                uint256 expectedAssets = _readUintAt(
-                    vault, abi.encodeCall(IEulerEVaultSandwichLike.previewRedeem, (shares)), _preCall(ctx.callStart)
-                );
-                require(actualReturn == expectedAssets, "EulerEVault: redeem return != pre-call preview");
-            }
+            (uint256 shares, address receiver, address owner) =
+                abi.decode(_stripSelector(input), (uint256, address, address));
+            PhEvm.ForkId memory pre = _preCall(ctx.callStart);
+            PhEvm.ForkId memory post = _postCall(ctx.callEnd);
+            uint256 expectedAssets =
+                _readUintAt(vault, abi.encodeCall(IEulerEVaultSandwichLike.previewRedeem, (shares)), pre);
+            require(actualReturn == expectedAssets, "EulerEVault: redeem return != pre-call preview");
 
             // Same-call Withdraw event must report returned assets and requested redeemed shares.
-            _assertWithdrawLogForCall(vault, ctx.callStart, actualReturn, shares, shares == type(uint256).max);
+            _assertWithdrawLogForCall(vault, ctx.callStart, receiver, owner, actualReturn, shares);
+            _assertSharesDecreasedBy(vault, owner, shares, pre, post);
+            _assertReceiverAssetsIncreasedBy(vault, receiver, actualReturn, pre, post);
             return;
         }
 

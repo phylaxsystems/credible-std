@@ -8,47 +8,34 @@ import {IKyberMetaAggregationRouterV2Like, SwapDescriptionV2} from "./KyberMetaA
 
 /// @title KyberMetaAggregationRouterAssertion
 /// @author Phylax Systems
-/// @notice Example assertion bundle for the KyberSwap MetaAggregationRouterV2 aggregator router.
-/// @dev The router is a single fixed-address, non-proxy contract that settles swaps non-custodially
-///      and pulls source funds through standing ERC20 allowances. These two invariants protect the
-///      two ways that property can be broken from a user's point of view:
-///      - approval safety: a swap must only ever consume the allowance of its own initiator, never a
-///        bystander's standing approval to the router;
-///      - execution safety: the declared recipient must actually receive at least the signed
-///        `minReturnAmount` of the buy token, so a stale or manipulated route cannot underpay them.
+/// @notice Recipient-credit postcondition for KyberSwap MetaAggregationRouterV2.
+/// @dev Transfer and Approval logs do not identify the spender that moved funds, so the former
+///      allowance-drain heuristic is intentionally not registered. `originalRouterFamily_` must be
+///      true only for deployments whose bit 0 means partial fill and which expose `swapGeneric`.
 contract KyberMetaAggregationRouterAssertion is KyberMetaAggregationRouterHelpers {
-    constructor(address router_) KyberMetaAggregationRouterHelpers(router_) {}
+    constructor(address router_, bool originalRouterFamily_)
+        KyberMetaAggregationRouterHelpers(router_, originalRouterFamily_)
+    {}
 
     /// @notice Registers the protected MetaAggregationRouterV2 settlement entry points.
     /// @dev Both checks are call-scoped so reads are bound to the exact triggered settlement.
     function triggers() external view override {
         registerFnCallTrigger(
-            this.assertNoThirdPartyAllowanceDrain.selector, IKyberMetaAggregationRouterV2Like.swap.selector
-        );
-        registerFnCallTrigger(
-            this.assertNoThirdPartyAllowanceDrain.selector, IKyberMetaAggregationRouterV2Like.swapGeneric.selector
-        );
-        registerFnCallTrigger(
-            this.assertNoThirdPartyAllowanceDrain.selector, IKyberMetaAggregationRouterV2Like.swapSimpleMode.selector
-        );
-
-        registerFnCallTrigger(
             this.assertReceiverGetsMinReturn.selector, IKyberMetaAggregationRouterV2Like.swap.selector
         );
-        registerFnCallTrigger(
-            this.assertReceiverGetsMinReturn.selector, IKyberMetaAggregationRouterV2Like.swapGeneric.selector
-        );
+        if (ORIGINAL_ROUTER_FAMILY) {
+            registerFnCallTrigger(
+                this.assertReceiverGetsMinReturn.selector, IKyberMetaAggregationRouterV2Like.swapGeneric.selector
+            );
+        }
         registerFnCallTrigger(
             this.assertReceiverGetsMinReturn.selector, IKyberMetaAggregationRouterV2Like.swapSimpleMode.selector
         );
     }
 
-    /// @notice A swap may only exercise the router allowance of its own initiator.
-    /// @dev KyberSwap pulls `srcToken` from `msg.sender` against a standing allowance. This check
-    ///      trips when the settlement instead moves tokens out of a different account that had
-    ///      pre-approved the router, i.e. someone crafted calldata that drains a bystander's
-    ///      standing approval. The swap initiator's own approval being used is the expected path
-    ///      and is exempt.
+    /// @notice Legacy diagnostic retained for source compatibility; it is not registered.
+    /// @dev Transfer logs cannot prove which spender used an allowance. Do not use this selector
+    ///      as a production assertion.
     function assertNoThirdPartyAllowanceDrain() external view {
         PhEvm.TriggerContext memory ctx = ph.context();
         _requireConfiguredRouterIsAdopter();
@@ -77,7 +64,10 @@ contract KyberMetaAggregationRouterAssertion is KyberMetaAggregationRouterHelper
         _requireConfiguredRouterIsAdopter();
 
         SwapDescriptionV2 memory desc = _swapDescriptionFor(ctx.selector, ph.callinputAt(ctx.callStart));
-        if (desc.minReturnAmount == 0 || desc.dstToken == ETH_SENTINEL || _flagsChecked(desc.flags, PARTIAL_FILL)) {
+        if (
+            desc.minReturnAmount == 0 || desc.dstToken == ETH_SENTINEL
+                || (ORIGINAL_ROUTER_FAMILY && _flagsChecked(desc.flags, PARTIAL_FILL))
+        ) {
             return;
         }
 

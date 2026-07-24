@@ -87,7 +87,8 @@ contract LidoStEthVaultNavAssertion is LidoVaultHelpers {
 
     /// @notice Wires the NAV consistency check to every transaction touching the rate reporter.
     function triggers() external view override {
-        registerTxEndTrigger(this.assertShareRateMatchesNav.selector);
+        // Intentionally empty. Mellow, Veda, and Lido V3 do not share this custody, supply, rate,
+        // or liability model; each requires its own protocol-specific NAV adapter.
     }
 
     /// @notice Checks the reported share rate against NAV recomputed from on-chain state.

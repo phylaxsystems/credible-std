@@ -18,11 +18,24 @@ abstract contract BoringVaultHelpers is Assertion {
 
     /// @notice One full vault share, scaled to the vault share-token decimals.
     uint256 internal immutable ONE_SHARE;
+    uint8 internal immutable VAULT_DECIMALS;
 
     constructor(address vault_, address accountant_, uint8 vaultDecimals_) {
+        require(vault_ != address(0), "BoringVault: zero vault");
+        require(accountant_ != address(0), "BoringVault: zero accountant");
+        require(vaultDecimals_ <= 77, "BoringVault: decimals too large");
         vault = vault_;
         accountant = accountant_;
+        VAULT_DECIMALS = vaultDecimals_;
         ONE_SHARE = 10 ** uint256(vaultDecimals_);
+    }
+
+    function _requireConfigurationAt(PhEvm.ForkId memory fork) internal view {
+        require(ph.getAssertionAdopter() == vault, "BoringVault: configured vault is not adopter");
+        require(
+            _readUintAt(vault, abi.encodeCall(IBoringVaultLike.decimals, ()), fork) == VAULT_DECIMALS,
+            "BoringVault: vault decimals mismatch"
+        );
     }
 
     function _totalSupplyAt(PhEvm.ForkId memory fork) internal view returns (uint256) {

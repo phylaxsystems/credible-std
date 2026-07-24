@@ -45,6 +45,10 @@ abstract contract SymbioticVaultConfigAssertion is SymbioticVaultBaseAssertion {
     VaultConfigPolicy internal policy;
 
     constructor(VaultConfigPolicy memory policy_) {
+        require(
+            policy_.maxEpochDuration == 0 || policy_.minEpochDuration <= policy_.maxEpochDuration,
+            "SymbioticConfig: invalid epoch range"
+        );
         policy = policy_;
     }
 
@@ -140,9 +144,6 @@ abstract contract SymbioticVaultConfigAssertion is SymbioticVaultBaseAssertion {
             );
         }
 
-        require(
-            state.epochDuration <= block.timestamp, "SymbioticConfig: epoch duration exceeds timestamp-safe bound"
-        );
     }
 
     function _assertBurnerConfiguration(VaultConfigState memory state, PhEvm.ForkId memory postTx) internal view {
@@ -219,9 +220,11 @@ contract SymbioticVaultRecommendedConfigProtection is SymbioticVaultConfigAssert
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
-    /// @notice Wires the recommended tx-end configuration policy.
-    /// @dev This bundle is meant to catch the common Symbiotic deployment footguns from the docs.
+    /// @notice The docs-inspired default policy is intentionally unarmed.
+    /// @dev These bounds are deployment policy, not protocol invariants, and a blanket tx-end
+    ///      check can prevent a partially configured vault from being repaired one setter at a
+    ///      time. Use the custom policy contract only after calibrating its transition model.
     function triggers() external view override {
-        _registerVaultConfigTriggers();
+        // Quarantined.
     }
 }

@@ -9,8 +9,10 @@ import {SymbioticVaultFlowAssertion} from "./SymbioticVaultFlowAssertion.sol";
 
 /// @title SymbioticVaultAssertion
 /// @author Phylax Systems
-/// @notice Spark-style concrete assertion bundle for Symbiotic vaults.
-/// @dev Compose the abstract flow, config, and circuit-breaker modules behind one entrypoint.
+/// @notice Concrete accounting assertion bundle for legacy Symbiotic v1 vaults.
+/// @dev The contract keeps the old constructor shape for deployment compatibility, but only the
+///      call-scoped v1 accounting checks are armed. Configuration ranges and rolling net-flow
+///      breakers are operator policies rather than Symbiotic invariants.
 ///      This matches the `origin/spark` pattern where small reusable assertion contracts inherit
 ///      a shared base, and the top-level assertion only wires constructors and triggers.
 ///
@@ -37,13 +39,8 @@ contract SymbioticVaultAssertion is
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
-    /// @notice Wires the full Symbiotic vault protection suite.
-    /// @dev Per-call triggers watch user-facing vault mutations, tx-end checks catch config/state
-    ///      drift that may emerge across a whole transaction, and cumulative-outflow watchers
-    ///      provide rolling-window circuit breakers on the vault collateral.
+    /// @notice Wires the v1 call-scoped accounting checks.
     function triggers() external view override {
         _registerVaultFlowTriggers();
-        _registerVaultConfigTriggers();
-        _registerCircuitBreakerTriggers();
     }
 }

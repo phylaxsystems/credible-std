@@ -10,6 +10,7 @@ interface ISymbioticVaultLike {
     function isDelegatorInitialized() external view returns (bool);
     function isSlasherInitialized() external view returns (bool);
     function currentEpoch() external view returns (uint256);
+    function epochAt(uint48 timestamp) external view returns (uint256);
     function epochDuration() external view returns (uint48);
     function depositWhitelist() external view returns (bool);
     function isDepositorWhitelisted(address account) external view returns (bool);
@@ -31,6 +32,7 @@ interface ISymbioticVaultLike {
     function redeem(address claimer, uint256 shares) external returns (uint256 withdrawnAssets, uint256 mintedShares);
     function claim(address recipient, uint256 epoch) external returns (uint256 amount);
     function claimBatch(address recipient, uint256[] calldata epochs) external returns (uint256 amount);
+    function onSlash(uint256 amount, uint48 captureTimestamp) external returns (uint256 slashedAmount);
 }
 
 interface ISymbioticDelegatorLike {

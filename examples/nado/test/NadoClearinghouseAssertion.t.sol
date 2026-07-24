@@ -22,7 +22,7 @@ contract MockNadoSpotEngine {
     }
 
     function credit(uint32 productId, bytes32 subaccount, uint128 amount) external {
-        uint128 credited = shortCredit ? amount - 1 : amount;
+        uint128 credited = shortCredit ? amount - 2 : amount;
         balances[productId][subaccount] += int128(credited);
     }
 
@@ -41,13 +41,25 @@ contract MockNadoSpotEngine {
 
 contract MockNadoClearinghouse {
     MockNadoSpotEngine public immutable spotEngine;
+    address public immutable quote;
+    address public immutable withdrawPool;
 
-    constructor(MockNadoSpotEngine spotEngine_) {
+    constructor(MockNadoSpotEngine spotEngine_, address quote_, address withdrawPool_) {
         spotEngine = spotEngine_;
+        quote = quote_;
+        withdrawPool = withdrawPool_;
     }
 
     function depositCollateral(INadoClearinghouseLike.DepositCollateral calldata txn) external {
         spotEngine.credit(txn.productId, txn.sender, txn.amount);
+    }
+
+    function getQuote() external view returns (address) {
+        return quote;
+    }
+
+    function getWithdrawPool() external view returns (address) {
+        return withdrawPool;
     }
 }
 
@@ -58,23 +70,25 @@ contract NadoClearinghouseAssertionTest is Test, CredibleTest {
     ERC20Mock internal quoteAsset;
     MockNadoSpotEngine internal spotEngine;
     MockNadoClearinghouse internal clearinghouse;
+    address internal endpoint = makeAddr("endpoint");
+    address internal withdrawPool = makeAddr("withdrawPool");
 
     function setUp() public {
         quoteAsset = new ERC20Mock();
         spotEngine = new MockNadoSpotEngine(address(quoteAsset));
-        clearinghouse = new MockNadoClearinghouse(spotEngine);
+        clearinghouse = new MockNadoClearinghouse(spotEngine, address(quoteAsset), withdrawPool);
     }
 
     function _arm() internal {
         bytes memory createData = abi.encodePacked(
             type(NadoClearinghouseAssertion).creationCode,
             abi.encode(
-                address(0),
+                endpoint,
                 address(clearinghouse),
                 address(spotEngine),
                 address(quoteAsset),
-                address(0),
-                0,
+                withdrawPool,
+                1,
                 2_500,
                 1_000,
                 3_000,

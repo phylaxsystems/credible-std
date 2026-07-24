@@ -31,14 +31,12 @@ contract SymbioticRelayAssertion is SymbioticHelpers {
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
-    /// @notice Wires the relay-side tx-end checks.
-    /// @dev Relay risk is mostly global consistency risk, so these assertions run once after the
-    ///      transaction to inspect the final operator/vault/voting-power view.
+    /// @notice Relay checks are intentionally unarmed until the provider subtype is bound.
+    /// @dev Base providers need not expose the auto-deploy extension, and supported voting-power
+    ///      calculators need not implement EqualStake. Registering these checks generically would
+    ///      reject valid provider configurations.
     function triggers() external view override {
-        registerTxEndTrigger(this.assertRegisteredOperatorVaultsUseRegisteredCollateral.selector);
-        registerTxEndTrigger(this.assertAutoDeployedVaultRegistrationCoherence.selector);
-        registerTxEndTrigger(this.assertEqualStakeVotingPower.selector);
-        registerTxEndTrigger(this.assertAutoDeployMaxNetworkLimitHook.selector);
+        // Quarantined pending explicit extension and calculator identity.
     }
 
     /// @notice Every registered operator vault should still use a relay-registered collateral token.

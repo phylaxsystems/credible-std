@@ -17,9 +17,12 @@ import {IBoringVaultLike} from "./BoringVaultInterfaces.sol";
 ///        the vault, and the share/token deltas must match the call arguments.
 ///      - `exit` must burn exactly the requested shares and move exactly the requested
 ///        asset amount out of vault custody.
-///      - cumulative inflow/outflow breakers monitor actual ERC-20 balance deltas of
-///        the vault, so they supersede teller-side deposit caps and withdrawal limits
-///        by catching direct `enter`/`exit`, `manage`, and other balance-moving paths.
+///      - canonical zero-asset remediation, bridge, and migration calls conserve shares and are
+///        accepted only from explicitly configured callers.
+///
+///      This bundle supports standard non-rebasing ERC-20 assets. Rolling idle-balance flow
+///      breakers were removed: net Transfer-log flow is neither portfolio TVL nor gross exits and
+///      rejects valid strategy deployment and empty-vault initialization.
 contract BoringVaultAssertion is BoringVaultHelpers {
     /// @notice Constructor value that disables the exit price-bound check.
     uint256 public constant DISABLE_EXIT_RATE_BOUND = type(uint256).max;
@@ -32,78 +35,38 @@ contract BoringVaultAssertion is BoringVaultHelpers {
     ///      return original assets while still enforcing exact burn/custody accounting.
     uint256 public immutable maxExitAssetsPremiumBps;
 
-    /// @notice Hard cumulative inflow breaker threshold. Zero disables inflow breaker registration.
-    uint256 public immutable cumulativeInflowThresholdBps;
-
-    /// @notice Hard cumulative outflow breaker threshold. Zero disables outflow breaker registration.
-    uint256 public immutable cumulativeOutflowThresholdBps;
-
-    /// @notice Rolling window, in seconds, used by cumulative flow breakers.
-    uint256 public immutable flowWindowDuration;
-
-    /// @notice ERC-20 assets whose vault balance should be protected by hard flow breakers.
-    address[] public monitoredAssets;
+    mapping(address caller => bool allowed) public shareOnlyCaller;
 
     constructor(
         address vault_,
         address accountant_,
         uint8 vaultDecimals_,
-        address[] memory monitoredAssets_,
+        address[] memory shareOnlyCallers_,
         uint256 maxShareMintPremiumBps_,
-        uint256 maxExitAssetsPremiumBps_,
-        uint256 cumulativeInflowThresholdBps_,
-        uint256 cumulativeOutflowThresholdBps_,
-        uint256 flowWindowDuration_
+        uint256 maxExitAssetsPremiumBps_
     ) BoringVaultHelpers(vault_, accountant_, vaultDecimals_) {
         require(maxShareMintPremiumBps_ <= 10_000, "BoringVault: mint premium too large");
         require(
             maxExitAssetsPremiumBps_ == DISABLE_EXIT_RATE_BOUND || maxExitAssetsPremiumBps_ <= 10_000,
             "BoringVault: exit premium too large"
         );
-        require(monitoredAssets_.length > 0, "BoringVault: no monitored assets");
-        require(
-            flowWindowDuration_ > 0 || (cumulativeInflowThresholdBps_ == 0 && cumulativeOutflowThresholdBps_ == 0),
-            "BoringVault: zero flow window"
-        );
-
         maxShareMintPremiumBps = maxShareMintPremiumBps_;
         maxExitAssetsPremiumBps = maxExitAssetsPremiumBps_;
-        cumulativeInflowThresholdBps = cumulativeInflowThresholdBps_;
-        cumulativeOutflowThresholdBps = cumulativeOutflowThresholdBps_;
-        flowWindowDuration = flowWindowDuration_;
 
-        for (uint256 i; i < monitoredAssets_.length; ++i) {
-            require(monitoredAssets_[i] != address(0), "BoringVault: zero monitored asset");
-            monitoredAssets.push(monitoredAssets_[i]);
+        for (uint256 i; i < shareOnlyCallers_.length; ++i) {
+            address caller = shareOnlyCallers_[i];
+            require(caller != address(0), "BoringVault: zero share-only caller");
+            require(!shareOnlyCaller[caller], "BoringVault: duplicate share-only caller");
+            shareOnlyCaller[caller] = true;
         }
 
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
-    /// @notice Wires call-scoped accounting checks and hard cumulative flow breakers.
-    /// @dev `registerFnCallTrigger` catches successful calls to the BoringVault adopter at
-    ///      any call depth. The cumulative flow triggers monitor actual token balance deltas
-    ///      of the adopter over a rolling window, independent of teller-level limits.
+    /// @notice Wires call-scoped accounting checks.
     function triggers() external view override {
         registerFnCallTrigger(this.assertEnterAccounting.selector, IBoringVaultLike.enter.selector);
         registerFnCallTrigger(this.assertExitAccounting.selector, IBoringVaultLike.exit.selector);
-
-        for (uint256 i; i < monitoredAssets.length; ++i) {
-            address asset = monitoredAssets[i];
-            if (cumulativeInflowThresholdBps > 0) {
-                watchCumulativeInflow(
-                    asset, cumulativeInflowThresholdBps, flowWindowDuration, this.assertCumulativeInflowBreaker.selector
-                );
-            }
-            if (cumulativeOutflowThresholdBps > 0) {
-                watchCumulativeOutflow(
-                    asset,
-                    cumulativeOutflowThresholdBps,
-                    flowWindowDuration,
-                    this.assertCumulativeOutflowBreaker.selector
-                );
-            }
-        }
     }
 
     /// @notice Checks that a BoringVault `enter` call is collateralized and share accounting is exact.
@@ -117,16 +80,24 @@ contract BoringVaultAssertion is BoringVaultHelpers {
 
         PhEvm.ForkId memory beforeFork = _preCall(ctx.callStart);
         PhEvm.ForkId memory afterFork = _postCall(ctx.callEnd);
+        _requireConfigurationAt(beforeFork);
 
         uint256 preSupply = _totalSupplyAt(beforeFork);
         uint256 postSupply = _totalSupplyAt(afterFork);
         uint256 preReceiverShares = _shareBalanceAt(to, beforeFork);
         uint256 postReceiverShares = _shareBalanceAt(to, afterFork);
-        uint256 preVaultAssets = _assetBalanceAt(asset, vault, beforeFork);
-        uint256 postVaultAssets = _assetBalanceAt(asset, vault, afterFork);
-
         require(postSupply == preSupply + shareAmount, "BoringVault: enter supply delta mismatch");
         require(postReceiverShares == preReceiverShares + shareAmount, "BoringVault: enter share delta mismatch");
+
+        if (assetAmount == 0) {
+            require(asset == address(0), "BoringVault: nonzero asset on share-only enter");
+            _requireShareOnlyCaller(ctx);
+            return;
+        }
+        require(asset != address(0), "BoringVault: zero asset");
+
+        uint256 preVaultAssets = _assetBalanceAt(asset, vault, beforeFork);
+        uint256 postVaultAssets = _assetBalanceAt(asset, vault, afterFork);
         require(postVaultAssets == preVaultAssets + assetAmount, "BoringVault: enter asset delta mismatch");
 
         uint256 maxShares = _maxSharesForDepositAt(asset, assetAmount, beforeFork);
@@ -140,25 +111,35 @@ contract BoringVaultAssertion is BoringVaultHelpers {
     ///      custody/share balances did not move exactly as the vault event arguments claim.
     function assertExitAccounting() external view {
         PhEvm.TriggerContext memory ctx = ph.context();
-        (, address asset, uint256 assetAmount, address from, uint256 shareAmount) =
+        (address to, address asset, uint256 assetAmount, address from, uint256 shareAmount) =
             abi.decode(_stripSelector(ph.callinputAt(ctx.callStart)), (address, address, uint256, address, uint256));
 
         PhEvm.ForkId memory beforeFork = _preCall(ctx.callStart);
         PhEvm.ForkId memory afterFork = _postCall(ctx.callEnd);
+        _requireConfigurationAt(beforeFork);
 
         uint256 preSupply = _totalSupplyAt(beforeFork);
         uint256 postSupply = _totalSupplyAt(afterFork);
         uint256 preOwnerShares = _shareBalanceAt(from, beforeFork);
         uint256 postOwnerShares = _shareBalanceAt(from, afterFork);
-        uint256 preVaultAssets = _assetBalanceAt(asset, vault, beforeFork);
-        uint256 postVaultAssets = _assetBalanceAt(asset, vault, afterFork);
-
         require(preSupply >= shareAmount, "BoringVault: exit burns too many shares");
         require(preOwnerShares >= shareAmount, "BoringVault: exit owner share underflow");
-        require(preVaultAssets >= assetAmount, "BoringVault: exit asset underflow");
         require(postSupply == preSupply - shareAmount, "BoringVault: exit supply delta mismatch");
         require(postOwnerShares == preOwnerShares - shareAmount, "BoringVault: exit share delta mismatch");
+
+        if (asset == address(0)) {
+            require(assetAmount == 0, "BoringVault: nonzero amount on share-only exit");
+            _requireShareOnlyCaller(ctx);
+            return;
+        }
+
+        uint256 preVaultAssets = _assetBalanceAt(asset, vault, beforeFork);
+        uint256 postVaultAssets = _assetBalanceAt(asset, vault, afterFork);
+        uint256 preRecipientAssets = _assetBalanceAt(asset, to, beforeFork);
+        uint256 postRecipientAssets = _assetBalanceAt(asset, to, afterFork);
+        require(preVaultAssets >= assetAmount, "BoringVault: exit asset underflow");
         require(postVaultAssets == preVaultAssets - assetAmount, "BoringVault: exit asset delta mismatch");
+        require(postRecipientAssets == preRecipientAssets + assetAmount, "BoringVault: exit recipient underpaid");
 
         if (maxExitAssetsPremiumBps != DISABLE_EXIT_RATE_BOUND) {
             uint256 maxAssets = _maxAssetsForExitAt(asset, shareAmount, beforeFork);
@@ -167,19 +148,14 @@ contract BoringVaultAssertion is BoringVaultHelpers {
         }
     }
 
-    /// @notice Hard breaker for cumulative token inflows into vault custody.
-    /// @dev Fires only after `watchCumulativeInflow` reports a monitored asset breached
-    ///      the configured rolling-window threshold. This blocks deposits or manager flows
-    ///      that would bypass or overwhelm the teller's share-denominated deposit cap.
-    function assertCumulativeInflowBreaker() external pure {
-        revert("BoringVault: cumulative inflow breaker tripped");
-    }
-
-    /// @notice Hard breaker for cumulative token outflows from vault custody.
-    /// @dev Fires only after `watchCumulativeOutflow` reports a monitored asset breached
-    ///      the configured rolling-window threshold. This blocks withdrawals, refunds,
-    ///      manager calls, or direct balance-moving paths that exceed the external breaker.
-    function assertCumulativeOutflowBreaker() external pure {
-        revert("BoringVault: cumulative outflow breaker tripped");
+    function _requireShareOnlyCaller(PhEvm.TriggerContext memory ctx) internal view {
+        PhEvm.CallInputs[] memory calls = ph.getAllCallInputs(vault, ctx.selector);
+        for (uint256 i; i < calls.length; ++i) {
+            if (calls[i].id == ctx.callStart) {
+                require(shareOnlyCaller[calls[i].caller], "BoringVault: unauthorized share-only caller");
+                return;
+            }
+        }
+        revert("BoringVault: triggered call not found");
     }
 }

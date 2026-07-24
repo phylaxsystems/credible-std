@@ -5,10 +5,8 @@ import {PhEvm} from "credible-std/PhEvm.sol";
 import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 
 import {ERC4626BaseAssertion} from "credible-std/protection/vault/ERC4626BaseAssertion.sol";
-import {ERC4626CumulativeOutflowAssertion} from "credible-std/protection/vault/ERC4626CumulativeOutflowAssertion.sol";
 import {IERC4626} from "credible-std/protection/vault/IERC4626.sol";
 import {ERC4626PreviewAssertion} from "credible-std/protection/vault/ERC4626PreviewAssertion.sol";
-import {ERC4626SharePriceAssertion} from "credible-std/protection/vault/ERC4626SharePriceAssertion.sol";
 
 import {ISparkVaultLiquidityLike, ISparkVaultRateLike, ISparkVaultReferralLike} from "./SparkVaultInterfaces.sol";
 import {SparkVaultHelpers} from "./SparkVaultHelpers.sol";
@@ -28,28 +26,11 @@ import {SparkVaultHelpers} from "./SparkVaultHelpers.sol";
 ///      settle pending `chi` growth for the current block, while `take()` must only move
 ///      liquidity and `assetsOutstanding()` without changing liabilities or rate state.
 contract SparkVaultAssertion is
-    ERC4626SharePriceAssertion,
     ERC4626PreviewAssertion,
-    ERC4626CumulativeOutflowAssertion,
     SparkVaultHelpers
 {
     /// @param vault_ Spark vault instance whose selectors this bundle will monitor.
-    /// @param sharePriceToleranceBps_ Max per-call share-price drift tolerated by
-    ///        `ERC4626SharePriceAssertion` (basis points of the pre-call price).
-    /// @param outflowThresholdBps_ Cumulative net-outflow limit as bps of TVL enforced
-    ///        by `ERC4626CumulativeOutflowAssertion` over the rolling window.
-    /// @param outflowWindowDuration_ Rolling window (seconds) the outflow assertion uses.
-    constructor(
-        address vault_,
-        address asset_,
-        uint256 sharePriceToleranceBps_,
-        uint256 outflowThresholdBps_,
-        uint256 outflowWindowDuration_
-    )
-        ERC4626BaseAssertion(vault_, asset_)
-        ERC4626SharePriceAssertion(sharePriceToleranceBps_)
-        ERC4626CumulativeOutflowAssertion(outflowThresholdBps_, outflowWindowDuration_)
-    {
+    constructor(address vault_, address asset_) ERC4626BaseAssertion(vault_, asset_) {
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
@@ -62,9 +43,7 @@ contract SparkVaultAssertion is
     ///      ERC-4626 invariants; the `_registerSpark*Triggers()` helpers below extend
     ///      that wiring to Spark's non-standard surfaces.
     function triggers() external view override {
-        _registerSharePriceTriggers();
         _registerPreviewTriggers();
-        _registerCumulativeOutflowTriggers();
         _registerSparkReferralOverloadTriggers();
         _registerSparkRateAccumulationTriggers();
         _registerSparkManagedLiquidityTriggers();
@@ -77,9 +56,6 @@ contract SparkVaultAssertion is
     ///      logic applies — we just have to register the extra selectors by hand since
     ///      the parent contracts only know about the canonical ERC-4626 ones.
     function _registerSparkReferralOverloadTriggers() internal view {
-        registerFnCallTrigger(this.assertPerCallSharePrice.selector, ISparkVaultReferralLike.deposit.selector);
-        registerFnCallTrigger(this.assertPerCallSharePrice.selector, ISparkVaultReferralLike.mint.selector);
-
         registerFnCallTrigger(this.assertDepositPreview.selector, ISparkVaultReferralLike.deposit.selector);
         registerFnCallTrigger(this.assertMintPreview.selector, ISparkVaultReferralLike.mint.selector);
     }
@@ -123,6 +99,7 @@ contract SparkVaultAssertion is
         PhEvm.TriggerContext memory ctx = ph.context();
         PhEvm.ForkId memory beforeFork = _preCall(ctx.callStart);
         PhEvm.ForkId memory afterFork = _postCall(ctx.callEnd);
+        _requireVaultConfigurationAt(afterFork);
 
         uint256 preChi = _sparkChiAt(beforeFork);
         uint256 preRho = _sparkRhoAt(beforeFork);
@@ -141,8 +118,9 @@ contract SparkVaultAssertion is
     /// @notice `take()` must only move vault liquidity into Spark's outstanding-assets bucket.
     /// @dev Spark liabilities are based on shares and `nowChi()`, not on-hand ERC-20 balance.
     ///      A successful `take()` therefore leaves `totalAssets`, `totalSupply`, and the rate
-    ///      accumulator untouched while reducing vault liquidity and increasing
-    ///      `assetsOutstanding()` by the same amount.
+    ///      accumulator untouched while reducing vault liquidity. Live Spark derives
+    ///      `assetsOutstanding()` as `max(totalAssets - liquidity, 0)`, so excess liquidity can
+    ///      absorb some or all of a take without increasing the reported outstanding amount.
     function assertSparkTakeAccounting() external {
         PhEvm.TriggerContext memory ctx = ph.context();
         bytes memory input = ph.callinputAt(ctx.callStart);
@@ -150,6 +128,7 @@ contract SparkVaultAssertion is
 
         PhEvm.ForkId memory beforeFork = _preCall(ctx.callStart);
         PhEvm.ForkId memory afterFork = _postCall(ctx.callEnd);
+        _requireVaultConfigurationAt(afterFork);
 
         uint256 preTotalAssets = _totalAssetsAt(beforeFork);
         uint256 postTotalAssets = _totalAssetsAt(afterFork);
@@ -168,7 +147,9 @@ contract SparkVaultAssertion is
 
         require(preLiquidity >= postLiquidity, "SparkVault: take increased liquidity");
         require(preLiquidity - postLiquidity == value, "SparkVault: take liquidity delta mismatch");
-        require(postOutstanding >= preOutstanding, "SparkVault: take decreased assetsOutstanding");
-        require(postOutstanding - preOutstanding == value, "SparkVault: take outstanding delta mismatch");
+        uint256 expectedPreOutstanding = preTotalAssets > preLiquidity ? preTotalAssets - preLiquidity : 0;
+        uint256 expectedPostOutstanding = postTotalAssets > postLiquidity ? postTotalAssets - postLiquidity : 0;
+        require(preOutstanding == expectedPreOutstanding, "SparkVault: bad pre-take assetsOutstanding");
+        require(postOutstanding == expectedPostOutstanding, "SparkVault: bad post-take assetsOutstanding");
     }
 }

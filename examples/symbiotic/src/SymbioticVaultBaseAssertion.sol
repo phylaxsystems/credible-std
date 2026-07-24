@@ -2,6 +2,8 @@
 pragma solidity ^0.8.13;
 
 import {SymbioticHelpers} from "./SymbioticHelpers.sol";
+import {PhEvm} from "credible-std/PhEvm.sol";
+import {ISymbioticVaultLike} from "./SymbioticInterfaces.sol";
 
 /// @title SymbioticVaultBaseAssertion
 /// @author Phylax Systems
@@ -20,7 +22,16 @@ abstract contract SymbioticVaultBaseAssertion is SymbioticHelpers {
     ///      protocol reads during construction would revert with EXTCODESIZE = 0.
     constructor(address vault_, address asset_) {
         require(vault_ != address(0), "SymbioticVaultBase: vault is zero");
+        require(asset_ != address(0), "SymbioticVaultBase: asset is zero");
         vault = vault_;
         asset = asset_;
+    }
+
+    function _requireVaultConfigurationAt(PhEvm.ForkId memory fork) internal view {
+        require(ph.getAssertionAdopter() == vault, "SymbioticVaultBase: configured vault is not adopter");
+        require(
+            _readAddressAt(vault, abi.encodeCall(ISymbioticVaultLike.collateral, ()), fork) == asset,
+            "SymbioticVaultBase: collateral mismatch"
+        );
     }
 }

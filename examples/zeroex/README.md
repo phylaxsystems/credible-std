@@ -16,3 +16,6 @@ FOUNDRY_PROFILE=zeroex forge build
 - ZeroExSettlerMainnetSwapIntrospectionAssertion.sol
 - ZeroExSettlerMainnetSwapIntrospectionCodec.sol
 - ZeroExSettlerMainnetSwapIntrospectionHelpers.sol
+
+`ZeroExSettlerMainnetSwapIntrospectionAssertion` is intentionally quarantined and registers no
+triggers. Its parser is retained as research code, not as a deployable protocol guard.

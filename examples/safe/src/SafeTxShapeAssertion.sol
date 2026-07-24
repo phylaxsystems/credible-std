@@ -64,18 +64,19 @@ contract SafeTxShapeAssertion is SafeTxShapeHelpers {
     function assertSafeDelegateCallPolicy() external view {
         Action memory action = _triggeredAction();
         if (action.operation > OPERATION_DELEGATECALL) revert SafeTxShapeUnknownOperation(action.operation);
-        if (action.operation != OPERATION_DELEGATECALL) return;
 
         (bool isBatchExecutor, uint256 batchIndex) =
             _batchPolicyForAction(action.target, action.data, action.dataOffset, action.dataLength);
         if (isBatchExecutor) {
             BatchExecutorPolicy storage batchPolicy = batchExecutorPolicies[batchIndex];
-            if (!batchPolicy.allowDelegateCall) revert SafeTxShapeBatchDelegateCallNotAllowed(action.target);
+            if (action.operation == OPERATION_DELEGATECALL && !batchPolicy.allowDelegateCall) {
+                revert SafeTxShapeBatchDelegateCallNotAllowed(action.target);
+            }
             _validateMultiSendDelegateCallPolicy(action, batchPolicy);
             return;
         }
 
-        revert SafeTxShapeDelegateCallBlocked(action.target);
+        if (action.operation == OPERATION_DELEGATECALL) revert SafeTxShapeDelegateCallBlocked(action.target);
     }
 
     /// @notice Ensures every non-batch action uses a known target and allowed selector.
@@ -83,14 +84,14 @@ contract SafeTxShapeAssertion is SafeTxShapeHelpers {
         Action memory action = _triggeredAction();
         if (action.operation > OPERATION_DELEGATECALL) revert SafeTxShapeUnknownOperation(action.operation);
 
-        if (action.operation == OPERATION_DELEGATECALL) {
-            (bool isBatchExecutor, uint256 batchIndex) =
-                _batchPolicyForAction(action.target, action.data, action.dataOffset, action.dataLength);
-            if (isBatchExecutor) {
-                _validateMultiSendTargetSelectorPolicy(action, batchExecutorPolicies[batchIndex]);
-            }
+        (bool isBatchExecutor, uint256 batchIndex) =
+            _batchPolicyForAction(action.target, action.data, action.dataOffset, action.dataLength);
+        if (isBatchExecutor) {
+            _validateMultiSendTargetSelectorPolicy(action, batchExecutorPolicies[batchIndex]);
             return;
         }
+
+        if (action.operation == OPERATION_DELEGATECALL) return;
 
         _validateTargetAndSelector(action);
     }
@@ -99,14 +100,15 @@ contract SafeTxShapeAssertion is SafeTxShapeHelpers {
     function assertSafeBatchPolicy() external view {
         Action memory action = _triggeredAction();
         if (action.operation > OPERATION_DELEGATECALL) revert SafeTxShapeUnknownOperation(action.operation);
-        if (action.operation != OPERATION_DELEGATECALL) return;
 
         (bool isBatchExecutor, uint256 batchIndex) =
             _batchPolicyForAction(action.target, action.data, action.dataOffset, action.dataLength);
         if (!isBatchExecutor) return;
 
         BatchExecutorPolicy storage batchPolicy = batchExecutorPolicies[batchIndex];
-        if (!batchPolicy.allowDelegateCall) revert SafeTxShapeBatchDelegateCallNotAllowed(action.target);
+        if (action.operation == OPERATION_DELEGATECALL && !batchPolicy.allowDelegateCall) {
+            revert SafeTxShapeBatchDelegateCallNotAllowed(action.target);
+        }
         _validateMultiSendBatchPolicy(action, batchPolicy);
     }
 
@@ -115,14 +117,14 @@ contract SafeTxShapeAssertion is SafeTxShapeHelpers {
         Action memory action = _triggeredAction();
         if (action.operation > OPERATION_DELEGATECALL) revert SafeTxShapeUnknownOperation(action.operation);
 
-        if (action.operation == OPERATION_DELEGATECALL) {
-            (bool isBatchExecutor, uint256 batchIndex) =
-                _batchPolicyForAction(action.target, action.data, action.dataOffset, action.dataLength);
-            if (isBatchExecutor) {
-                _validateMultiSendApprovalPolicy(action, batchExecutorPolicies[batchIndex]);
-            }
+        (bool isBatchExecutor, uint256 batchIndex) =
+            _batchPolicyForAction(action.target, action.data, action.dataOffset, action.dataLength);
+        if (isBatchExecutor) {
+            _validateMultiSendApprovalPolicy(action, batchExecutorPolicies[batchIndex]);
             return;
         }
+
+        if (action.operation == OPERATION_DELEGATECALL) return;
 
         if (action.dataLength < 4) return;
         _validateApproval(action, _selectorAt(action.data, action.dataOffset));

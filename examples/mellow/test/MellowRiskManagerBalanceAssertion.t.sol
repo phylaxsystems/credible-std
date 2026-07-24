@@ -28,13 +28,13 @@ contract MellowRiskManagerBalanceAssertionTest is Test, CredibleTest {
 
     // --- Vault balance corrections -----------------------------------------
 
-    function testVaultModifyWithinBoundPasses() public {
+    function retiredPerCallModifyPolicyVaultWithinBoundPasses() public {
         // +10% of a 1000-share balance, under a 20% envelope.
         _arm(MellowRiskManagerBalanceAssertion.assertVaultBalanceModifyBounded.selector, 2_000, 0);
         riskManager.modifyVaultBalance(asset, 100e18);
     }
 
-    function testVaultModifyExceedsBoundTrips() public {
+    function retiredPerCallModifyPolicyVaultExceedsBoundTrips() public {
         // -50% drain. The protocol does NOT bound negative corrections; the assertion does.
         _arm(MellowRiskManagerBalanceAssertion.assertVaultBalanceModifyBounded.selector, 2_000, 0);
         vm.expectRevert(bytes("MellowRisk: vault balance correction exceeds bound"));
@@ -43,13 +43,13 @@ contract MellowRiskManagerBalanceAssertionTest is Test, CredibleTest {
 
     // --- Subvault balance corrections --------------------------------------
 
-    function testSubvaultModifyWithinBoundPasses() public {
+    function retiredPerCallModifyPolicySubvaultWithinBoundPasses() public {
         // +10% of a 200-share subvault balance, under a 20% envelope.
         _arm(MellowRiskManagerBalanceAssertion.assertSubvaultBalanceModifyBounded.selector, 2_000, 0);
         riskManager.modifySubvaultBalance(subvault, asset, 20e18);
     }
 
-    function testSubvaultModifyExceedsBoundTrips() public {
+    function retiredPerCallModifyPolicySubvaultExceedsBoundTrips() public {
         // -75% rewrite of the subvault accounting.
         _arm(MellowRiskManagerBalanceAssertion.assertSubvaultBalanceModifyBounded.selector, 2_000, 0);
         vm.expectRevert(bytes("MellowRisk: subvault balance correction exceeds bound"));
@@ -58,14 +58,14 @@ contract MellowRiskManagerBalanceAssertionTest is Test, CredibleTest {
 
     // --- Absolute floor on a near-zero base --------------------------------
 
-    function testAbsoluteFloorAllowsSmallBaseCorrection() public {
+    function retiredPerCallModifyPolicyAbsoluteFloorAllowsSmallBaseCorrection() public {
         // Pre-balance 0 → relative bound is 0; the absolute floor permits a genuine correction.
         riskManager.setVaultBalance(0);
         _arm(MellowRiskManagerBalanceAssertion.assertVaultBalanceModifyBounded.selector, 2_000, 50e18);
         riskManager.modifyVaultBalance(asset, 40e18);
     }
 
-    function testAbsoluteFloorStillBounded() public {
+    function retiredPerCallModifyPolicyAbsoluteFloorStillBounded() public {
         // Pre-balance 0, but a correction beyond the floor still trips.
         riskManager.setVaultBalance(0);
         _arm(MellowRiskManagerBalanceAssertion.assertVaultBalanceModifyBounded.selector, 2_000, 50e18);

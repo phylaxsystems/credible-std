@@ -26,6 +26,7 @@ contract StableSwapNGPoolAssertion is StableSwapNGProtocolHelpers {
 
     /// @notice Compares each coin balance with `balances(i) + admin_balances(i)`.
     function assertPoolCustodyCoversAccounting() external {
+        require(ph.getAssertionAdopter() == pool, "StableSwapNG: configured pool is not adopter");
         PhEvm.ForkId memory fork = _postTx();
         uint256 coinCount = _stableSwapCoinCountAt(fork);
 
@@ -37,6 +38,7 @@ contract StableSwapNGPoolAssertion is StableSwapNGProtocolHelpers {
 
     /// @notice Checks each `admin_balances(i)` stays within actual coin custody.
     function assertAdminBalancesCovered() external {
+        require(ph.getAssertionAdopter() == pool, "StableSwapNG: configured pool is not adopter");
         PhEvm.ForkId memory fork = _postTx();
         uint256 coinCount = _stableSwapCoinCountAt(fork);
 
@@ -49,30 +51,20 @@ contract StableSwapNGPoolAssertion is StableSwapNGProtocolHelpers {
         }
     }
 
-    /// @notice Checks `fee`, `offpeg_fee_multiplier`, and `dynamic_fee(i, j)` stay within NG caps.
+    /// @notice Checks the fee configuration used by the pool stays within NG caps.
+    /// @dev The public `dynamic_fee` view is delegated to an upgradeable factory implementation
+    ///      and is not the swap's internal fee calculation, so it is deliberately not trusted.
     function assertFeeBounds() external {
+        require(ph.getAssertionAdopter() == pool, "StableSwapNG: configured pool is not adopter");
         PhEvm.ForkId memory fork = _postTx();
         StableSwapNGFeeState memory feeState = _stableSwapFeeStateAt(fork);
-        uint256 coinCount = _stableSwapCoinCountAt(fork);
 
         require(_stableSwapFeeCapHolds(feeState.fee, feeState.offpegFeeMultiplier), "StableSwapNG: fee cap broken");
-
-        for (uint256 i; i < coinCount; ++i) {
-            for (uint256 j; j < coinCount; ++j) {
-                if (i == j) {
-                    continue;
-                }
-
-                uint256 dynamicFee = _stableSwapDynamicFeeAt(i, j, fork);
-
-                require(dynamicFee >= feeState.fee, "StableSwapNG: dynamic fee below base fee");
-                require(dynamicFee <= MAX_FEE, "StableSwapNG: dynamic fee above max");
-            }
-        }
     }
 
     /// @notice Checks `last_price`, `ema_price`, and `D_oracle` stay initialized and capped.
     function assertOracleBounds() external {
+        require(ph.getAssertionAdopter() == pool, "StableSwapNG: configured pool is not adopter");
         PhEvm.ForkId memory fork = _postTx();
         uint256 coinCount = _stableSwapCoinCountAt(fork);
         uint256 totalSupply = _stableSwapTotalSupplyAt(fork);
@@ -82,7 +74,9 @@ contract StableSwapNGPoolAssertion is StableSwapNGProtocolHelpers {
 
             require(oracleState.lastPrice <= ORACLE_PRICE_CAP, "StableSwapNG: last price cap broken");
             if (totalSupply > 0) {
+                require(oracleState.lastPrice > 0, "StableSwapNG: zero last price");
                 require(oracleState.emaPrice > 0, "StableSwapNG: zero EMA price");
+                require(oracleState.emaPrice <= ORACLE_PRICE_CAP, "StableSwapNG: EMA price cap broken");
             }
         }
 
@@ -94,6 +88,7 @@ contract StableSwapNGPoolAssertion is StableSwapNGProtocolHelpers {
 
     /// @notice Checks base-LP custody covers slot-1 accounting and the stored base rate tracks base-pool virtual price.
     function assertMetapoolBaseLpAccounting() external {
+        require(ph.getAssertionAdopter() == pool, "StableSwapNG: configured pool is not adopter");
         PhEvm.ForkId memory fork = _postTx();
         (bool hasBasePool, address basePool) = _stableSwapBasePoolAt(fork);
         if (!hasBasePool) {
@@ -115,6 +110,7 @@ contract StableSwapNGPoolAssertion is StableSwapNGProtocolHelpers {
 
     /// @notice Checks guarded user actions do not lower `get_virtual_price()` from pre-call to post-call.
     function assertVirtualPriceNonDecreasing() external {
+        require(ph.getAssertionAdopter() == pool, "StableSwapNG: configured pool is not adopter");
         PhEvm.TriggerContext memory ctx = ph.context();
         PhEvm.ForkId memory beforeFork = _preCall(ctx.callStart);
         PhEvm.ForkId memory afterFork = _postCall(ctx.callEnd);

@@ -220,6 +220,36 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
         _swap(address(pool));
     }
 
+    /// @notice Custody leaves the Vault while reserves, raw balances, BPT supply, and fees all
+    ///         stay untouched: no watched-pool accounting delta exists, yet the deficit comparison
+    ///         still blocks the causing transaction instead of deferring detection to the pool's
+    ///         next accounting-moving transaction.
+    function testCustodyDrainWithoutAccountingChangeTrips() public {
+        _arm(BalancerV3VaultAssertion.assertPoolAccountingWithinVaultCustody.selector);
+        vm.expectRevert(bytes("BalancerV3: vault reserves exceed real token custody"));
+        vault.sweepCustodyOnly(address(token0), 10e18);
+    }
+
+    /// @notice A deficit that predates the transaction is not a license: a transaction that
+    ///         deepens it still trips, even though the absolute bound was already violated before.
+    function testWorseningPreexistingDeficitTrips() public {
+        vault.seedPoolBalance(1, 1_600e18); // claim already exceeds reserves before arming
+        vault.setMode(MockBalancerV3Vault.Mode.PhantomBalance);
+
+        _arm(BalancerV3VaultAssertion.assertPoolAccountingWithinVaultCustody.selector);
+        vm.expectRevert(bytes("BalancerV3: pool accounting exceeds vault reserves"));
+        _swap(address(pool));
+    }
+
+    /// @notice A pool already in deficit must remain usable by honest traffic: an operation that
+    ///         reduces the pool's claims (still violated in absolute terms, but no worse) passes.
+    function testHonestOperationOnDeficientPoolPasses() public {
+        vault.seedPoolBalance(0, 2_000e18); // claim exceeds reserves before arming
+
+        _arm(BalancerV3VaultAssertion.assertPoolAccountingWithinVaultCustody.selector);
+        vault.removeLiquidity(_removeLiquidityParams(address(pool)));
+    }
+
     // --- assertTokenRatesWithinDriftBound --------------------------------------
 
     function testHonestSwapPassesRateAssertion() public {
@@ -284,17 +314,24 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
         vault.shiftRateOnly();
     }
 
-    function testUnrelatedVaultTrafficSkipsCustodySnapshots() public {
-        vault.setRevertOnPoolReads(true);
+    /// @notice The drift check's gate is a pure Vault storage comparison on the watched pool, so
+    ///         unrelated singleton traffic is skipped without consulting the rate provider even
+    ///         when that provider is broken: the watched provider never becomes a liveness
+    ///         dependency of the rest of the singleton.
+    function testUnrelatedVaultTrafficIgnoresBrokenProvider() public {
+        rateProvider.setRate(0); // would trip "returned zero rate" if the drift loop ran
 
-        _arm(BalancerV3VaultAssertion.assertPoolAccountingWithinVaultCustody.selector);
+        _arm(BalancerV3VaultAssertion.assertTokenRatesWithinDriftBound.selector);
         vault.unrelatedVaultCall();
     }
 
-    function testUnrelatedVaultTrafficSkipsRateSnapshots() public {
-        vault.setRevertOnPoolReads(true);
+    /// @notice A custody imbalance that predates the transaction is flagged at the transaction
+    ///         that caused it, not re-litigated by every later unrelated transaction: the deficit
+    ///         comparison sees an unchanged baseline and lets the transaction through.
+    function testUnrelatedVaultTrafficSkipsPreexistingCustodyImbalance() public {
+        vault.seedPoolBalance(0, 2_000e18); // pool claims exceed reserves before the armed tx
 
-        _arm(BalancerV3VaultAssertion.assertTokenRatesWithinDriftBound.selector);
+        _arm(BalancerV3VaultAssertion.assertPoolAccountingWithinVaultCustody.selector);
         vault.unrelatedVaultCall();
     }
 

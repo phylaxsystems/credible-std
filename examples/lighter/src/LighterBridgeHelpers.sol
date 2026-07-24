@@ -14,6 +14,7 @@ import {IZkLighterLike} from "./LighterBridgeInterfaces.sol";
 ///      reads mutable target state at deploy time (the Credible assertion-deploy runtime is isolated
 ///      from the calling state). The bridge address is also the assertion adopter.
 abstract contract LighterBridgeHelpers is RollupBridgeStateMachineAssertion {
+    bytes4 internal constant LIGHTER_UPDATE_STATE_ROOT_SELECTOR = 0x7271277e;
     /// @notice The `ZkLighter` proxy: funds custody, rollup state machine, and assertion adopter.
     address internal immutable BRIDGE;
 
@@ -24,6 +25,7 @@ abstract contract LighterBridgeHelpers is RollupBridgeStateMachineAssertion {
 
     /// @inheritdoc RollupBridgeStateMachineAssertion
     function _readRollupState(PhEvm.ForkId memory fork) internal view override returns (RollupState memory state) {
+        require(ph.getAssertionAdopter() == BRIDGE, "LighterBridge: configured bridge is not adopter");
         state.committedBatches = _readUintAt(BRIDGE, abi.encodeCall(IZkLighterLike.committedBatchesCount, ()), fork);
         state.verifiedBatches = _readUintAt(BRIDGE, abi.encodeCall(IZkLighterLike.verifiedBatchesCount, ()), fork);
         state.executedBatches = _readUintAt(BRIDGE, abi.encodeCall(IZkLighterLike.executedBatchesCount, ()), fork);
@@ -41,7 +43,7 @@ abstract contract LighterBridgeHelpers is RollupBridgeStateMachineAssertion {
 
     /// @inheritdoc RollupBridgeStateMachineAssertion
     function _stateRootUpdateSelector() internal pure override returns (bytes4) {
-        return IZkLighterLike.updateStateRoot.selector;
+        return LIGHTER_UPDATE_STATE_ROOT_SELECTOR;
     }
 
     /// @notice Decodes a snapshot-time static call as `bytes32`.
