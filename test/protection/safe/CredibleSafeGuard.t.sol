@@ -118,11 +118,48 @@ contract CredibleSafeGuardTest is Test {
         new CredibleSafeGuard(registry, THRESHOLD, address(0));
     }
 
+    // ---------------------------------------------------------------------
+    // IInitialProtocolManager: the guard declares its own Credible Layer manager
+    // ---------------------------------------------------------------------
+
     /// @dev The state oracle reads the manager through {IInitialProtocolManager}; confirm the guard
     ///      satisfies that interface's getter when called through the interface type.
-    function test_conformsToInitialProtocolManagerInterface() public view {
+    function test_initialProtocolManager_conformsToInterface() public view {
         IInitialProtocolManager asInterface = IInitialProtocolManager(address(guard));
         assertEq(asInterface.initialProtocolManager(), PROTOCOL_MANAGER);
+    }
+
+    /// @dev The immutable is read from code, not storage; the value must be stable across calls.
+    function test_initialProtocolManager_isStableAcrossCalls() public view {
+        assertEq(guard.initialProtocolManager(), guard.initialProtocolManager());
+    }
+
+    /// @dev The guard must record whatever non-zero manager it was deployed with, independent of the
+    ///      registry and threshold arguments.
+    function testFuzz_initialProtocolManager_storesConstructorValue(
+        address registry_,
+        uint256 threshold_,
+        address manager_
+    ) public {
+        vm.assume(registry_ != address(0));
+        vm.assume(threshold_ != 0);
+        vm.assume(manager_ != address(0));
+
+        CredibleSafeGuard fuzzGuard = new CredibleSafeGuard(ICredibleRegistry(registry_), threshold_, manager_);
+
+        assertEq(fuzzGuard.initialProtocolManager(), manager_);
+        // The manager is stored independently of the other two immutables.
+        assertEq(address(fuzzGuard.credibleRegistry()), registry_);
+        assertEq(fuzzGuard.failOpenBlockThreshold(), threshold_);
+    }
+
+    /// @dev Two guards deployed with different managers report their own value — the manager is
+    ///      per-deployment, not shared state.
+    function test_initialProtocolManager_isPerDeployment() public {
+        CredibleSafeGuard otherGuard = new CredibleSafeGuard(registry, THRESHOLD, address(0xB0B));
+
+        assertEq(guard.initialProtocolManager(), PROTOCOL_MANAGER);
+        assertEq(otherGuard.initialProtocolManager(), address(0xB0B));
     }
 
     // ---------------------------------------------------------------------
