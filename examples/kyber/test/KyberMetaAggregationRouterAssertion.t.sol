@@ -61,9 +61,8 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
     // ---------------------------------------------------------------
 
     function _arm(bytes4 fnSelector) internal {
-        bytes memory createData = abi.encodePacked(
-            type(KyberMetaAggregationRouterAssertion).creationCode, abi.encode(address(router), true)
-        );
+        bytes memory createData =
+            abi.encodePacked(type(KyberMetaAggregationRouterAssertion).creationCode, abi.encode(address(router), true));
         cl.assertion(address(router), createData, fnSelector);
     }
 
@@ -410,7 +409,9 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
         p.targetData = _executorData(recipient);
         p.desc = desc;
 
-        // Arm with originalRouterFamily_ = false (the backtest-harness misconfiguration).
+        // Arm with an explicit originalRouterFamily_ = false: a separate, hypothetical wrong-family
+        // configuration -- NOT the backtest-harness bug (that was the malformed one-argument
+        // constructor tail, which fails deployment; see testDeployment_OneArgPayload_RevertsDuringConstruction).
         bytes memory createData = abi.encodePacked(
             type(KyberMetaAggregationRouterAssertion).creationCode, abi.encode(address(router), false)
         );
@@ -451,9 +452,8 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
         assertEq(oneArgDeployed, address(0), "one-arg payload must fail construction, not zero the bool");
 
         // The correct two-argument payload constructs successfully.
-        bytes memory twoArgPayload = abi.encodePacked(
-            type(KyberMetaAggregationRouterAssertion).creationCode, abi.encode(address(router), true)
-        );
+        bytes memory twoArgPayload =
+            abi.encodePacked(type(KyberMetaAggregationRouterAssertion).creationCode, abi.encode(address(router), true));
         address twoArgDeployed;
         assembly {
             twoArgDeployed := create(0, add(twoArgPayload, 0x20), mload(twoArgPayload))
