@@ -46,9 +46,16 @@ contract DeployCredibleSafeGuard is Script {
     function validateRegistry(address registry) public view {
         if (registry.code.length == 0) revert RegistryHasNoCode(registry);
 
+        // `isCredibleBlock` is a Solidity `bool`, so a well-formed answer is a canonical boolean
+        // word (0 or 1). Reject any other 32-byte value (e.g. `abi.encode(uint256(2))`) here:
+        // it passes the length check but the guard's runtime decode treats it as unreadable
+        // (see CredibleSafeGuard._tryIsCredibleBlock's `value > 1` branch), which would otherwise
+        // let a registry silently deploy a permanently-fail-open guard.
         (bool credibleOk, bytes memory credibleData) =
             registry.staticcall(abi.encodeCall(ICredibleRegistry.isCredibleBlock, (block.number)));
-        if (!credibleOk || credibleData.length != 32) revert RegistryReadFailed(registry, "isCredibleBlock");
+        if (!credibleOk || credibleData.length != 32 || abi.decode(credibleData, (uint256)) > 1) {
+            revert RegistryReadFailed(registry, "isCredibleBlock");
+        }
 
         (bool lastOk, bytes memory lastData) =
             registry.staticcall(abi.encodeCall(ICredibleRegistry.lastCredibleBlock, ()));

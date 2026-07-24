@@ -15,6 +15,24 @@ import {SafeGuardBatch} from "../script/SafeGuardBatch.sol";
 
 contract UnsupportedGuard {}
 
+/// @dev Registry whose `isCredibleBlock` returns a full 32-byte word that is not a canonical
+///      boolean (`abi.encode(uint256(2))`). It passes a naive length check but the guard's runtime
+///      decode treats a word `> 1` as unreadable, so a guard deployed against it would silently
+///      fail open. Used to regression-test that {DeployCredibleSafeGuard.validateRegistry} rejects
+///      it before broadcasting.
+contract NonCanonicalBoolRegistry {
+    function isCredibleBlock(uint256) external pure returns (bool) {
+        assembly {
+            mstore(0x00, 2)
+            return(0x00, 0x20)
+        }
+    }
+
+    function lastCredibleBlock() external pure returns (uint256) {
+        return 0;
+    }
+}
+
 contract CredibleSafeGuardScriptsTest is Test {
     bytes32 internal constant GUARD_STORAGE_SLOT = 0x4a204f620c8c5ccdca3fd54d003badd85ba500436a431f0cbda4f558c93c34c8;
     bytes32 internal constant REFERENCE_CHECKSUM = 0x8994ee462d748c24ecd7804083007dd231e36ff84da4b272921c30d1ae7f0df0;
@@ -83,6 +101,20 @@ contract CredibleSafeGuardScriptsTest is Test {
             )
         );
         deployer.validateRegistry(address(notARegistry));
+    }
+
+    function test_validateRegistry_rejectsNonCanonicalBoolRegistry() public {
+        // A registry whose isCredibleBlock returns abi.encode(uint256(2)) answers with a full
+        // 32-byte word, so the length check alone passes. The guard's runtime decode rejects any
+        // word > 1 as unreadable, which would fail the guard open. validateRegistry must catch it
+        // up front rather than broadcasting a permanently-fail-open guard.
+        NonCanonicalBoolRegistry badRegistry = new NonCanonicalBoolRegistry();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                DeployCredibleSafeGuard.RegistryReadFailed.selector, address(badRegistry), "isCredibleBlock"
+            )
+        );
+        deployer.validateRegistry(address(badRegistry));
     }
 
     function test_installBatch_matchesSafeTransactionBuilderSchema() public {
