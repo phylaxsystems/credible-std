@@ -35,6 +35,61 @@ contract MockCredibleRegistry is ICredibleRegistry {
     }
 }
 
+/// @notice Adversarial registry whose probed reads burn far more than the guard's
+///         `REGISTRY_READ_GAS_LIMIT` (50_000) gas budget via an unbounded hashing loop.
+/// @dev Proves the bounded staticcall lets the sub-call run out of its capped gas and fail open,
+///      instead of letting the OOG propagate into (and revert) the Safe transaction. `guzzleIsCredible`
+///      toggles which read guzzles, so both bounded calls can be exercised independently.
+contract GasGuzzlingRegistry is ICredibleRegistry {
+    bool public guzzleIsCredible = true;
+
+    function setGuzzleIsCredible(bool value) external {
+        guzzleIsCredible = value;
+    }
+
+    function isCredibleBlock(uint256) external view returns (bool) {
+        if (guzzleIsCredible) _burnGas();
+        // When not guzzling, return a well-formed `false` so the gate advances to lastCredibleBlock.
+        return false;
+    }
+
+    function lastCredibleBlock() external view returns (uint256) {
+        _burnGas();
+        return 0;
+    }
+
+    /// @dev Consumes millions of gas; capped at 50_000 by the guard it OOGs almost immediately.
+    function _burnGas() private view {
+        uint256 acc = uint256(blockhash(block.number - 1));
+        for (uint256 i = 0; i < 100_000; ++i) {
+            acc = uint256(keccak256(abi.encode(acc, i)));
+        }
+        // Consume `acc` so the loop cannot be optimized away.
+        require(acc != 1, "unreachable");
+    }
+}
+
+/// @notice Adversarial registry that returns far more than 32 bytes of data from each read, with a
+///         leading word that would decode to a "credible" answer.
+/// @dev Proves the bounded staticcall (retSize 0x20 + `returndatasize() == 0x20` check) rejects the
+///      over-long return, copies at most one word, and fails open rather than trusting the payload.
+contract ReturnDataBombRegistry is ICredibleRegistry {
+    function isCredibleBlock(uint256) external pure returns (bool) {
+        assembly ("memory-safe") {
+            // Leading word == 1 (would read as `true`), followed by 99 more words of garbage.
+            mstore(0x00, 1)
+            return(0x00, 3200)
+        }
+    }
+
+    function lastCredibleBlock() external pure returns (uint256) {
+        assembly ("memory-safe") {
+            mstore(0x00, 1)
+            return(0x00, 3200)
+        }
+    }
+}
+
 /// @notice Minimal Safe stand-in that calls the guard before "executing", mimicking the
 ///         relevant slice of `Safe.execTransaction`.
 contract MockSafe {
@@ -71,7 +126,11 @@ contract CredibleSafeGuardTest is Test {
 
     /// @dev Calls the guard with a representative full Safe transaction tuple.
     function _check() internal view {
-        guard.checkTransaction(
+        _checkGuard(guard);
+    }
+
+    function _checkGuard(CredibleSafeGuard guard_) internal view {
+        guard_.checkTransaction(
             address(0xBEEF),
             1 ether,
             hex"abcdef",
@@ -207,12 +266,132 @@ contract CredibleSafeGuardTest is Test {
     }
 
     // ---------------------------------------------------------------------
+    // Fail-open path: registry unavailable or malformed
+    // ---------------------------------------------------------------------
+
+    function test_failsOpen_whenCredibilityReadReverts() public {
+        vm.mockCallRevert(
+            address(registry), abi.encodeCall(ICredibleRegistry.isCredibleBlock, (block.number)), "registry unavailable"
+        );
+
+        assertTrue(guard.isCurrentBlockAllowed());
+        assertTrue(guard.failOpenActive());
+        _check();
+    }
+
+    function test_failsOpen_whenCredibilityReadReturnsShortData() public {
+        vm.mockCall(
+            address(registry),
+            abi.encodeCall(ICredibleRegistry.isCredibleBlock, (block.number)),
+            abi.encodePacked(uint8(1))
+        );
+
+        assertTrue(guard.isCurrentBlockAllowed());
+        _check();
+    }
+
+    function test_failsOpen_whenCredibilityReadReturnsNonCanonicalBool() public {
+        vm.mockCall(
+            address(registry), abi.encodeCall(ICredibleRegistry.isCredibleBlock, (block.number)), abi.encode(uint256(2))
+        );
+
+        assertTrue(guard.isCurrentBlockAllowed());
+        _check();
+    }
+
+    function test_failsOpen_whenLastCredibleBlockReadReverts() public {
+        registry.setCredibleBlock(block.number, false);
+        vm.mockCallRevert(
+            address(registry), abi.encodeCall(ICredibleRegistry.lastCredibleBlock, ()), "registry unavailable"
+        );
+
+        assertTrue(guard.failOpenActive());
+        assertTrue(guard.isCurrentBlockAllowed());
+        _check();
+    }
+
+    function test_failsOpen_whenRegistryHasNoCode() public {
+        CredibleSafeGuard codelessRegistryGuard = new CredibleSafeGuard(ICredibleRegistry(address(0xBEEF)), THRESHOLD);
+
+        assertTrue(codelessRegistryGuard.isCurrentBlockAllowed());
+        _checkGuard(codelessRegistryGuard);
+    }
+
+    function test_failsOpen_whenCredibilityReadExceedsGasBudget() public {
+        // isCredibleBlock burns >> 50k gas; the capped staticcall OOGs and fails open without
+        // reverting the outer (Safe) transaction.
+        GasGuzzlingRegistry guzzler = new GasGuzzlingRegistry();
+        CredibleSafeGuard guzzlerGuard = new CredibleSafeGuard(guzzler, THRESHOLD);
+
+        assertTrue(guzzlerGuard.isCurrentBlockAllowed());
+        assertTrue(guzzlerGuard.failOpenActive());
+        _checkGuard(guzzlerGuard);
+    }
+
+    function test_failsOpen_whenLastCredibleBlockReadExceedsGasBudget() public {
+        // isCredibleBlock answers a clean `false`, so the gate advances to lastCredibleBlock, which
+        // burns >> 50k gas. The capped staticcall on that read OOGs and fails open too.
+        GasGuzzlingRegistry guzzler = new GasGuzzlingRegistry();
+        guzzler.setGuzzleIsCredible(false);
+        CredibleSafeGuard guzzlerGuard = new CredibleSafeGuard(guzzler, THRESHOLD);
+
+        assertTrue(guzzlerGuard.isCurrentBlockAllowed());
+        assertTrue(guzzlerGuard.failOpenActive());
+        _checkGuard(guzzlerGuard);
+    }
+
+    function test_failsOpen_whenRegistryReturnsMoreThan32Bytes() public {
+        // Both reads return 3200 bytes with a leading "credible/true" word; the bounded staticcall
+        // copies at most one word and rejects the over-long returndata, so the guard fails open
+        // rather than trusting the payload or copying it unbounded.
+        ReturnDataBombRegistry bomb = new ReturnDataBombRegistry();
+        CredibleSafeGuard bombGuard = new CredibleSafeGuard(bomb, THRESHOLD);
+
+        assertTrue(bombGuard.isCurrentBlockAllowed());
+        assertTrue(bombGuard.failOpenActive());
+        _checkGuard(bombGuard);
+    }
+
+    function test_credibleHotPath_doesNotRequireLastBlockRead() public {
+        registry.markCurrentBlockCredible();
+        vm.mockCallRevert(
+            address(registry), abi.encodeCall(ICredibleRegistry.lastCredibleBlock, ()), "registry unavailable"
+        );
+
+        _check();
+    }
+
+    // ---------------------------------------------------------------------
     // Defensive: registry reports a last credible block at/after current block
     // ---------------------------------------------------------------------
 
-    function test_noUnderflow_whenLastCredibleBlockInFuture() public {
+    function test_failsOpen_whenLastCredibleBlockInFuture() public {
+        // A last credible block beyond the current block is impossible for a sound registry, so it
+        // is treated as a broken read and fails open. Blocking here would revert every owner
+        // transaction until the chain reached that height, effectively bricking the Safe.
         registry.setLastCredibleBlock(block.number + 5);
-        // Not fail open, current block not credible -> clean NonCredibleBlock revert, no panic.
+
+        assertTrue(guard.failOpenActive());
+        assertTrue(guard.isCurrentBlockAllowed());
+        _check();
+    }
+
+    function test_failsOpen_whenLastCredibleBlockIsMaxUint() public {
+        // The pathological far-future value from the review: a broken registry returning
+        // type(uint256).max must not brick the Safe.
+        registry.setLastCredibleBlock(type(uint256).max);
+
+        assertTrue(guard.failOpenActive());
+        assertTrue(guard.isCurrentBlockAllowed());
+        _check();
+    }
+
+    function test_reverts_whenLastCredibleBlockEqualsCurrent_andNotCredible() public {
+        // Equal (not future) is a valid gap of 0: builder set is live, so a non-credible current
+        // block is still blocked rather than failing open.
+        registry.setLastCredibleBlock(block.number);
+
+        assertFalse(guard.failOpenActive());
         vm.expectRevert(CredibleSafeGuard.NonCredibleBlock.selector);
         _check();
     }
