@@ -62,6 +62,29 @@ contract CredibleSafeGuardScriptsTest is Test {
         deployer.deploy(address(registry), 0);
     }
 
+    function test_validateRegistry_acceptsResponsiveRegistry() public view {
+        // A live mock registry with code and both reads answering must validate cleanly.
+        deployer.validateRegistry(address(registry));
+    }
+
+    function test_validateRegistry_rejectsCodelessRegistry() public {
+        // A typo that resolves to an EOA has no code and would fail every credibility probe open.
+        vm.expectRevert(abi.encodeWithSelector(DeployCredibleSafeGuard.RegistryHasNoCode.selector, address(0xBEEF)));
+        deployer.validateRegistry(address(0xBEEF));
+    }
+
+    function test_validateRegistry_rejectsUnresponsiveRegistry() public {
+        // A contract that exists but does not implement the registry reads must be rejected before
+        // broadcasting, rather than deploying a permanently-fail-open guard.
+        UnsupportedGuard notARegistry = new UnsupportedGuard();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                DeployCredibleSafeGuard.RegistryReadFailed.selector, address(notARegistry), "isCredibleBlock"
+            )
+        );
+        deployer.validateRegistry(address(notARegistry));
+    }
+
     function test_installBatch_matchesSafeTransactionBuilderSchema() public {
         CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD);
         string memory json = generator.buildInstallBatch(address(safe), address(guard), block.chainid, CREATED_AT);

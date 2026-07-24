@@ -35,6 +35,61 @@ contract MockCredibleRegistry is ICredibleRegistry {
     }
 }
 
+/// @notice Adversarial registry whose probed reads burn far more than the guard's
+///         `REGISTRY_READ_GAS_LIMIT` (50_000) gas budget via an unbounded hashing loop.
+/// @dev Proves the bounded staticcall lets the sub-call run out of its capped gas and fail open,
+///      instead of letting the OOG propagate into (and revert) the Safe transaction. `guzzleIsCredible`
+///      toggles which read guzzles, so both bounded calls can be exercised independently.
+contract GasGuzzlingRegistry is ICredibleRegistry {
+    bool public guzzleIsCredible = true;
+
+    function setGuzzleIsCredible(bool value) external {
+        guzzleIsCredible = value;
+    }
+
+    function isCredibleBlock(uint256) external view returns (bool) {
+        if (guzzleIsCredible) _burnGas();
+        // When not guzzling, return a well-formed `false` so the gate advances to lastCredibleBlock.
+        return false;
+    }
+
+    function lastCredibleBlock() external view returns (uint256) {
+        _burnGas();
+        return 0;
+    }
+
+    /// @dev Consumes millions of gas; capped at 50_000 by the guard it OOGs almost immediately.
+    function _burnGas() private view {
+        uint256 acc = uint256(blockhash(block.number - 1));
+        for (uint256 i = 0; i < 100_000; ++i) {
+            acc = uint256(keccak256(abi.encode(acc, i)));
+        }
+        // Consume `acc` so the loop cannot be optimized away.
+        require(acc != 1, "unreachable");
+    }
+}
+
+/// @notice Adversarial registry that returns far more than 32 bytes of data from each read, with a
+///         leading word that would decode to a "credible" answer.
+/// @dev Proves the bounded staticcall (retSize 0x20 + `returndatasize() == 0x20` check) rejects the
+///      over-long return, copies at most one word, and fails open rather than trusting the payload.
+contract ReturnDataBombRegistry is ICredibleRegistry {
+    function isCredibleBlock(uint256) external pure returns (bool) {
+        assembly ("memory-safe") {
+            // Leading word == 1 (would read as `true`), followed by 99 more words of garbage.
+            mstore(0x00, 1)
+            return(0x00, 3200)
+        }
+    }
+
+    function lastCredibleBlock() external pure returns (uint256) {
+        assembly ("memory-safe") {
+            mstore(0x00, 1)
+            return(0x00, 3200)
+        }
+    }
+}
+
 /// @notice Minimal Safe stand-in that calls the guard before "executing", mimicking the
 ///         relevant slice of `Safe.execTransaction`.
 contract MockSafe {
@@ -260,6 +315,41 @@ contract CredibleSafeGuardTest is Test {
 
         assertTrue(codelessRegistryGuard.isCurrentBlockAllowed());
         _checkGuard(codelessRegistryGuard);
+    }
+
+    function test_failsOpen_whenCredibilityReadExceedsGasBudget() public {
+        // isCredibleBlock burns >> 50k gas; the capped staticcall OOGs and fails open without
+        // reverting the outer (Safe) transaction.
+        GasGuzzlingRegistry guzzler = new GasGuzzlingRegistry();
+        CredibleSafeGuard guzzlerGuard = new CredibleSafeGuard(guzzler, THRESHOLD);
+
+        assertTrue(guzzlerGuard.isCurrentBlockAllowed());
+        assertTrue(guzzlerGuard.failOpenActive());
+        _checkGuard(guzzlerGuard);
+    }
+
+    function test_failsOpen_whenLastCredibleBlockReadExceedsGasBudget() public {
+        // isCredibleBlock answers a clean `false`, so the gate advances to lastCredibleBlock, which
+        // burns >> 50k gas. The capped staticcall on that read OOGs and fails open too.
+        GasGuzzlingRegistry guzzler = new GasGuzzlingRegistry();
+        guzzler.setGuzzleIsCredible(false);
+        CredibleSafeGuard guzzlerGuard = new CredibleSafeGuard(guzzler, THRESHOLD);
+
+        assertTrue(guzzlerGuard.isCurrentBlockAllowed());
+        assertTrue(guzzlerGuard.failOpenActive());
+        _checkGuard(guzzlerGuard);
+    }
+
+    function test_failsOpen_whenRegistryReturnsMoreThan32Bytes() public {
+        // Both reads return 3200 bytes with a leading "credible/true" word; the bounded staticcall
+        // copies at most one word and rejects the over-long returndata, so the guard fails open
+        // rather than trusting the payload or copying it unbounded.
+        ReturnDataBombRegistry bomb = new ReturnDataBombRegistry();
+        CredibleSafeGuard bombGuard = new CredibleSafeGuard(bomb, THRESHOLD);
+
+        assertTrue(bombGuard.isCurrentBlockAllowed());
+        assertTrue(bombGuard.failOpenActive());
+        _checkGuard(bombGuard);
     }
 
     function test_credibleHotPath_doesNotRequireLastBlockRead() public {
