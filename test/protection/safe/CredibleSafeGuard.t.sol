@@ -365,9 +365,33 @@ contract CredibleSafeGuardTest is Test {
     // Defensive: registry reports a last credible block at/after current block
     // ---------------------------------------------------------------------
 
-    function test_noUnderflow_whenLastCredibleBlockInFuture() public {
+    function test_failsOpen_whenLastCredibleBlockInFuture() public {
+        // A last credible block beyond the current block is impossible for a sound registry, so it
+        // is treated as a broken read and fails open. Blocking here would revert every owner
+        // transaction until the chain reached that height, effectively bricking the Safe.
         registry.setLastCredibleBlock(block.number + 5);
-        // Not fail open, current block not credible -> clean NonCredibleBlock revert, no panic.
+
+        assertTrue(guard.failOpenActive());
+        assertTrue(guard.isCurrentBlockAllowed());
+        _check();
+    }
+
+    function test_failsOpen_whenLastCredibleBlockIsMaxUint() public {
+        // The pathological far-future value from the review: a broken registry returning
+        // type(uint256).max must not brick the Safe.
+        registry.setLastCredibleBlock(type(uint256).max);
+
+        assertTrue(guard.failOpenActive());
+        assertTrue(guard.isCurrentBlockAllowed());
+        _check();
+    }
+
+    function test_reverts_whenLastCredibleBlockEqualsCurrent_andNotCredible() public {
+        // Equal (not future) is a valid gap of 0: builder set is live, so a non-credible current
+        // block is still blocked rather than failing open.
+        registry.setLastCredibleBlock(block.number);
+
+        assertFalse(guard.failOpenActive());
         vm.expectRevert(CredibleSafeGuard.NonCredibleBlock.selector);
         _check();
     }

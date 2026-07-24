@@ -144,6 +144,16 @@ contract CredibleSafeGuardSafeIntegrationTest is Test {
         assertEq(safe.nonce(), nonceBefore + 1);
     }
 
+    function test_realSafe_failsOpenWhenLastBlockReportedInFuture() public {
+        // A broken registry reporting a last credible block beyond the chain head must not brick the
+        // Safe: it is treated as an unreadable response and fails open.
+        registry.setLastCredibleBlock(type(uint256).max);
+
+        uint256 nonceBefore = safe.nonce();
+        assertTrue(_execSafeTx(owner, 0, ""));
+        assertEq(safe.nonce(), nonceBefore + 1);
+    }
+
     function test_realSafe_endToEnd_stallThenRecover() public {
         // Builder healthy: current block is credible -> allowed.
         registry.markCurrentBlockCredible();

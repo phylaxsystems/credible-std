@@ -66,7 +66,9 @@ interface ITransactionGuard is IERC165 {
 ///      3. Otherwise, if the credible builder set looks offline (the most recent credible block
 ///         is more than `failOpenBlockThreshold` blocks behind the current block), FAIL OPEN and
 ///         allow the transaction. This prevents a stalled builder set from permanently locking
-///         the Safe.
+///         the Safe. A `lastCredibleBlock` reported beyond the current block is impossible for a
+///         sound registry, so it is treated as a broken read and also fails open (see
+///         {_failOpenActive}) rather than blocking every transaction until that height is reached.
 ///      4. Otherwise the builder set is live and the current block is not credible, so the
 ///         transaction is blocked with {NonCredibleBlock}.
 ///
@@ -193,14 +195,22 @@ contract CredibleSafeGuard is ITransactionGuard {
         revert NonCredibleBlock();
     }
 
-    /// @dev Fail-open is active when the last-block read fails or the current block is strictly
-    ///      more than `failOpenBlockThreshold` blocks ahead of the last credible block. The
-    ///      `block.number > lastCredibleBlock_` guard avoids underflow if the registry reports a
-    ///      last credible block at or beyond the current block.
+    /// @dev Fail-open is active when the last-block read fails, the registry reports a last credible
+    ///      block beyond the current block, or the current block is strictly more than
+    ///      `failOpenBlockThreshold` blocks ahead of the last credible block.
+    ///
+    ///      A `lastCredibleBlock_ > block.number` reading is impossible for a sound registry (the
+    ///      registry defines this value as the highest block marked credible so far, which cannot
+    ///      exceed the chain head), so it is treated as an unreadable/broken response and fails open.
+    ///      Otherwise a broken registry reporting a far-future height with the current block not
+    ///      credible would keep fail-open disabled and revert every owner transaction until the chain
+    ///      reached that height — effectively bricking the Safe, the exact outcome this guard must
+    ///      never produce on registry failure. Rejecting the future height also removes the
+    ///      subtraction underflow it would otherwise cause.
     function _failOpenActive() internal view returns (bool) {
         (bool readable, uint256 lastCredibleBlock_) = _tryLastCredibleBlock();
-        if (!readable) return true;
-        return block.number > lastCredibleBlock_ && block.number - lastCredibleBlock_ > failOpenBlockThreshold;
+        if (!readable || lastCredibleBlock_ > block.number) return true;
+        return block.number - lastCredibleBlock_ > failOpenBlockThreshold;
     }
 
     /// @dev Probes `isCredibleBlock` without allowing a revert, malformed boolean, or returndata
