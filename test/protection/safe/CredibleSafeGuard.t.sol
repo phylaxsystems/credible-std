@@ -5,6 +5,8 @@ import {Test} from "forge-std/Test.sol";
 
 import {ICredibleRegistry} from "../../../src/protection/safe/ICredibleRegistry.sol";
 import {CredibleSafeGuard, Enum, IERC165, ITransactionGuard} from "../../../src/protection/safe/CredibleSafeGuard.sol";
+import {InitialProtocolManager} from "../../../src/protection/initial_protocol_manager/InitialProtocolManager.sol";
+import {IInitialProtocolManager} from "../../../src/protection/initial_protocol_manager/IInitialProtocolManager.sol";
 
 /// @notice Test double for the Credible Registry. Exposes fine-grained setters and a faithful
 ///         `markCurrentBlockCredible()` replicating `phylaxsystems/credible-registry` semantics.
@@ -114,13 +116,14 @@ contract CredibleSafeGuardTest is Test {
     /// @dev ~15 minutes of 12s blocks; chosen so boundaries are easy to reason about.
     uint256 internal constant THRESHOLD = 75;
     uint256 internal constant BASE_BLOCK = 1_000_000;
+    address internal constant PROTOCOL_MANAGER = address(0xA11CE);
 
     MockCredibleRegistry internal registry;
     CredibleSafeGuard internal guard;
 
     function setUp() public {
         registry = new MockCredibleRegistry();
-        guard = new CredibleSafeGuard(registry, THRESHOLD);
+        guard = new CredibleSafeGuard(registry, THRESHOLD, PROTOCOL_MANAGER);
         vm.roll(BASE_BLOCK);
     }
 
@@ -152,16 +155,29 @@ contract CredibleSafeGuardTest is Test {
     function test_constructor_storesArgs() public view {
         assertEq(address(guard.credibleRegistry()), address(registry));
         assertEq(guard.failOpenBlockThreshold(), THRESHOLD);
+        assertEq(guard.initialProtocolManager(), PROTOCOL_MANAGER);
     }
 
     function test_constructor_revertsOnZeroRegistry() public {
         vm.expectRevert(CredibleSafeGuard.ZeroCredibleRegistryAddress.selector);
-        new CredibleSafeGuard(ICredibleRegistry(address(0)), THRESHOLD);
+        new CredibleSafeGuard(ICredibleRegistry(address(0)), THRESHOLD, PROTOCOL_MANAGER);
     }
 
     function test_constructor_revertsOnZeroThreshold() public {
         vm.expectRevert(CredibleSafeGuard.ZeroFailOpenBlockThreshold.selector);
-        new CredibleSafeGuard(registry, 0);
+        new CredibleSafeGuard(registry, 0, PROTOCOL_MANAGER);
+    }
+
+    function test_constructor_revertsOnZeroProtocolManager() public {
+        vm.expectRevert(InitialProtocolManager.ZeroInitialProtocolManager.selector);
+        new CredibleSafeGuard(registry, THRESHOLD, address(0));
+    }
+
+    /// @dev The state oracle reads the manager through {IInitialProtocolManager}; confirm the guard
+    ///      satisfies that interface's getter when called through the interface type.
+    function test_conformsToInitialProtocolManagerInterface() public view {
+        IInitialProtocolManager asInterface = IInitialProtocolManager(address(guard));
+        assertEq(asInterface.initialProtocolManager(), PROTOCOL_MANAGER);
     }
 
     // ---------------------------------------------------------------------
@@ -311,7 +327,8 @@ contract CredibleSafeGuardTest is Test {
     }
 
     function test_failsOpen_whenRegistryHasNoCode() public {
-        CredibleSafeGuard codelessRegistryGuard = new CredibleSafeGuard(ICredibleRegistry(address(0xBEEF)), THRESHOLD);
+        CredibleSafeGuard codelessRegistryGuard =
+            new CredibleSafeGuard(ICredibleRegistry(address(0xBEEF)), THRESHOLD, PROTOCOL_MANAGER);
 
         assertTrue(codelessRegistryGuard.isCurrentBlockAllowed());
         _checkGuard(codelessRegistryGuard);
@@ -321,7 +338,7 @@ contract CredibleSafeGuardTest is Test {
         // isCredibleBlock burns >> 50k gas; the capped staticcall OOGs and fails open without
         // reverting the outer (Safe) transaction.
         GasGuzzlingRegistry guzzler = new GasGuzzlingRegistry();
-        CredibleSafeGuard guzzlerGuard = new CredibleSafeGuard(guzzler, THRESHOLD);
+        CredibleSafeGuard guzzlerGuard = new CredibleSafeGuard(guzzler, THRESHOLD, PROTOCOL_MANAGER);
 
         assertTrue(guzzlerGuard.isCurrentBlockAllowed());
         assertTrue(guzzlerGuard.failOpenActive());
@@ -333,7 +350,7 @@ contract CredibleSafeGuardTest is Test {
         // burns >> 50k gas. The capped staticcall on that read OOGs and fails open too.
         GasGuzzlingRegistry guzzler = new GasGuzzlingRegistry();
         guzzler.setGuzzleIsCredible(false);
-        CredibleSafeGuard guzzlerGuard = new CredibleSafeGuard(guzzler, THRESHOLD);
+        CredibleSafeGuard guzzlerGuard = new CredibleSafeGuard(guzzler, THRESHOLD, PROTOCOL_MANAGER);
 
         assertTrue(guzzlerGuard.isCurrentBlockAllowed());
         assertTrue(guzzlerGuard.failOpenActive());
@@ -345,7 +362,7 @@ contract CredibleSafeGuardTest is Test {
         // copies at most one word and rejects the over-long returndata, so the guard fails open
         // rather than trusting the payload or copying it unbounded.
         ReturnDataBombRegistry bomb = new ReturnDataBombRegistry();
-        CredibleSafeGuard bombGuard = new CredibleSafeGuard(bomb, THRESHOLD);
+        CredibleSafeGuard bombGuard = new CredibleSafeGuard(bomb, THRESHOLD, PROTOCOL_MANAGER);
 
         assertTrue(bombGuard.isCurrentBlockAllowed());
         assertTrue(bombGuard.failOpenActive());
