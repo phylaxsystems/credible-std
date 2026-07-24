@@ -20,6 +20,7 @@ contract CredibleSafeGuardSafeIntegrationTest is Test {
 
     uint256 internal constant THRESHOLD = 75;
     uint256 internal constant BASE_BLOCK = 1_000_000;
+    address internal constant PROTOCOL_MANAGER = address(0xA11CE);
 
     uint256 internal ownerPk = uint256(keccak256("safe.owner"));
     address internal owner;
@@ -32,7 +33,7 @@ contract CredibleSafeGuardSafeIntegrationTest is Test {
         owner = vm.addr(ownerPk);
 
         registry = new CredibleRegistryMock();
-        guard = new CredibleSafeGuard(registry, THRESHOLD);
+        guard = new CredibleSafeGuard(registry, THRESHOLD, PROTOCOL_MANAGER);
 
         Safe singleton = new Safe();
         SafeProxyFactory factory = new SafeProxyFactory();

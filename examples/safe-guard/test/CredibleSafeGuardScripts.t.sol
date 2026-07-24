@@ -8,6 +8,8 @@ import {SafeProxyFactory} from "../../../lib/safe-smart-account/contracts/proxie
 import {Enum} from "../../../lib/safe-smart-account/contracts/common/Enum.sol";
 
 import {CredibleSafeGuard} from "credible-std/protection/safe/CredibleSafeGuard.sol";
+import {InitialProtocolManager} from
+    "credible-std/protection/initial_protocol_manager/InitialProtocolManager.sol";
 import {CredibleRegistryMock} from "../src/CredibleRegistryMock.sol";
 import {DeployCredibleSafeGuard} from "../script/DeployCredibleSafeGuard.s.sol";
 import {GenerateSafeGuardBatch} from "../script/GenerateSafeGuardBatch.s.sol";
@@ -21,6 +23,7 @@ contract CredibleSafeGuardScriptsTest is Test {
 
     uint256 internal constant THRESHOLD = 75;
     uint256 internal constant CREATED_AT = 1_700_000_000_000;
+    address internal constant PROTOCOL_MANAGER = address(0xA11CE);
 
     uint256 internal ownerPk = uint256(keccak256("safe.owner"));
     address internal owner;
@@ -48,22 +51,26 @@ contract CredibleSafeGuardScriptsTest is Test {
     }
 
     function test_deployHelper_deploysConfiguredGuard() public {
-        CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD);
+        CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER);
 
         assertEq(address(guard.credibleRegistry()), address(registry));
         assertEq(guard.failOpenBlockThreshold(), THRESHOLD);
+        assertEq(guard.initialProtocolManager(), PROTOCOL_MANAGER);
     }
 
     function test_deployHelper_preservesConstructorValidation() public {
         vm.expectRevert(CredibleSafeGuard.ZeroCredibleRegistryAddress.selector);
-        deployer.deploy(address(0), THRESHOLD);
+        deployer.deploy(address(0), THRESHOLD, PROTOCOL_MANAGER);
 
         vm.expectRevert(CredibleSafeGuard.ZeroFailOpenBlockThreshold.selector);
-        deployer.deploy(address(registry), 0);
+        deployer.deploy(address(registry), 0, PROTOCOL_MANAGER);
+
+        vm.expectRevert(InitialProtocolManager.ZeroInitialProtocolManager.selector);
+        deployer.deploy(address(registry), THRESHOLD, address(0));
     }
 
     function test_installBatch_matchesSafeTransactionBuilderSchema() public {
-        CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD);
+        CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER);
         string memory json = generator.buildInstallBatch(address(safe), address(guard), block.chainid, CREATED_AT);
 
         assertEq(vm.parseJsonString(json, ".version"), "1.0");
@@ -103,7 +110,7 @@ contract CredibleSafeGuardScriptsTest is Test {
     }
 
     function test_generatedInstallBatch_executesThroughRealSafe() public {
-        CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD);
+        CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER);
         string memory json = generator.buildInstallBatch(address(safe), address(guard), block.chainid, CREATED_AT);
 
         _executeGeneratedBatch(json);
@@ -111,8 +118,8 @@ contract CredibleSafeGuardScriptsTest is Test {
     }
 
     function test_generatedBatch_replacesAndRemovesGuard() public {
-        CredibleSafeGuard firstGuard = deployer.deploy(address(registry), THRESHOLD);
-        CredibleSafeGuard secondGuard = deployer.deploy(address(registry), THRESHOLD + 1);
+        CredibleSafeGuard firstGuard = deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER);
+        CredibleSafeGuard secondGuard = deployer.deploy(address(registry), THRESHOLD + 1, PROTOCOL_MANAGER);
 
         _executeGeneratedBatch(
             generator.buildInstallBatch(address(safe), address(firstGuard), block.chainid, CREATED_AT)
@@ -131,7 +138,7 @@ contract CredibleSafeGuardScriptsTest is Test {
     }
 
     function test_rejectsInvalidSafeAndGuardInputs() public {
-        CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD);
+        CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER);
 
         vm.expectRevert(SafeGuardBatch.ZeroSafeAddress.selector);
         generator.buildInstallBatch(address(0), address(guard), block.chainid, CREATED_AT);
@@ -161,7 +168,7 @@ contract CredibleSafeGuardScriptsTest is Test {
     }
 
     function test_run_writesImportableInstallBatch() public {
-        CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD);
+        CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER);
         vm.setEnv("SAFE_ADDRESS", vm.toString(address(safe)));
         vm.setEnv("SAFE_GUARD_ACTION", "install");
         vm.setEnv("CREDIBLE_SAFE_GUARD", vm.toString(address(guard)));

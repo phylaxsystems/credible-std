@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {ICredibleRegistry} from "./ICredibleRegistry.sol";
+import {InitialProtocolManager} from "../initial_protocol_manager/InitialProtocolManager.sol";
 
 /// @notice Minimal subset of Safe's `Enum` library, vendored so the guard does not
 ///         depend on the Safe contracts package.
@@ -79,7 +80,12 @@ interface ITransactionGuard is IERC165 {
 ///        - ~1s blocks:                     15 min  ~= 900 blocks
 ///      Both the registry address and the fail-open threshold are immutable; re-pointing or
 ///      re-tuning means deploying a new guard and calling `setGuard` again.
-contract CredibleSafeGuard is ITransactionGuard {
+///
+///      Onboarding. The guard also implements {IInitialProtocolManager} (via {InitialProtocolManager}),
+///      exposing the address allowed to manage this deployment's assertions in the Credible Layer.
+///      The state oracle reads it when the protocol is initialized, so deploying the guard is itself
+///      the ownership proof — no separate manual review round.
+contract CredibleSafeGuard is ITransactionGuard, InitialProtocolManager {
     /// @dev Bounds the gas and returndata exposure of each registry probe. A registry that cannot
     ///      answer within this budget is treated as unavailable and the guard fails open.
     uint256 internal constant REGISTRY_READ_GAS_LIMIT = 50_000;
@@ -100,7 +106,13 @@ contract CredibleSafeGuard is ITransactionGuard {
 
     /// @param credibleRegistry_ The Credible Registry address (configurable per deployment).
     /// @param failOpenBlockThreshold_ Blocks of builder silence tolerated before failing open.
-    constructor(ICredibleRegistry credibleRegistry_, uint256 failOpenBlockThreshold_) {
+    /// @param initialProtocolManager_ Address allowed to manage this deployment's assertions in the
+    ///        Credible Layer, exposed via {initialProtocolManager}. Must be non-zero.
+    constructor(
+        ICredibleRegistry credibleRegistry_,
+        uint256 failOpenBlockThreshold_,
+        address initialProtocolManager_
+    ) InitialProtocolManager(initialProtocolManager_) {
         if (address(credibleRegistry_) == address(0)) revert ZeroCredibleRegistryAddress();
         if (failOpenBlockThreshold_ == 0) revert ZeroFailOpenBlockThreshold();
 

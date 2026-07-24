@@ -38,3 +38,7 @@ Credible Layer, the manager is managed there rather than through this value.
 
 Contracts that only need to declare the manager (without the zero-address check or a base
 constructor) can implement `IInitialProtocolManager` directly instead.
+
+`CredibleSafeGuard` (`src/protection/safe/CredibleSafeGuard.sol`) inherits this base, so a guard
+deployment declares its own protocol manager and the state oracle can onboard it without a manual
+review round.

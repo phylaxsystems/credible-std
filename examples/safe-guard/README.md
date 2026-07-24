@@ -21,12 +21,13 @@ These integration tests live under their own profile because the Safe contracts 
 
 ## Deploy the guard
 
-The deployment script reads the registry and fail-open threshold from the environment. Foundry handles the deployer wallet; the script does not read a private key.
+The deployment script reads the registry, fail-open threshold, and initial protocol manager from the environment. Foundry handles the deployer wallet; the script does not read a private key.
 
 ```sh
 FOUNDRY_PROFILE=safe-guard \
 CREDIBLE_REGISTRY=0x... \
 FAIL_OPEN_BLOCK_THRESHOLD=75 \
+INITIAL_PROTOCOL_MANAGER=0x... \
 forge script examples/safe-guard/script/DeployCredibleSafeGuard.s.sol \
   --rpc-url "$RPC_URL" \
   --account <foundry-keystore-account> \
