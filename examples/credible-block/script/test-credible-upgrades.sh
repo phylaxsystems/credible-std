@@ -90,15 +90,33 @@ reset_state() {
 # --------------------------------------------------------------------------------------------------
 section "Booting anvil (fifo mempool ordering) and deploying contracts"
 
+# Refuse to run against a pre-existing RPC listener: if the port is taken, our anvil would exit and
+# the readiness loop below would happily adopt (and snapshot/revert/disable-automine) a foreign node.
+if cast block-number --rpc-url "$RPC_URL" >/dev/null 2>&1; then
+    echo "${RED}ERROR${NC} something is already listening on $RPC_URL; refusing to run. Set RPC_PORT to a free port." >&2
+    exit 1
+fi
+
 # fifo ordering guarantees the marker tx (submitted first) is included before the guarded tx when
 # both share a block, so the guarded call sees the block already marked credible.
 anvil --port "$RPC_PORT" --order fifo --silent &
 ANVIL_PID=$!
 
+# Poll for readiness, but bail if our anvil child died (e.g. the port was grabbed between the check
+# above and launch) rather than proceeding against whatever else may be answering on the port.
 for _ in $(seq 1 50); do
+    if ! kill -0 "$ANVIL_PID" 2>/dev/null; then
+        echo "${RED}ERROR${NC} anvil (pid $ANVIL_PID) exited before becoming ready; check the port is free." >&2
+        exit 1
+    fi
     cast block-number --rpc-url "$RPC_URL" >/dev/null 2>&1 && break
     sleep 0.1
 done
+
+if ! cast block-number --rpc-url "$RPC_URL" >/dev/null 2>&1; then
+    echo "${RED}ERROR${NC} anvil did not become ready on $RPC_URL within the timeout." >&2
+    exit 1
+fi
 
 pushd "$REPO_ROOT" >/dev/null
 
