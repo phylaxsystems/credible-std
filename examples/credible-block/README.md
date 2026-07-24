@@ -15,7 +15,7 @@ a real node and drive mining manually so we can test exactly that.
 
 | File | Role |
 | ---- | ---- |
-| [`src/CredibleRegistry.sol`](./src/CredibleRegistry.sol) | Minimal deployable registry: a single immutable builder (set at construction) can mark the current block credible; implements [`ICredibleRegistry`](../../src/protection/credible_block/ICredibleRegistry.sol). The production registry ([`phylaxsystems/credible-registry`](../../../credible-registry)) additionally has a timelocked admin, a builder whitelist, and timestamp slot-binding — none needed to exercise the guard. |
+| [`src/CredibleRegistry.sol`](./src/CredibleRegistry.sol) | Minimal deployable registry: a single immutable builder (set at construction) can mark the current block credible; implements [`ICredibleRegistry`](../../src/protection/credible_block/ICredibleRegistry.sol). The production registry ([`phylaxsystems/credible-registry`](https://github.com/phylaxsystems/credible-registry)) additionally has a timelocked admin, a builder whitelist, and timestamp slot-binding — none needed to exercise the guard. |
 | [`src/GuardedCounter.sol`](./src/GuardedCounter.sol) | A concrete `CredibleBlockGuard` standing in for an upgraded credible-layer contract; its `bump()` entrypoint is `onlyCredibleBlock`. |
 | [`script/test-credible-upgrades.sh`](./script/test-credible-upgrades.sh) | Orchestrator that boots anvil, deploys, and runs the three cases. |
 

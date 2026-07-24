@@ -7,9 +7,10 @@
 # "credible block marker" tx and a guarded tx land in the SAME block (a bundle).
 #
 # It seeds anvil with:
-#   - a CredibleRegistry (examples/credible-block/src/CredibleRegistry.sol) whose admin is an EOA we
-#     control, so we can whitelist a builder instantly (production gates this behind a timelock),
-#   - a whitelisted "builder" account we control,
+#   - a CredibleRegistry (examples/credible-block/src/CredibleRegistry.sol) with a single immutable
+#     builder baked in at construction (the production registry additionally gates builders behind a
+#     timelocked admin and a whitelist; none of that is needed to exercise the guard),
+#   - a "builder" account we control, passed in as that immutable builder,
 #   - a GuardedCounter (a concrete CredibleBlockGuard) standing in for an upgraded credible contract.
 #
 # Then it verifies three cases:
@@ -163,8 +164,24 @@ check "counter incremented to 1"     "$(counter)"                      "1"
 section "Case 2: non-credible block (guarded tx with no marker reverts)"
 reset_state
 
-# No marker this block. Static call surfaces the revert reason; the on-chain tx confirms status 0.
-# cast can't decode the custom error without the ABI, so we match its 4-byte selector directly.
+# Seed one credible block first. Without it lastCredibleBlock stays 0, and the blocks already mined
+# by deployment would put block.number - 0 past a small FAIL_OPEN_THRESHOLD override — tripping
+# fail-open, so the guarded tx would wrongly pass and this case would report a false failure. With a
+# recent credible block M seeded, the guarded tx below lands at M+1 (gap 1); since the guard rejects
+# a zero threshold, every deployable threshold is >= 1, so gap 1 is never > threshold and fail-open
+# stays inactive — leaving the block correctly non-credible.
+SEED_TX=$(send_async "$BUILDER_KEY" "$REGISTRY" "markCurrentBlockCredible()")
+rpc evm_mine
+info "seeded credible block at $(receipt_block "$SEED_TX")"
+
+# The guarded tx's own block carries no marker, so it must revert.
+GUARDED_TX=$(send_async "$USER_KEY" "$GUARD" "bump()")
+rpc evm_mine
+check "guarded tx reverted on-chain" "$(receipt_status "$GUARDED_TX")" "0x0"
+check "counter still 0"              "$(counter)"                      "0"
+
+# Static call at the now-current (non-credible) tip surfaces the revert reason. cast can't decode the
+# custom error without the ABI, so we match its 4-byte selector directly.
 NON_CREDIBLE_SIG=$(cast sig "NonCredibleBlock()") # 0x95ad9b59
 CALL_OUT=$(cast call --rpc-url "$RPC_URL" --from "$USER_ADDR" "$GUARD" "bump()" 2>&1 || true)
 if echo "$CALL_OUT" | grep -qi "$NON_CREDIBLE_SIG"; then
@@ -172,11 +189,6 @@ if echo "$CALL_OUT" | grep -qi "$NON_CREDIBLE_SIG"; then
 else
     echo "  ${RED}FAIL${NC} static call did not revert with NonCredibleBlock() (got: $CALL_OUT)"; FAIL_COUNT=$((FAIL_COUNT + 1))
 fi
-
-GUARDED_TX=$(send_async "$USER_KEY" "$GUARD" "bump()")
-rpc evm_mine
-check "guarded tx reverted on-chain" "$(receipt_status "$GUARDED_TX")" "0x0"
-check "counter still 0"              "$(counter)"                      "0"
 
 # --------------------------------------------------------------------------------------------------
 # Case 3: fail-open — after the builder stops marking for > threshold blocks, guarded tx passes.
