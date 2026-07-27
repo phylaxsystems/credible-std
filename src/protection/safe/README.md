@@ -14,6 +14,51 @@ The two `*Assertion` contracts run inside the PhEvm. `CredibleSafeGuard` is a pl
 
 Install it through an owner-authorized Safe self-transaction whose calldata is `setGuard(address(guard))`; a direct owner call is not authorized. Safe then calls `checkTransaction` before each `execTransaction`, and the guard reverts to block the execution. The scripts and Safe Transaction Builder import workflow are documented in [`examples/safe-guard/README.md`](../../../examples/safe-guard/README.md).
 
+### Safe compatibility
+
+The integration suite runs against every guard-capable Safe contract release from 1.3.0 through
+1.5.0:
+
+| Safe release | Pinned revision | Singleton / proxy factory | Guard installation validation |
+| --- | --- | --- | --- |
+| 1.3.0 | `186a21a` | `GnosisSafe` / `GnosisSafeProxyFactory` | Transaction guards supported; no ERC-165 check |
+| 1.4.0 | `e870f51` | `Safe` / `SafeProxyFactory` | `GS300` ERC-165 interface check |
+| 1.4.1 | `21dc824` (`v1.4.1-3`) | `Safe` / `SafeProxyFactory` | `GS300` ERC-165 interface check |
+| 1.5.0 | `dc437e8` | `Safe` / `SafeProxyFactory` | `GS300` ERC-165 interface check |
+
+Safe 1.2.0 is not included because it does not implement transaction guards. The 1.4.1
+dependency uses the `v1.4.1-3` source release, whose singleton reports contract version `1.4.1`.
+The matrix follows the
+[official Safe contract releases](https://github.com/safe-global/safe-smart-account/releases).
+
+Safe 1.3.0 supports installing and running a transaction guard, but its `setGuard` implementation
+accepts the address without validating ERC-165 support. Safe 1.4.0 and later reject a nonzero guard
+unless it advertises the transaction-guard interface, reverting with `GS300`.
+`CredibleSafeGuard` implements that interface and installs successfully on all four versions.
+
+The shared lifecycle suite covers:
+
+- Guard installation through an owner-signed `execTransaction` → `setGuard`, including the real
+  `GS300` check on Safe 1.4.0 and later.
+- Signed transactions executing in credible blocks and reverting with `NonCredibleBlock` in
+  non-credible blocks while the builder set is live.
+- Regular transactions and guard removal remaining blocked at exactly `failOpenBlockThreshold`,
+  without changing the guard slot or consuming the Safe nonce.
+- Guard removal succeeding at `failOpenBlockThreshold + 1`, and before expiry in a credible block.
+- Fail-open after builder silence and when registry responses revert or are malformed, including
+  recovery removal of the guard.
+- An end-to-end builder stall-then-recover sequence.
+
+The expiry comparison is strict: fail-open activates only when the gap from the latest credible
+block is greater than `failOpenBlockThreshold`. Expiry is only needed for a healthy,
+non-credible block; a credible block or an unavailable/malformed registry permits earlier
+recovery, preserving the guard's existing policy.
+
+The compatibility and operational tests are under
+[`test/protection/safe/integration`](../../../test/protection/safe/integration) and use the
+dedicated `safe-guard` Foundry profile because the pinned Safe contracts require the legacy
+compiler pipeline (`optimizer = true`, no `via_ir`).
+
 ### What It Checks
 
 On every Safe transaction the guard reads the Credible Registry and decides:

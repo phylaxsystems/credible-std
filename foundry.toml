@@ -5,6 +5,7 @@ out = "out"
 libs = ["lib"]
 remappings = ["credible-std/=src/"]
 via_ir = true
+no_match_path = "test/protection/safe/integration/**"
 
 [profile.ci]
 src = "src"
@@ -14,6 +15,7 @@ libs = ["lib"]
 remappings = ["credible-std/=src/"]
 via_ir = true
 optimizer = true
+no_match_path = "test/protection/safe/integration/**"
 
 [profile.backtesting]
 src = "src"
@@ -179,12 +181,12 @@ cache_path = "examples/safe/cache"
 libs = ["lib"]
 remappings = ["credible-std/=src/"]
 
-# Real Gnosis Safe end-to-end tests for src/protection/safe/CredibleSafeGuard.sol.
-# Separate profile because the Safe contracts compile with the legacy pipeline
-# (optimizer, no via_ir), unlike the via_ir root profiles.
+# Real Gnosis Safe compatibility and operational tests for CredibleSafeGuard.
+# The suite lives with the protection tests but needs a separate profile because
+# the Safe contracts compile with the legacy pipeline (optimizer, no via_ir).
 [profile.safe-guard]
-src = "examples/safe-guard/src"
-test = "examples/safe-guard/test"
+src = "src/protection/safe"
+test = "test/protection/safe/integration"
 script = "examples/safe-guard/script"
 out = "examples/safe-guard/out"
 cache_path = "examples/safe-guard/cache"
@@ -193,6 +195,8 @@ remappings = ["credible-std/=src/"]
 fs_permissions = [{ access = "read-write", path = "./safe-guard-output" }]
 optimizer = true
 via_ir = false
+# Override the root profiles' exclusion now that this profile targets the integration tree.
+no_match_path = "test/protection/safe/integration/.never-match"
 
 [profile.credible-block]
 src = "examples/credible-block/src"
