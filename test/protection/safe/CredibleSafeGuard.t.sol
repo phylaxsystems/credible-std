@@ -5,8 +5,8 @@ import {Test} from "forge-std/Test.sol";
 
 import {ICredibleRegistry} from "../../../src/protection/safe/ICredibleRegistry.sol";
 import {CredibleSafeGuard, Enum, IERC165, ITransactionGuard} from "../../../src/protection/safe/CredibleSafeGuard.sol";
-import {InitialProtocolManager} from "../../../src/protection/initial_protocol_manager/InitialProtocolManager.sol";
-import {IInitialProtocolManager} from "../../../src/protection/initial_protocol_manager/IInitialProtocolManager.sol";
+import {InitialProtocolManager} from "../../../src/protection/credible_block/InitialProtocolManager.sol";
+import {IInitialProtocolManager} from "../../../src/protection/credible_block/IInitialProtocolManager.sol";
 
 /// @notice Test double for the Credible Registry. Exposes fine-grained setters and a faithful
 ///         `markCurrentBlockCredible()` replicating `phylaxsystems/credible-registry` semantics.

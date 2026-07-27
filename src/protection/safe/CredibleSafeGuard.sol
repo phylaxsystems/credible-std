@@ -2,7 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {ICredibleRegistry} from "./ICredibleRegistry.sol";
-import {InitialProtocolManager} from "../initial_protocol_manager/InitialProtocolManager.sol";
+import {InitialProtocolManager} from "../credible_block/InitialProtocolManager.sol";
 
 /// @notice Minimal subset of Safe's `Enum` library, vendored so the guard does not
 ///         depend on the Safe contracts package.

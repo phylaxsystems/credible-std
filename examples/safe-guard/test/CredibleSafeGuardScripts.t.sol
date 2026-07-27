@@ -9,7 +9,7 @@ import {Enum} from "../../../lib/safe-smart-account/contracts/common/Enum.sol";
 
 import {CredibleSafeGuard} from "credible-std/protection/safe/CredibleSafeGuard.sol";
 import {InitialProtocolManager} from
-    "credible-std/protection/initial_protocol_manager/InitialProtocolManager.sol";
+    "credible-std/protection/credible_block/InitialProtocolManager.sol";
 import {CredibleRegistryMock} from "../src/CredibleRegistryMock.sol";
 import {DeployCredibleSafeGuard} from "../script/DeployCredibleSafeGuard.s.sol";
 import {GenerateSafeGuardBatch} from "../script/GenerateSafeGuardBatch.s.sol";

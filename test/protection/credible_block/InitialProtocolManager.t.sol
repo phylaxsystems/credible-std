@@ -3,8 +3,8 @@ pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
 
-import {IInitialProtocolManager} from "../../../src/protection/initial_protocol_manager/IInitialProtocolManager.sol";
-import {InitialProtocolManager} from "../../../src/protection/initial_protocol_manager/InitialProtocolManager.sol";
+import {IInitialProtocolManager} from "../../../src/protection/credible_block/IInitialProtocolManager.sol";
+import {InitialProtocolManager} from "../../../src/protection/credible_block/InitialProtocolManager.sol";
 
 /// @notice Minimal concrete contract that inherits the abstract base by forwarding the manager
 ///         address to its constructor, mirroring the intended inherit-and-forward usage.
