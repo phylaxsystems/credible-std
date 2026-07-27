@@ -98,6 +98,62 @@ contract CredibleSafeGuardSafeIntegrationTest is Test {
         assertEq(safe.nonce(), nonceBefore + 1);
     }
 
+    function test_realSafe_failsOpenWhenCredibilityReadReverts() public {
+        vm.mockCallRevert(
+            address(registry), abi.encodeWithSignature("isCredibleBlock(uint256)", block.number), "registry unavailable"
+        );
+
+        uint256 nonceBefore = safe.nonce();
+        assertTrue(_execSafeTx(owner, 0, ""));
+        assertEq(safe.nonce(), nonceBefore + 1);
+    }
+
+    function test_realSafe_canRemoveGuardWhenRegistryReadReverts() public {
+        vm.mockCallRevert(
+            address(registry), abi.encodeWithSignature("isCredibleBlock(uint256)", block.number), "registry unavailable"
+        );
+
+        bytes memory setGuardData = abi.encodeWithSignature("setGuard(address)", address(0));
+        bytes memory sig = _signTx(address(safe), 0, setGuardData);
+        uint256 nonceBefore = safe.nonce();
+
+        assertTrue(
+            safe.execTransaction(
+                address(safe), 0, setGuardData, Enum.Operation.Call, 0, 0, 0, address(0), payable(address(0)), sig
+            )
+        );
+        assertEq(safe.nonce(), nonceBefore + 1);
+        assertEq(_installedGuard(), address(0));
+    }
+
+    function test_realSafe_failsOpenWhenCredibilityReadIsMalformed() public {
+        vm.mockCall(
+            address(registry), abi.encodeWithSignature("isCredibleBlock(uint256)", block.number), abi.encode(uint256(2))
+        );
+
+        uint256 nonceBefore = safe.nonce();
+        assertTrue(_execSafeTx(owner, 0, ""));
+        assertEq(safe.nonce(), nonceBefore + 1);
+    }
+
+    function test_realSafe_failsOpenWhenLastBlockReadReverts() public {
+        vm.mockCallRevert(address(registry), abi.encodeWithSignature("lastCredibleBlock()"), "registry unavailable");
+
+        uint256 nonceBefore = safe.nonce();
+        assertTrue(_execSafeTx(owner, 0, ""));
+        assertEq(safe.nonce(), nonceBefore + 1);
+    }
+
+    function test_realSafe_failsOpenWhenLastBlockReportedInFuture() public {
+        // A broken registry reporting a last credible block beyond the chain head must not brick the
+        // Safe: it is treated as an unreadable response and fails open.
+        registry.setLastCredibleBlock(type(uint256).max);
+
+        uint256 nonceBefore = safe.nonce();
+        assertTrue(_execSafeTx(owner, 0, ""));
+        assertEq(safe.nonce(), nonceBefore + 1);
+    }
+
     function test_realSafe_endToEnd_stallThenRecover() public {
         // Builder healthy: current block is credible -> allowed.
         registry.markCurrentBlockCredible();

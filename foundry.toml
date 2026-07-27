@@ -185,10 +185,12 @@ remappings = ["credible-std/=src/"]
 [profile.safe-guard]
 src = "examples/safe-guard/src"
 test = "examples/safe-guard/test"
+script = "examples/safe-guard/script"
 out = "examples/safe-guard/out"
 cache_path = "examples/safe-guard/cache"
 libs = ["lib"]
 remappings = ["credible-std/=src/"]
+fs_permissions = [{ access = "read-write", path = "./safe-guard-output" }]
 optimizer = true
 via_ir = false
 
