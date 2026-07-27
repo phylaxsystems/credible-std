@@ -3,17 +3,16 @@ pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
 
-import {Safe} from "../../../lib/safe-smart-account/contracts/Safe.sol";
-import {SafeProxyFactory} from "../../../lib/safe-smart-account/contracts/proxies/SafeProxyFactory.sol";
-import {Enum} from "../../../lib/safe-smart-account/contracts/common/Enum.sol";
+import {Safe} from "../../../../lib/safe-smart-account/contracts/Safe.sol";
+import {SafeProxyFactory} from "../../../../lib/safe-smart-account/contracts/proxies/SafeProxyFactory.sol";
+import {Enum} from "../../../../lib/safe-smart-account/contracts/common/Enum.sol";
 
 import {CredibleSafeGuard} from "credible-std/protection/safe/CredibleSafeGuard.sol";
-import {InitialProtocolManager} from
-    "credible-std/protection/credible_block/InitialProtocolManager.sol";
-import {CredibleRegistryMock} from "../src/CredibleRegistryMock.sol";
-import {DeployCredibleSafeGuard} from "../script/DeployCredibleSafeGuard.s.sol";
-import {GenerateSafeGuardBatch} from "../script/GenerateSafeGuardBatch.s.sol";
-import {SafeGuardBatch} from "../script/SafeGuardBatch.sol";
+import {InitialProtocolManager} from "credible-std/protection/credible_block/InitialProtocolManager.sol";
+import {CredibleRegistryMock} from "./mocks/CredibleRegistryMock.sol";
+import {DeployCredibleSafeGuard} from "../../../../examples/safe-guard/script/DeployCredibleSafeGuard.s.sol";
+import {GenerateSafeGuardBatch} from "../../../../examples/safe-guard/script/GenerateSafeGuardBatch.s.sol";
+import {SafeGuardBatch} from "../../../../examples/safe-guard/script/SafeGuardBatch.sol";
 
 contract UnsupportedGuard {}
 
