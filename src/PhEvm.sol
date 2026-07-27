@@ -548,8 +548,16 @@ interface PhEvm {
     ///         anomaly detector's view of `target` for the current tx.
     /// @dev `scoreBps` is in basis points (0..=10_000), where 0 is
     ///      "very likely not anomalous" and 10_000 is "very likely anomalous".
+    /// @dev `firesAt` is the strictest sensitivity level (1..=10) that score
+    ///      clears against `target`'s own model; 0 clears none. An assertion
+    ///      registered at level `L` is anomalous when
+    ///      `firesAt != 0 && L >= firesAt`, so a zero-filled context, meaning an
+    ///      unscored target, fails open by construction. Compare levels rather
+    ///      than basis points and the assertion carries over to another contract
+    ///      and survives a retrain.
     struct AnomalyContext {
         uint16 scoreBps;
+        uint8 firesAt;
     }
 
     /// @notice Returns the anomaly detector's view of `target` for the

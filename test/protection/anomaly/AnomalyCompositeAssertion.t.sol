@@ -3,52 +3,44 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {CredibleTest} from "credible-std/CredibleTest.sol";
+import {Sensitivity} from "credible-std/Sensitivity.sol";
 import {PhEvm} from "credible-std/PhEvm.sol";
 import {AnomalyCompositeAssertion} from "credible-std/protection/anomaly/AnomalyCompositeAssertion.sol";
 import {AnomalyGatedBaseAssertion} from "credible-std/protection/anomaly/AnomalyGatedBaseAssertion.sol";
 import {MockERC20, MockOracle, MockVault4626, Vault} from "./AnomalyTestMocks.sol";
 
-// The `anomalyContext` precompile and the `setAnomalyScore` cheatcode are not in released pcl, so
-// these tests fire `assertComposite` from a tx-end trigger and override the virtual `_anomalous()`
-// gate to a constructor bool. That drives the disposition (anomalous vs not) without reading the
-// score, exercising the real corroboration, operator, and exclusive-set logic. The score read and
-// the watchAnomaly wiring are covered by the executor's own anomaly tests.
+// `assertComposite` runs only once the anomaly trigger has fired, so these tests cover the
+// corroboration, operator, and exclusive-set logic that follows it.
+//
+// Released pcl has no anomaly precompile, so they fire from a tx-end trigger standing in for the
+// anomaly trigger. Whether that trigger fires at a given sensitivity level is the executor's
+// decision, tested in its own selection suite.
 
-/// @notice The composite fired by a tx-end trigger with the gate overridden to a constructor bool,
-/// so the logic runs without the anomaly precompile. `anomalous = true` clears the gate.
+/// @notice The composite fired by a tx-end trigger standing in for the anomaly trigger, so the
+/// corroboration logic runs without the anomaly precompile.
 contract CompositeTxEndHarness is AnomalyCompositeAssertion {
-    bool internal immutable anomalous;
-
-    constructor(Config memory c, bool anomalous_) AnomalyCompositeAssertion(c) {
-        anomalous = anomalous_;
-    }
+    constructor(Config memory c) AnomalyCompositeAssertion(c) {}
 
     function triggers() external view override {
+        // Stands in for the anomaly trigger, which in production fires this selector only when
+        // the score clears the sensitivity level.
         registerTxEndTrigger(this.assertComposite.selector);
-    }
-
-    function _anomalous() internal view override returns (bool) {
-        return anomalous;
     }
 }
 
 /// @notice The composite with a protocol-specific `_extra` leg. The leg corroborates when the
 /// protocol reports itself unhealthy (`flag == false`) post-tx.
 contract CompositeWithHealthTxEnd is AnomalyCompositeAssertion {
-    bool internal immutable anomalous;
     address internal immutable healthTarget;
 
-    constructor(Config memory c, address healthTarget_, bool anomalous_) AnomalyCompositeAssertion(c) {
+    constructor(Config memory c, address healthTarget_) AnomalyCompositeAssertion(c) {
         healthTarget = healthTarget_;
-        anomalous = anomalous_;
     }
 
     function triggers() external view override {
+        // Stands in for the anomaly trigger, which in production fires this selector only when
+        // the score clears the sensitivity level.
         registerTxEndTrigger(this.assertComposite.selector);
-    }
-
-    function _anomalous() internal view override returns (bool) {
-        return anomalous;
     }
 
     function _extra() internal override returns (bool enabled, bool corroborates) {
@@ -59,11 +51,11 @@ contract CompositeWithHealthTxEnd is AnomalyCompositeAssertion {
     }
 }
 
-/// @notice Proves the composite disposition: `block = anomalous AND H`, `pass = NOT anomalous`, and
-/// the exclusive-set fall-through `anomalous AND NOT H`, under both the OR and the AND operator. The
-/// AND is the case a fleet of single-heuristic assertions cannot express.
+/// @notice Proves the composite disposition once the trigger has fired: `block = H`, and the
+/// exclusive-set fall-through when `H` is silent, under both the OR and the AND operator. The AND
+/// is the case a fleet of single-heuristic assertions cannot express.
 contract TestAnomalyCompositeAssertion is CredibleTest, Test {
-    uint16 internal constant THRESHOLD_BPS = 205;
+    uint8 internal constant LEVEL = Sensitivity.RECOMMENDED;
     uint256 internal constant DRAIN_FRAC_BPS = 250; // 2.5% of the reserve
     uint256 internal constant SUPPLY = 100 ether;
     address internal constant SINK = address(0x5117);
@@ -83,7 +75,7 @@ contract TestAnomalyCompositeAssertion is CredibleTest, Test {
     /// A config with every heuristic off; each test turns on what it needs.
     function _base() internal view returns (AnomalyCompositeAssertion.Config memory c) {
         c.target = address(vault);
-        c.anomalyThresholdBps = THRESHOLD_BPS;
+        c.sensitivity = LEVEL;
     }
 
     function _withDrain(AnomalyCompositeAssertion.Config memory c)
@@ -107,10 +99,10 @@ contract TestAnomalyCompositeAssertion is CredibleTest, Test {
         return c;
     }
 
-    function _register(AnomalyCompositeAssertion.Config memory c, bool anomalous) internal {
+    function _register(AnomalyCompositeAssertion.Config memory c) internal {
         cl.assertion({
             adopter: address(vault),
-            createData: abi.encodePacked(type(CompositeTxEndHarness).creationCode, abi.encode(c, anomalous)),
+            createData: abi.encodePacked(type(CompositeTxEndHarness).creationCode, abi.encode(c)),
             fnSelector: AnomalyCompositeAssertion.assertComposite.selector
         });
     }
@@ -119,28 +111,22 @@ contract TestAnomalyCompositeAssertion is CredibleTest, Test {
 
     /// Anomalous and the tx drains: OR blocks.
     function test_or_drain_blocks() public {
-        _register(_withUpgrade(_withDrain(_base())), true);
+        _register(_withUpgrade(_withDrain(_base())));
         vm.expectRevert();
         vault.drain(SINK, 90 ether);
     }
 
     /// Anomalous and the tx upgrades: OR blocks on the other leg.
     function test_or_upgrade_blocks() public {
-        _register(_withUpgrade(_withDrain(_base())), true);
+        _register(_withUpgrade(_withDrain(_base())));
         vm.expectRevert();
         vault.upgradeTo(IMPL);
     }
 
     /// Anomalous but neither heuristic corroborates: the exclusive set. No revert (alert cell).
     function test_or_neither_is_exclusive_set_and_passes() public {
-        _register(_withUpgrade(_withDrain(_base())), true);
+        _register(_withUpgrade(_withDrain(_base())));
         vault.poke();
-    }
-
-    /// Not anomalous: a draining tx passes. The gate suppresses the drain heuristic.
-    function test_not_anomalous_suppresses_drain() public {
-        _register(_withUpgrade(_withDrain(_base())), false);
-        vault.drain(SINK, 90 ether);
     }
 
     // --- AND operator: every enabled heuristic must corroborate ---
@@ -149,7 +135,7 @@ contract TestAnomalyCompositeAssertion is CredibleTest, Test {
     function test_and_both_blocks() public {
         AnomalyCompositeAssertion.Config memory c = _withUpgrade(_withDrain(_base()));
         c.requireAll = true;
-        _register(c, true);
+        _register(c);
         vm.expectRevert();
         vault.drainAndUpgrade(SINK, 90 ether, IMPL);
     }
@@ -158,7 +144,7 @@ contract TestAnomalyCompositeAssertion is CredibleTest, Test {
     function test_and_drain_only_passes() public {
         AnomalyCompositeAssertion.Config memory c = _withUpgrade(_withDrain(_base()));
         c.requireAll = true;
-        _register(c, true);
+        _register(c);
         vault.drain(SINK, 90 ether);
     }
 
@@ -166,7 +152,7 @@ contract TestAnomalyCompositeAssertion is CredibleTest, Test {
     function test_and_upgrade_only_passes() public {
         AnomalyCompositeAssertion.Config memory c = _withUpgrade(_withDrain(_base()));
         c.requireAll = true;
-        _register(c, true);
+        _register(c);
         vault.upgradeTo(IMPL);
     }
 
@@ -176,7 +162,7 @@ contract TestAnomalyCompositeAssertion is CredibleTest, Test {
     function test_upgrade_target_watches_named_contract() public {
         AnomalyCompositeAssertion.Config memory c = _withUpgrade(_base());
         c.upgradeTarget = address(remote);
-        _register(c, true);
+        _register(c);
         vm.expectRevert();
         vault.upgradeRemote(remote, IMPL);
     }
@@ -186,25 +172,17 @@ contract TestAnomalyCompositeAssertion is CredibleTest, Test {
     function test_upgrade_target_ignores_focal_upgrade() public {
         AnomalyCompositeAssertion.Config memory c = _withUpgrade(_base());
         c.upgradeTarget = address(remote);
-        _register(c, true);
+        _register(c);
         vault.upgradeTo(IMPL);
     }
 
     // --- the gate and the baseline ---
 
-    /// Not anomalous: pass regardless of damage, even a tx that both drains and upgrades.
-    function test_not_anomalous_passes_with_damage() public {
-        AnomalyCompositeAssertion.Config memory c = _withUpgrade(_withDrain(_base()));
-        c.requireAll = true;
-        _register(c, false);
-        vault.drainAndUpgrade(SINK, 90 ether, IMPL);
-    }
-
     /// A config with no heuristic enabled and no baseline opt-in reverts at deploy: blocking on the
     /// score alone must be explicit, not a default-initialized `Config`.
     function test_config_with_no_heuristic_reverts_at_deploy() public {
         vm.expectRevert(AnomalyCompositeAssertion.NoHeuristicEnabled.selector);
-        new CompositeTxEndHarness(_base(), true);
+        new CompositeTxEndHarness(_base());
     }
 
     /// An enabled leg missing a parameter it reads reverts at deploy rather than shipping a
@@ -246,7 +224,7 @@ contract TestAnomalyCompositeAssertion is CredibleTest, Test {
 
     function _expectMisconfigured(AnomalyCompositeAssertion.Config memory c) internal {
         vm.expectRevert(AnomalyGatedBaseAssertion.HeuristicMisconfigured.selector);
-        new CompositeTxEndHarness(c, true);
+        new CompositeTxEndHarness(c);
     }
 
     /// A zero target reverts at deploy: `anomalyContext` can never score it, so the gate would
@@ -255,46 +233,38 @@ contract TestAnomalyCompositeAssertion is CredibleTest, Test {
         AnomalyCompositeAssertion.Config memory c = _withDrain(_base());
         c.target = address(0);
         vm.expectRevert(AnomalyGatedBaseAssertion.ZeroTarget.selector);
-        new CompositeTxEndHarness(c, true);
+        new CompositeTxEndHarness(c);
     }
 
-    /// The threshold must sit in [1, 10_000], boundaries included. Zero gates true on the
-    /// zero-filled context of an unscored target; above 10_000 the gate is unreachable because
-    /// `scoreBps` caps at 10_000.
-    function test_threshold_range_boundaries_at_deploy() public {
+    /// The sensitivity must name a rung of the ladder, [1, 10], boundaries included. Level 0 is
+    /// the "cleared nothing" sentinel an unscored target reads back, so accepting it would gate
+    /// true on contracts the model never scored; above 10 names no level and could never fire.
+    function test_sensitivity_range_boundaries_at_deploy() public {
         AnomalyCompositeAssertion.Config memory c = _withDrain(_base());
-        c.anomalyThresholdBps = 0;
-        vm.expectRevert(AnomalyGatedBaseAssertion.ThresholdOutOfRange.selector);
-        new CompositeTxEndHarness(c, true);
+        c.sensitivity = 0;
+        vm.expectRevert(AnomalyGatedBaseAssertion.SensitivityOutOfRange.selector);
+        new CompositeTxEndHarness(c);
 
         c = _withDrain(_base());
-        c.anomalyThresholdBps = 10_001;
-        vm.expectRevert(AnomalyGatedBaseAssertion.ThresholdOutOfRange.selector);
-        new CompositeTxEndHarness(c, true);
+        c.sensitivity = 11;
+        vm.expectRevert(AnomalyGatedBaseAssertion.SensitivityOutOfRange.selector);
+        new CompositeTxEndHarness(c);
 
         c = _withDrain(_base());
-        c.anomalyThresholdBps = 1;
-        new CompositeTxEndHarness(c, true);
+        c.sensitivity = Sensitivity.MIN;
+        new CompositeTxEndHarness(c);
 
         c = _withDrain(_base());
-        c.anomalyThresholdBps = 10_000;
-        new CompositeTxEndHarness(c, true);
+        c.sensitivity = Sensitivity.MAX;
+        new CompositeTxEndHarness(c);
     }
 
     /// The baseline opt-in, anomalous: the bare gate blocks on the score alone.
     function test_bare_gate_blocks_when_anomalous() public {
         AnomalyCompositeAssertion.Config memory c = _base();
         c.bareGateBaseline = true;
-        _register(c, true);
+        _register(c);
         vm.expectRevert();
-        vault.poke();
-    }
-
-    /// The baseline opt-in, not anomalous: nothing blocks.
-    function test_bare_gate_passes_when_not_anomalous() public {
-        AnomalyCompositeAssertion.Config memory c = _base();
-        c.bareGateBaseline = true;
-        _register(c, false);
         vault.poke();
     }
 
@@ -303,14 +273,14 @@ contract TestAnomalyCompositeAssertion is CredibleTest, Test {
     function test_baseline_flag_inert_when_heuristic_enabled() public {
         AnomalyCompositeAssertion.Config memory c = _withDrain(_base());
         c.bareGateBaseline = true;
-        _register(c, true);
+        _register(c);
         vault.poke();
     }
 }
 
 /// @notice Proves the `_extra` leg participates in the operator alongside the generic heuristics.
 contract TestAnomalyCompositeExtraLeg is CredibleTest, Test {
-    uint16 internal constant THRESHOLD_BPS = 205;
+    uint8 internal constant LEVEL = Sensitivity.RECOMMENDED;
     uint256 internal constant DRAIN_FRAC_BPS = 250;
     uint256 internal constant SUPPLY = 100 ether;
     address internal constant SINK = address(0x5117);
@@ -327,7 +297,7 @@ contract TestAnomalyCompositeExtraLeg is CredibleTest, Test {
     /// AND over {drain, extra}: block only when the reserve drains AND the protocol is unhealthy.
     function _config() internal view returns (AnomalyCompositeAssertion.Config memory c) {
         c.target = address(vault);
-        c.anomalyThresholdBps = THRESHOLD_BPS;
+        c.sensitivity = LEVEL;
         c.requireAll = true;
         c.useDrain = true;
         c.outflowTarget = address(vault);
@@ -362,7 +332,7 @@ contract TestAnomalyCompositeExtraLeg is CredibleTest, Test {
 /// @notice Regression coverage for the oracle leg: the query is an arg-taking reader
 /// (`getAssetPrice(address)`), the shape a bare `bytes4` selector could not encode.
 contract TestAnomalyCompositeOracleLeg is CredibleTest, Test {
-    uint16 internal constant THRESHOLD_BPS = 205;
+    uint8 internal constant LEVEL = Sensitivity.RECOMMENDED;
     uint256 internal constant ORACLE_TOL_BPS = 200; // 2%
     address internal constant ASSET = address(0xA55E7);
     uint256 internal constant BASE_PRICE = 1000e8;
@@ -381,45 +351,39 @@ contract TestAnomalyCompositeOracleLeg is CredibleTest, Test {
     /// OR over {oracle} only: block iff the oracle answer leaves tolerance across the transaction.
     function _config() internal view returns (AnomalyCompositeAssertion.Config memory c) {
         c.target = address(vault);
-        c.anomalyThresholdBps = THRESHOLD_BPS;
+        c.sensitivity = LEVEL;
         c.useOracle = true;
         c.oracle = address(oracle);
         c.oracleQuery = abi.encodeWithSignature("getAssetPrice(address)", ASSET);
         c.oracleToleranceBps = ORACLE_TOL_BPS;
     }
 
-    function _register(bool anomalous) internal {
+    function _register() internal {
         cl.assertion({
             adopter: address(vault),
-            createData: abi.encodePacked(type(CompositeTxEndHarness).creationCode, abi.encode(_config(), anomalous)),
+            createData: abi.encodePacked(type(CompositeTxEndHarness).creationCode, abi.encode(_config())),
             fnSelector: AnomalyCompositeAssertion.assertComposite.selector
         });
     }
 
     /// Anomalous and the oracle jumps 10% (past the 2% tolerance): the oracle leg corroborates, block.
     function test_oracle_leg_blocks_on_deviation() public {
-        _register(true);
+        _register();
         vm.expectRevert();
         vault.moveOracle(address(oracle), ASSET, 1100e8);
     }
 
     /// Anomalous but the oracle stays within tolerance (+1%): the leg is silent, pass (exclusive set).
     function test_oracle_leg_passes_within_tolerance() public {
-        _register(true);
+        _register();
         vault.moveOracle(address(oracle), ASSET, 1010e8);
-    }
-
-    /// Not anomalous: a large oracle move passes because the gate suppresses it.
-    function test_oracle_leg_suppressed_when_not_anomalous() public {
-        _register(false);
-        vault.moveOracle(address(oracle), ASSET, 1100e8);
     }
 }
 
 /// @notice Coverage for the accounting leg: block when the ERC4626 share price moves beyond
 /// tolerance across the transaction.
 contract TestAnomalyCompositeAccountingLeg is CredibleTest, Test {
-    uint16 internal constant THRESHOLD_BPS = 205;
+    uint8 internal constant LEVEL = Sensitivity.RECOMMENDED;
     uint256 internal constant SHARE_TOL_BPS = 200; // 2%
 
     MockERC20 internal token;
@@ -435,36 +399,30 @@ contract TestAnomalyCompositeAccountingLeg is CredibleTest, Test {
     /// OR over {accounting} only: block iff the share price leaves tolerance across the transaction.
     function _config() internal view returns (AnomalyCompositeAssertion.Config memory c) {
         c.target = address(vault);
-        c.anomalyThresholdBps = THRESHOLD_BPS;
+        c.sensitivity = LEVEL;
         c.useAccounting = true;
         c.accountingVault = address(vault4626);
         c.shareToleranceBps = SHARE_TOL_BPS;
     }
 
-    function _register(bool anomalous) internal {
+    function _register() internal {
         cl.assertion({
             adopter: address(vault),
-            createData: abi.encodePacked(type(CompositeTxEndHarness).creationCode, abi.encode(_config(), anomalous)),
+            createData: abi.encodePacked(type(CompositeTxEndHarness).creationCode, abi.encode(_config())),
             fnSelector: AnomalyCompositeAssertion.assertComposite.selector
         });
     }
 
     /// Anomalous and the share price jumps 10% (past the 2% tolerance): the leg corroborates, block.
     function test_accounting_leg_blocks_on_deviation() public {
-        _register(true);
+        _register();
         vm.expectRevert();
         vault.moveSharePrice(address(vault4626), 1100 ether);
     }
 
     /// Anomalous but the share price stays within tolerance (+1%): the leg is silent, pass.
     function test_accounting_leg_passes_within_tolerance() public {
-        _register(true);
+        _register();
         vault.moveSharePrice(address(vault4626), 1010 ether);
-    }
-
-    /// Not anomalous: a large share-price move passes because the gate suppresses it.
-    function test_accounting_leg_suppressed_when_not_anomalous() public {
-        _register(false);
-        vault.moveSharePrice(address(vault4626), 1100 ether);
     }
 }

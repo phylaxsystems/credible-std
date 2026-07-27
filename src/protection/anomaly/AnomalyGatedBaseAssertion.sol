@@ -4,6 +4,7 @@ pragma solidity ^0.8.13;
 import {Assertion} from "../../Assertion.sol";
 import {AssertionSpec} from "../../SpecRecorder.sol";
 import {PhEvm} from "../../PhEvm.sol";
+import {Sensitivity} from "../../Sensitivity.sol";
 
 interface IERC20 {
     function balanceOf(address account) external view returns (uint256);
@@ -17,21 +18,26 @@ interface IERC20 {
 ///      blocking signal on its own. An anomaly-gated assertion fires on the score, then requires a
 ///      deterministic damage check to confirm before it reverts.
 ///
-///      Over the anomaly bit `a = score >= anomalyThresholdBps` and the enabled damage set `H`, a
-///      transaction's disposition is:
+///      Over the anomaly bit `a = the score cleared this assertion's sensitivity level` and the
+///      enabled damage set `H`, a transaction's disposition is:
 ///
 ///      | | H confirms | H silent |
 ///      | --- | --- | --- |
 ///      | **a** | block (revert) | alert (the exclusive set) |
 ///      | **not a** | pass (the benign whale) | pass (normal traffic) |
 ///
-///      `block = a AND H`, `alert = a AND NOT H`, `pass = NOT a`. The assertion implements this in
-///      control flow: the gate returns early on `NOT a` (pass), the corroboration reverts on
-///      `a AND H` (block), and the fall-through with no revert is `a AND NOT H` (the alert cell, read
-///      off-chain from the executor seeing a score and no invalidation). The alert cell does not
-///      revert, so a benign-but-unusual transaction is not blocked on the model score alone.
+///      `block = a AND H`, `alert = a AND NOT H`, `pass = NOT a`. The trigger and the body split
+///      this between them: `NOT a` never reaches the assertion, because the trigger fires only when
+///      the score clears the level, so the whole bottom row costs no execution. Inside the body,
+///      the corroboration reverts on `a AND H` (block), and the fall-through with no revert is
+///      `a AND NOT H` (the alert cell, read off-chain from the executor seeing a score and no
+///      invalidation). The alert cell does not revert, so a benign-but-unusual transaction is
+///      never blocked on the model score alone.
 ///
-///      This base holds the target, the operating threshold, and the corroboration primitives the
+///      A body therefore checks damage and nothing else. The level comparison happens where the
+///      model's ladder lives, so the body has no score to re-read.
+///
+///      This base holds the target, the sensitivity level, and the corroboration primitives the
 ///      heuristic mixins and the composite share. Inherit it through a mixin or the composite, then
 ///      implement `triggers()`.
 ///
@@ -39,7 +45,7 @@ interface IERC20 {
 /// ```solidity
 /// contract MyDrainGuard is AnomalyGatedOutflowAssertion {
 ///     constructor(address pool, address reserveToken)
-///         AnomalyGatedBaseAssertion(pool, 205)          // 205 bps == a 2% probability
+///         AnomalyGatedBaseAssertion(pool, Sensitivity.RECOMMENDED)
 ///         AnomalyGatedOutflowAssertion(pool, reserveToken, 250) // drain >= 2.5% of the reserve
 ///     {}
 ///
@@ -62,11 +68,11 @@ abstract contract AnomalyGatedBaseAssertion is Assertion {
     ///         never score it, so the gate would never open and the assertion would be permanently
     ///         inert.
     error ZeroTarget();
-    /// @notice Constructor guard: the operating threshold must be in `[1, 10_000]`. At zero the
-    ///         gate is satisfied by the zero-filled context of an unscored target, turning the
-    ///         damage heuristics into ungated blockers; above 10_000 the gate is unreachable
-    ///         (`scoreBps` caps at 10_000) and the assertion permanently inert.
-    error ThresholdOutOfRange();
+    /// @notice Constructor guard: the sensitivity must name a rung of the ladder, `[1, 10]`.
+    ///         Level 0 is the "cleared nothing" sentinel an unscored target reads back, so
+    ///         accepting it would turn the damage heuristics into ungated blockers; above 10 names
+    ///         no level at all and the assertion would be permanently inert.
+    error SensitivityOutOfRange();
 
     /// @notice EIP-1967 implementation slot, `keccak256("eip1967.proxy.implementation") - 1`.
     bytes32 internal constant EIP1967_IMPLEMENTATION =
@@ -77,43 +83,42 @@ abstract contract AnomalyGatedBaseAssertion is Assertion {
     /// @notice The watched contract whose anomaly score gates this assertion (the adopter).
     address internal immutable target;
 
-    /// @notice Scores at or above this (out of 10_000) are treated as anomalous. On the Aave family
-    ///         the calibrated operating point for a 1% false-positive budget is 205, a 2% probability.
-    uint16 internal immutable anomalyThresholdBps;
+    /// @notice How aggressively the trigger fires, as a level on the `Sensitivity` ladder rather
+    ///         than a basis-point score. Level 7 — the recommended point — fires on 1% of the
+    ///         contract's own transactions. The threshold behind it is resolved per contract at
+    ///         evaluation time, so this assertion is portable and survives a retrain untouched.
+    uint8 internal immutable sensitivity;
 
     /// @param _target The watched contract the model scores. Must be non-zero.
-    /// @param _anomalyThresholdBps The operating point, in bps of anomaly probability. Must be in
-    ///        `[1, 10_000]`.
-    constructor(address _target, uint16 _anomalyThresholdBps) {
+    /// @param _sensitivity The level from `Sensitivity`, 1..=10.
+    constructor(address _target, uint8 _sensitivity) {
         if (_target == address(0)) {
             revert ZeroTarget();
         }
-        if (_anomalyThresholdBps == 0 || _anomalyThresholdBps > 10_000) {
-            revert ThresholdOutOfRange();
+        if (!Sensitivity.isValid(_sensitivity)) {
+            revert SensitivityOutOfRange();
         }
         registerAssertionSpec(AssertionSpec.Reshiram);
         target = _target;
-        anomalyThresholdBps = _anomalyThresholdBps;
+        sensitivity = _sensitivity;
     }
 
     // ---------------------------------------------------------------
     //  The anomaly gate
     // ---------------------------------------------------------------
 
-    /// @notice Whether the model scored this transaction at or above the operating threshold.
-    /// @dev `ph.anomalyContext` fails open: an unscored target reads 0, so a contract with no model
-    ///      (too new to have history) does not gate true and the assertion stays inert; the
-    ///      constructor's `[1, 10_000]` threshold range guarantees this. Virtual so an adopter can
-    ///      override the gate, e.g. a per-function threshold or a second signal.
-    function _anomalous() internal view virtual returns (bool) {
-        return ph.anomalyContext(target).scoreBps >= anomalyThresholdBps;
-    }
-
-    /// @notice Register the anomaly trigger for `selector`.
-    /// @dev Fires `selector` whenever the AnomalySubsystem produces a score for `target`. Call this
-    ///      inside your `triggers()`.
+    /// @notice Register the anomaly trigger for `selector` at this assertion's sensitivity level.
+    /// @dev The trigger is the gate. `selector` runs only when the AnomalySubsystem scores `target`
+    ///      anomalously enough to clear `sensitivity`, so the assertion body checks damage and
+    ///      nothing else. A transaction below the level never spawns the assertion at all.
+    ///
+    ///      The gate fails open at both ends. An unscored target, or one whose model carries no
+    ///      resolved ladder, clears no level, so nothing fires. Call this inside your `triggers()`.
+    ///
+    ///      `ph.anomalyContext(target)` still reports the score and the level it cleared, for an
+    ///      assertion that wants to act on how anomalous a transaction was.
     function _registerAnomalyTrigger(bytes4 selector) internal view {
-        watchAnomaly(target, selector);
+        watchAnomaly(target, selector, sensitivity);
     }
 
     // ---------------------------------------------------------------

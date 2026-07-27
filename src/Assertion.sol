@@ -133,18 +133,26 @@ abstract contract Assertion is ForkUtils, StateChanges {
         triggerRecorder.watchCumulativeInflow(token, thresholdBps, windowDuration, fnSelector);
     }
 
-    /// @notice Registers an anomaly-detection trigger. Fires whenever the
-    ///         executor's configured AnomalySubsystem produces a score for
-    ///         `target` in a transaction that touches it.
-    /// @dev The model owns the firing decision: the trigger fires whenever
-    ///      the subsystem returns a score at all. The assertion reads the
-    ///      score back via `ph.anomalyContext(target)` and decides whether
-    ///      to revert, run extra checks, or ignore.
+    /// @notice Registers an anomaly-detection trigger at a sensitivity level.
+    ///         Fires when the executor's configured AnomalySubsystem scores
+    ///         `target` anomalously enough to clear `sensitivity`.
+    /// @dev The level is a point on the detector's recall-versus-false-positive
+    ///      curve, fixed to the same budget on every contract — see
+    ///      `Sensitivity`. The threshold behind it is resolved from `target`'s
+    ///      own model where the trigger is evaluated, so this code is portable
+    ///      across contracts and survives a retrain untouched.
+    ///
+    ///      ```solidity
+    ///      function triggers() external view override {
+    ///          watchAnomaly(aUSDC, this.checkSolvency.selector, Sensitivity.LEVEL_7);
+    ///      }
+    ///      ```
     /// @param target The address whose anomaly score this assertion observes.
-    /// @param fnSelector The assertion function to invoke when `target` is
-    ///        scored.
-    function watchAnomaly(address target, bytes4 fnSelector) internal view {
-        triggerRecorder.watchAnomaly(target, fnSelector);
+    /// @param fnSelector The assertion function to invoke when `target` clears
+    ///        the level.
+    /// @param sensitivity The level from `Sensitivity`, 1..=10.
+    function watchAnomaly(address target, bytes4 fnSelector, uint8 sensitivity) internal view {
+        triggerRecorder.watchAnomaly(target, fnSelector, sensitivity);
     }
 
     // ---------------------------------------------------------------

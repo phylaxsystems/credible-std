@@ -49,9 +49,6 @@ abstract contract AnomalyGatedOutflowAssertion is AnomalyGatedBaseAssertion {
 
     /// @notice Reverts only when the transaction is anomalous and drains the reserve.
     function assertAnomalousOutflow() external view {
-        if (!_anomalous()) {
-            return;
-        }
         if (_outflowCorroborates()) {
             revert AnomalousOutflow();
         }

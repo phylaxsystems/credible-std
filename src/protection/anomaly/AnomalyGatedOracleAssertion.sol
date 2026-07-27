@@ -50,9 +50,6 @@ abstract contract AnomalyGatedOracleAssertion is AnomalyGatedBaseAssertion {
 
     /// @notice Reverts only when the transaction is anomalous and the oracle answer deviates.
     function assertAnomalousOracle() external {
-        if (!_anomalous()) {
-            return;
-        }
         if (_oracleCorroborates()) {
             revert AnomalousOracle();
         }
