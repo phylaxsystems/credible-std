@@ -5,7 +5,7 @@ out = "out"
 libs = ["lib"]
 remappings = ["credible-std/=src/"]
 via_ir = true
-no_match_path = "test/protection/safe/integration/**"
+skip = ["CredibleSafeGuardSafeIntegration", "CredibleSafeGuardScripts"]
 
 [profile.ci]
 src = "src"
@@ -15,7 +15,7 @@ libs = ["lib"]
 remappings = ["credible-std/=src/"]
 via_ir = true
 optimizer = true
-no_match_path = "test/protection/safe/integration/**"
+skip = ["CredibleSafeGuardSafeIntegration", "CredibleSafeGuardScripts"]
 
 [profile.backtesting]
 src = "src"
@@ -195,8 +195,8 @@ remappings = ["credible-std/=src/"]
 fs_permissions = [{ access = "read-write", path = "./safe-guard-output" }]
 optimizer = true
 via_ir = false
-# Override the root profiles' exclusion now that this profile targets the integration tree.
-no_match_path = "test/protection/safe/integration/.never-match"
+# Compile the integration files skipped by the root via-IR profiles.
+skip = []
 
 [profile.credible-block]
 src = "examples/credible-block/src"
