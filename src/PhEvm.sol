@@ -546,17 +546,18 @@ interface PhEvm {
 
     /// @notice Context returned by `anomalyContext(target)` describing the
     ///         anomaly detector's view of `target` for the current tx.
-    /// @dev `scoreBps` is in basis points (0..=10_000), where 0 is
-    ///      "very likely not anomalous" and 10_000 is "very likely anomalous".
-    /// @dev `firesAt` is the strictest sensitivity level (1..=10) that score
-    ///      clears against `target`'s own model; 0 clears none. An assertion
-    ///      registered at level `L` is anomalous when
+    /// @dev `firesAt` is the strictest sensitivity level (1..=10) the model's
+    ///      score clears against `target`'s own ladder; 0 clears none. An
+    ///      assertion registered at level `L` is anomalous when
     ///      `firesAt != 0 && L >= firesAt`, so a zero-filled context, meaning an
-    ///      unscored target, fails open by construction. Compare levels rather
-    ///      than basis points and the assertion carries over to another contract
-    ///      and survives a retrain.
+    ///      unscored target, fails open by construction.
+    /// @dev The level is the whole verdict. The raw score is spent resolving it
+    ///      against the ladder that lives with the model, and never reaches
+    ///      Solidity: basis points mean nothing without that ladder, and a
+    ///      threshold written against them belongs to one contract and one model
+    ///      version. A level carries over to another contract and survives a
+    ///      retrain.
     struct AnomalyContext {
-        uint16 scoreBps;
         uint8 firesAt;
     }
 
