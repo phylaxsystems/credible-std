@@ -428,10 +428,11 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
     /// @dev This pins the actual root cause of the mainnet backtest trip. The harness built the
     ///      assertion create data with a single-arg `constructor(address)` ABI encoding (32 bytes of
     ///      constructor tail), but the assertion's constructor is the 2-arg
-    ///      `constructor(address,bool)`. The compiler-generated constructor prologue ABI-decodes its
-    ///      arguments from the code-appended tail and reverts when the tail is too short to contain
-    ///      the `bool` — so construction aborts and `CREATE` returns `address(0)`. The trailing bool
-    ///      never "reads as zero".
+    ///      `constructor(address,bool)`. Because `codesize()` still excludes a 64-byte argument
+    ///      window, decoding is shifted by 32 bytes: the final 32 bytes of creation code are read as
+    ///      the address and the appended address is read as the bool. Strict ABI validation rejects
+    ///      that non-0/1 bool value, so construction aborts and `CREATE` returns `address(0)`. The
+    ///      trailing bool never "reads as zero".
     ///
     ///      Under `pcl`/`cl.assertion` this same construction revert surfaces as
     ///      `AssertionContractDeployFailed` before the triggered `router.swap` ever runs (verified on
@@ -448,7 +449,7 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
         assembly {
             oneArgDeployed := create(0, add(oneArgPayload, 0x20), mload(oneArgPayload))
         }
-        // Construction reverted: the too-short constructor tail cannot be decoded into (address,bool).
+        // Construction reverted: misaligned decoding treats the address as an invalid bool value.
         assertEq(oneArgDeployed, address(0), "one-arg payload must fail construction, not zero the bool");
 
         // The correct two-argument payload constructs successfully.
