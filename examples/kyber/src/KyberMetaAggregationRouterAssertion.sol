@@ -42,8 +42,8 @@ abstract contract KyberMetaAggregationRouterAssertionBase is KyberMetaAggregatio
     ///      - native-asset payouts (`dstToken == ETH_SENTINEL`);
     ///      - same-token routes, because Kyber snapshots after the source debit while this assertion
     ///        snapshots around the outer call;
-    ///      - original-family partial fills only when native input or `_SHOULD_CLAIM` makes the live
-    ///        router recompute `spentAmount` below `desc.amount`.
+    ///      - original-family partial fills only when the selected entry point makes the live router
+    ///        compute `spentAmount` from a balance delta rather than fixing it to `desc.amount`.
     ///      An unset recipient (`dstReceiver == address(0)`) is NOT skipped: the router credits
     ///      `msg.sender` in that case, so the check is retargeted to the resolved initiator.
     function assertReceiverGetsMinReturn() external view {
@@ -53,7 +53,7 @@ abstract contract KyberMetaAggregationRouterAssertionBase is KyberMetaAggregatio
         SwapDescriptionV2 memory desc = _swapDescriptionFor(ctx.selector, ph.callinputAt(ctx.callStart));
         if (
             desc.minReturnAmount == 0 || desc.dstToken == ETH_SENTINEL || desc.srcToken == desc.dstToken
-                || _usesProRatedMinimum(desc)
+                || _usesProRatedMinimum(ctx.selector, desc)
         ) {
             return;
         }
@@ -76,7 +76,7 @@ abstract contract KyberMetaAggregationRouterAssertionBase is KyberMetaAggregatio
     }
 
     /// @dev Modern-family deployments override this with `false`: bit zero is otherwise ignored.
-    function _usesProRatedMinimum(SwapDescriptionV2 memory desc) internal pure virtual returns (bool);
+    function _usesProRatedMinimum(bytes4 selector, SwapDescriptionV2 memory desc) internal pure virtual returns (bool);
 }
 
 /// @title KyberOriginalMetaAggregationRouterAssertion
@@ -99,8 +99,22 @@ contract KyberOriginalMetaAggregationRouterAssertion is KyberMetaAggregationRout
         selectors[2] = IKyberMetaAggregationRouterV2Like.swapSimpleMode.selector;
     }
 
-    function _usesProRatedMinimum(SwapDescriptionV2 memory desc) internal pure override returns (bool) {
-        return _flagsChecked(desc.flags, PARTIAL_FILL)
+    function _usesProRatedMinimum(bytes4 selector, SwapDescriptionV2 memory desc)
+        internal
+        pure
+        override
+        returns (bool)
+    {
+        if (!_flagsChecked(desc.flags, PARTIAL_FILL)) {
+            return false;
+        }
+        if (selector == IKyberMetaAggregationRouterV2Like.swapSimpleMode.selector) {
+            return true;
+        }
+        if (selector == IKyberMetaAggregationRouterV2Like.swap.selector) {
+            return desc.srcToken == ETH_SENTINEL || _flagsChecked(desc.flags, SIMPLE_SWAP);
+        }
+        return selector == IKyberMetaAggregationRouterV2Like.swapGeneric.selector
             && (desc.srcToken == ETH_SENTINEL || _flagsChecked(desc.flags, SHOULD_CLAIM));
     }
 }
@@ -123,7 +137,7 @@ contract KyberModernMetaAggregationRouterAssertion is KyberMetaAggregationRouter
         selectors[1] = IKyberMetaAggregationRouterV2Like.swapSimpleMode.selector;
     }
 
-    function _usesProRatedMinimum(SwapDescriptionV2 memory) internal pure override returns (bool) {
+    function _usesProRatedMinimum(bytes4, SwapDescriptionV2 memory) internal pure override returns (bool) {
         return false;
     }
 }

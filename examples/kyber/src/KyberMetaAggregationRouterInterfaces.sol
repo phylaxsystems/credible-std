@@ -29,6 +29,15 @@ struct SwapExecutionParams {
     bytes clientData;
 }
 
+/// @notice Route data decoded by the original router's `swapSimpleMode` sequence engine.
+struct SimpleSwapData {
+    address[] firstPools;
+    uint256[] firstSwapAmounts;
+    bytes[] swapDatas;
+    uint256 deadline;
+    bytes destTokenFeeData;
+}
+
 /// @notice Public KyberSwap MetaAggregationRouterV2 settlement entry points protected here.
 /// @dev All three fund-moving settlement entry points are modeled, each verified against the
 ///      mainnet `MetaAggregationRouterV2` source (`0x6131B5fae19EA4f9D964eAc0408E4408b66337b5`):

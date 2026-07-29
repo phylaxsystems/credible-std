@@ -29,6 +29,9 @@ abstract contract KyberMetaAggregationRouterHelpers is Assertion {
     /// @notice `desc.flags` bit that makes the original router collect source funds first.
     uint256 internal constant SHOULD_CLAIM = 0x04;
 
+    /// @notice `desc.flags` bit that dispatches `swap` through `swapSimpleMode`.
+    uint256 internal constant SIMPLE_SWAP = 0x20;
+
     /// @notice The single fixed-address MetaAggregationRouterV2 this assertion protects.
     address internal immutable ROUTER;
 
