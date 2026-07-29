@@ -23,20 +23,18 @@ abstract contract KyberMetaAggregationRouterHelpers is Assertion {
     bytes32 internal constant ERC20_TRANSFER_SIG = keccak256("Transfer(address,address,uint256)");
     bytes32 internal constant ERC20_APPROVAL_SIG = keccak256("Approval(address,address,uint256)");
 
-    /// @notice `desc.flags` bit that marks an order the router may fill only partially.
-    /// @dev Mirrors `MetaAggregationRouterV2._PARTIAL_FILL`. When set, the router enforces a
-    ///      pro-rated minimum (`returnAmount * amount >= minReturnAmount * spentAmount`) it
-    ///      measures from the actual spent amount, so a flat `minReturnAmount` floor does not hold.
+    /// @notice `desc.flags` bit that marks an order the original router may fill partially.
     uint256 internal constant PARTIAL_FILL = 0x01;
+
+    /// @notice `desc.flags` bit that makes the original router collect source funds first.
+    uint256 internal constant SHOULD_CLAIM = 0x04;
 
     /// @notice The single fixed-address MetaAggregationRouterV2 this assertion protects.
     address internal immutable ROUTER;
-    bool internal immutable ORIGINAL_ROUTER_FAMILY;
 
-    constructor(address router_, bool originalRouterFamily_) {
+    constructor(address router_) {
         require(router_ != address(0), "Kyber: router zero");
         ROUTER = router_;
-        ORIGINAL_ROUTER_FAMILY = originalRouterFamily_;
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
@@ -158,10 +156,7 @@ abstract contract KyberMetaAggregationRouterHelpers is Assertion {
 
             uint256 standingAllowance = _allowanceAt(transfers[i].emitter, from, ROUTER, beforeFork);
             bool grantedInCall = _approvedRouterInCall(approvals, transfers[i].emitter, from);
-            require(
-                standingAllowance == 0 && !grantedInCall,
-                "Kyber: swap exercised third-party router allowance"
-            );
+            require(standingAllowance == 0 && !grantedInCall, "Kyber: swap exercised third-party router allowance");
         }
     }
 
