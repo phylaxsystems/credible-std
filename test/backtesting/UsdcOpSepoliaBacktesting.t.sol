@@ -60,7 +60,7 @@ contract SingleTxBacktestingTest is CredibleTestWithBacktesting {
     // USDC on Optimism Sepolia
     address constant USDC_OP_SEPOLIA = 0x5fd84259d66Cd46123540766Be93DFE6D43130D7;
 
-    /// @notice A `transfer(address,uint256)` of 10 USDC in block 31336940 — the one transaction the
+    /// @notice A `transfer(address,uint256)` of 10 USDC in block 31336940, the one transaction the
     ///         block-range suite above discovers over its window, pinned here by hash.
     bytes32 constant TRANSFER_TX = 0xbdfa042cfaa2c5305dc131e4fb1ef50bf43b2654ab511a2913444ea614f5eba7;
 
@@ -74,8 +74,21 @@ contract SingleTxBacktestingTest is CredibleTestWithBacktesting {
             _rpcUrl()
         );
 
+        _assertExactlyOneSuccessfulValidation(results);
+    }
+
+    /// @notice Assert the backtest actually validated the transaction.
+    /// @dev `assertionFailures == 0` alone is satisfied by a transaction that was skipped, failed to
+    ///      replay, or errored, so the assertion may never have run and the test still passes. The
+    ///      counters are tracked independently, so all of them have to be pinned for the result to
+    ///      mean "one transaction was replayed and the invariant held on it".
+    function _assertExactlyOneSuccessfulValidation(BacktestingTypes.BacktestingResults memory results) internal pure {
         assertEq(results.totalTransactions, 1, "the pinned transaction is the only one backtested");
+        assertEq(results.successfulValidations, 1, "the assertion did not run successfully");
         assertEq(results.assertionFailures, 0, "a plain transfer keeps the invariant");
+        assertEq(results.skippedTransactions, 0, "the transaction was skipped rather than validated");
+        assertEq(results.replayFailures, 0, "the transaction failed to replay");
+        assertEq(results.unknownErrors, 0, "the backtest hit an unknown error");
     }
 
     /// @dev `OP_SEPOLIA_RPC_URL` overrides the public endpoint the block-range suite also uses.

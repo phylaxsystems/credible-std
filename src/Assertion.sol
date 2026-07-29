@@ -137,7 +137,7 @@ abstract contract Assertion is ForkUtils, StateChanges {
     ///         Fires when the executor's configured AnomalySubsystem scores
     ///         `target` anomalously enough to clear `sensitivity`.
     /// @dev The level is a point on the detector's recall-versus-false-positive
-    ///      curve, fixed to the same budget on every contract — see
+    ///      curve, fixed to the same budget on every contract, see
     ///      `Sensitivity`. The threshold behind it is resolved from `target`'s
     ///      own model where the trigger is evaluated, so this code is portable
     ///      across contracts and survives a retrain untouched.

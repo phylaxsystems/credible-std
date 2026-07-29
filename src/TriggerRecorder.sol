@@ -91,8 +91,9 @@ interface TriggerRecorder {
     ///         `target` anomalously enough to clear `sensitivity`.
     /// @dev The level is resolved against `target`'s own model where the
     ///      trigger is evaluated, so a sub-threshold transaction never spawns
-    ///      the assertion at all. The assertion may still read the score back
-    ///      via `ph.anomalyContext(target)`.
+    ///      the assertion at all. The assertion may still read the level back
+    ///      via `ph.anomalyContext(target)`, which reports `firesAt` and
+    ///      nothing else. There is no score to re-read.
     /// @param target The address whose anomaly score this assertion observes.
     /// @param fnSelector The assertion function to invoke when `target` clears
     ///        the level.

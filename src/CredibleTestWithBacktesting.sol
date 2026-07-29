@@ -40,7 +40,7 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
 
     /// @notice Skip the calling test unless the profile grants FFI.
     /// @dev Backtesting shells out to `transaction_fetcher.sh` through `vm.ffi`, so it only runs
-    ///      under a profile that sets `ffi = true` — `FOUNDRY_PROFILE=backtesting` here. Without it
+    ///      under a profile that sets `ffi = true`, `FOUNDRY_PROFILE=backtesting` here. Without it
     ///      every `vm.ffi` reverts, and the script lookup below would report the script as missing
     ///      when it is sitting right where it belongs. Skipping names the real requirement and
     ///      keeps a full-suite run under another profile green.
@@ -68,9 +68,10 @@ abstract contract CredibleTestWithBacktesting is CredibleTest, Test {
         string memory rpcUrl
     ) public returns (BacktestingTypes.BacktestingResults memory results) {
         _requireFfi();
-        return _executeBacktestForSingleTransaction(
-            txHash, targetContract, assertionCreationCode, assertionSelector, rpcUrl
-        );
+        return
+            _executeBacktestForSingleTransaction(
+                txHash, targetContract, assertionCreationCode, assertionSelector, rpcUrl
+            );
     }
 
     /// @notice Execute backtesting with config struct (block range mode)

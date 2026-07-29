@@ -84,7 +84,7 @@ abstract contract AnomalyGatedBaseAssertion is Assertion {
     address internal immutable target;
 
     /// @notice How aggressively the trigger fires, as a level on the `Sensitivity` ladder rather
-    ///         than a basis-point score. Level 7 — the recommended point — fires on 1% of the
+    ///         than a basis-point score. Level 7, the recommended point, fires on 1% of the
     ///         contract's own transactions. The threshold behind it is resolved per contract at
     ///         evaluation time, so this assertion is portable and survives a retrain untouched.
     uint8 internal immutable sensitivity;
@@ -115,8 +115,10 @@ abstract contract AnomalyGatedBaseAssertion is Assertion {
     ///      The gate fails open at both ends. An unscored target, or one whose model carries no
     ///      resolved ladder, clears no level, so nothing fires. Call this inside your `triggers()`.
     ///
-    ///      `ph.anomalyContext(target)` still reports the score and the level it cleared, for an
-    ///      assertion that wants to act on how anomalous a transaction was.
+    ///      `ph.anomalyContext(target)` reports `firesAt`, the strictest level the model cleared,
+    ///      and nothing else, for an assertion that wants to act on *how* strictly it cleared. There
+    ///      is no score behind it to read: basis points name nothing without the ladder that
+    ///      produced them, and that ladder stays with the model.
     function _registerAnomalyTrigger(bytes4 selector) internal view {
         watchAnomaly(target, selector, sensitivity);
     }

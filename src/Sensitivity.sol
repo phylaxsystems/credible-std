@@ -41,7 +41,7 @@ library Sensitivity {
     /// @notice The recommended level for a protocol without a reason to choose otherwise.
     uint8 internal constant RECOMMENDED = LEVEL_7;
 
-    /// @notice The strictest level, and the loosest — the bounds a valid level lies within.
+    /// @notice The strictest level, and the loosest, the bounds a valid level lies within.
     uint8 internal constant MIN = LEVEL_1;
     uint8 internal constant MAX = LEVEL_10;
 
