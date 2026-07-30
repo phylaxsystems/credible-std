@@ -10,6 +10,11 @@ interface IAaveV3HorizonOracle {
     function setFallbackOracle(address fallbackOracle) external;
 }
 
+/// @notice Chainlink-compatible source surface consumed by the Horizon AaveOracle.
+interface IAaveV3HorizonSource {
+    function latestAnswer() external view returns (int256);
+}
+
 /// @notice Minimal ERC20/accounting-token surface used by Horizon reserve backing checks.
 interface IAaveV3HorizonToken {
     function balanceOf(address account) external view returns (uint256);

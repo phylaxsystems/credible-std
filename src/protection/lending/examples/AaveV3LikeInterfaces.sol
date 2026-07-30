@@ -47,6 +47,16 @@ interface IAaveV3LikePool {
         bool receiveAToken
     ) external;
 
+    function flashLoan(
+        address receiverAddress,
+        address[] calldata assets,
+        uint256[] calldata amounts,
+        uint256[] calldata interestRateModes,
+        address onBehalfOf,
+        bytes calldata params,
+        uint16 referralCode
+    ) external;
+
     function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external;
 
     function setUserEMode(uint8 categoryId) external;
