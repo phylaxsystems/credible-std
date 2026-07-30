@@ -7,6 +7,10 @@ import {Assertion} from "../src/Assertion.sol";
 
 contract AssertionFallbackHarness is Assertion {
     function triggers() external pure override {}
+
+    function failingAssertion() external pure {
+        revert("assertion failed");
+    }
 }
 
 contract AssertionFallbackTest is Test {
@@ -23,5 +27,11 @@ contract AssertionFallbackTest is Test {
 
         assertTrue(success, "unknown assertion selector must not revert");
         assertEq(returnData.length, 0);
+    }
+
+    function testKnownAssertionFailureStillReverts() public {
+        (bool success,) = address(assertion).call(abi.encodeCall(assertion.failingAssertion, ()));
+
+        assertFalse(success, "real assertion failures must remain fail-closed");
     }
 }
