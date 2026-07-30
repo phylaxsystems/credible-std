@@ -107,8 +107,7 @@ contract TestAnomalyDrainRatio is CredibleTest, Test {
         cl.assertion({
             adopter: address(vault),
             createData: abi.encodePacked(
-                type(CompositeTxEndHarness).creationCode,
-                abi.encode(_config(makeAddr("codeless"), DRAIN_FRAC_BPS), true)
+                type(CompositeTxEndHarness).creationCode, abi.encode(_config(makeAddr("codeless"), DRAIN_FRAC_BPS))
             ),
             fnSelector: AnomalyCompositeAssertion.assertComposite.selector
         });

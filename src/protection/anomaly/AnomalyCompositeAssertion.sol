@@ -25,8 +25,10 @@ import {AnomalyGatedBaseAssertion} from "./AnomalyGatedBaseAssertion.sol";
 ///           negations. It must be a non-revert outcome of the same evaluation that would otherwise
 ///           block, or the alert cell is not derivable.
 ///
-///      The disposition (see `AnomalyGatedBaseAssertion`): `block = a AND H` reverts, `pass = NOT a`
-///      returns early, and `alert = a AND NOT H` falls through without reverting.
+///      The disposition (see `AnomalyGatedBaseAssertion`): `block = a AND H` reverts and
+///      `alert = a AND NOT H` falls through without reverting. `pass = NOT a` costs nothing here at
+///      all: the trigger carries the sensitivity level, so a transaction that clears no level never
+///      dispatches this function and the corroboration reads are never reached.
 ///
 ///      The corroboration reads use the base primitives, the same ones the individual mixins call.
 ///      Deploy one composite per protocol, parameters as the only difference. Override `_extra` to

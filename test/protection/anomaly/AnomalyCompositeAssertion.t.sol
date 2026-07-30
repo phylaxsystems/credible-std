@@ -309,7 +309,7 @@ contract TestAnomalyCompositeExtraLeg is CredibleTest, Test {
         cl.assertion({
             adopter: address(vault),
             createData: abi.encodePacked(
-                type(CompositeWithHealthTxEnd).creationCode, abi.encode(_config(), address(vault), true)
+                type(CompositeWithHealthTxEnd).creationCode, abi.encode(_config(), address(vault))
             ),
             fnSelector: AnomalyCompositeAssertion.assertComposite.selector
         });
