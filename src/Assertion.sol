@@ -39,6 +39,10 @@ abstract contract Assertion is ForkUtils, StateChanges {
     /// @notice Used to record fn selectors and their triggers.
     function triggers() external view virtual;
 
+    /// @dev Keeps a permanently missing manifest selector from turning an adopter transaction
+    /// into an assertion failure. Tooling should reject unknown selectors before registration.
+    fallback() external virtual {}
+
     // ---------------------------------------------------------------
     //  Legacy trigger registration
     // ---------------------------------------------------------------
