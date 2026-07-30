@@ -25,6 +25,7 @@ A body therefore checks damage and nothing else. The level comparison happens wh
 - `AnomalyGatedAccountingAssertion`, an **accounting break**: an ERC-4626 share price moved beyond tolerance.
 - `AnomalyGatedOracleAssertion`, an **oracle deviation**: an oracle answer moved beyond tolerance across the transaction.
 - `AnomalyCompositeAssertion`: several heuristics under one operator (AND or OR) in one function, plus a protocol-specific extension leg.
+- `AnomalyUngatedAssertion`: reverts on every firing, with no damage check. Blocks benign traffic by design, so the invalidation count is the level's false-positive budget.
 
 ## How to use it
 
