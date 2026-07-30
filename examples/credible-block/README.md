@@ -1,55 +1,124 @@
-# Credible Block guard — upgrade tests
+# Credible-block live upgrade validation
 
-Integration scripts that exercise [`CredibleBlockGuard`](../../src/protection/credible_block/CredibleBlockGuard.sol)'s
-`onlyCredibleBlock` modifier against a **live anvil node**, so we can validate credible-layer
-contract upgrades end to end.
+This directory contains a live-Anvil integration runner for
+[`CredibleBlockGuard`](../../src/protection/credible_block/CredibleBlockGuard.sol). It proves the
+marker transaction and guarded user transaction can execute in the same manually mined block, and
+also exercises rejection and strict fail-open behavior.
 
-The forge unit tests in
-[`test/protection/credible_block/`](../../test/protection/credible_block/CredibleBlockGuard.t.sol)
-fake block state with `vm.roll` / `vm.prank`. That covers the pure decision logic, but it cannot
-reproduce the one thing that only exists on a real chain: a builder's *credible block marker*
-transaction and a *guarded* transaction landing in the **same block** (a bundle). These scripts seed
-a real node and drive mining manually so we can test exactly that.
+`GuardedCounter` is the default runnable fixture. A passing fixture run proves the harness and base
+guard work; it does **not** validate a protocol upgrade. Use target mode to validate the actual
+upgraded contract.
 
-## Contents
+## What is tested
 
-| File | Role |
-| ---- | ---- |
-| [`src/CredibleRegistry.sol`](./src/CredibleRegistry.sol) | Minimal deployable registry: a single immutable builder (set at construction) can mark the current block credible; implements [`ICredibleRegistry`](../../src/protection/credible_block/ICredibleRegistry.sol). The production registry ([`phylaxsystems/credible-registry`](https://github.com/phylaxsystems/credible-registry)) additionally has a timelocked admin, a builder whitelist, and timestamp slot-binding — none needed to exercise the guard. |
-| [`src/GuardedCounter.sol`](./src/GuardedCounter.sol) | A concrete `CredibleBlockGuard` standing in for an upgraded credible-layer contract; its `bump()` entrypoint is `onlyCredibleBlock`. |
-| [`script/test-credible-upgrades.sh`](./script/test-credible-upgrades.sh) | Orchestrator that boots anvil, deploys, and runs the three cases. |
+| Case | Expected transaction result | Required state proof |
+| --- | --- | --- |
+| Marker then guarded call, queued and mined together | Both succeed in the same block | Target state changes from `--state-before` to `--state-after` |
+| Guarded call alone while the builder window is live | Reverts with `--guard-error` | Target state remains `--state-before` |
+| Builder inactivity | Reverts at `gap == threshold`; succeeds at `gap > threshold` | State is unchanged at the boundary and changes after fail-open |
 
-## Cases
+The runner starts Anvil with FIFO transaction ordering, disables automining, submits both same-block
+transactions with `cast send --async`, and calls `evm_mine` once. Do not replace this with two
+automined sends: they would be in different blocks and would not test credible-block bundling.
 
-| Case | Scenario | Expectation |
-| ---- | -------- | ----------- |
-| **1. Credible block** | Bundle `[markCurrentBlockCredible, bump]` into one block via manual mining | Both txs succeed; counter increments |
-| **2. Non-credible block** | Send only `bump()` with no marker | Reverts with `NonCredibleBlock()`; counter unchanged |
-| **3. Fail-open** | Builder stops marking for `> failOpenBlockThreshold` blocks | Still reverts at the boundary (gap == threshold); passes once gap > threshold |
+## Fixture run
 
-## How the bundle is simulated
-
-Anvil auto-mines each tx into its own block by default, which would put the marker and the guarded
-call in different blocks. The script turns automine **off** (`evm_setAutomine false`), submits both
-txs with `cast send --async` (returns immediately without waiting for a receipt), then seals exactly
-one block with `evm_mine`. Both queued txs land together; `--order fifo` guarantees the marker
-executes first, so the guarded call sees the block already marked credible.
-
-## Running
-
-From the repo root:
+From the repository root:
 
 ```shell
 ./examples/credible-block/script/test-credible-upgrades.sh
 ```
 
-Requires `anvil`, `cast`, `forge`, and `jq` on `PATH`. Exits non-zero if any check fails. Env
-overrides: `RPC_PORT` (default `8545`), `FAIL_OPEN_THRESHOLD` (default `10`, kept small so the
-fail-open case runs quickly).
+This deploys the minimal [`CredibleRegistry`](./src/CredibleRegistry.sol) and
+[`GuardedCounter`](./src/GuardedCounter.sol), calls `bump()`, and reads `count()`. The expected output
+identifies the run as `GuardedCounter fixture coverage`, reports three case sections, and finishes
+with `Summary: 14 passed, 0 failed`.
 
-The script uses the `credible-block` foundry profile (see `foundry.toml`); it sets
-`FOUNDRY_PROFILE=credible-block` itself.
+## Real upgraded-contract run
 
-> On macOS, `cast`/`forge` read system proxy configuration at startup, which the Claude Code Bash
-> sandbox blocks (the process aborts with a NULL-object panic). Run this script with the sandbox
-> disabled.
+The target and registry must exist on the fresh Anvil instance started by the runner. Usually this
+means supplying deployment/upgrade commands:
+
+```shell
+./examples/credible-block/script/test-credible-upgrades.sh \
+  --registry-deploy-command \
+    'forge script script/DeployRegistry.s.sol --rpc-url "$RPC_URL" --broadcast; echo 0xREGISTRY' \
+  --target-deploy-command \
+    'forge script script/UpgradeVault.s.sol --rpc-url "$RPC_URL" --broadcast; echo 0xPROXY' \
+  --guarded-call 'deposit(uint256) 1000000' \
+  --state-read-call 'totalAssets()(uint256)' \
+  --state-before 0 \
+  --state-after 1000000 \
+  --expected-threshold 75 \
+  --marker-private-key 0xMARKER_PRIVATE_KEY \
+  --guarded-private-key 0xUSER_PRIVATE_KEY
+```
+
+Each deployment command must print its resulting address as the final stdout line. Commands receive
+these exported variables: `RPC_URL`, `REPO_ROOT`, `ADMIN_KEY`, `MARKER_KEY`, `GUARDED_KEY`,
+`MARKER_ADDRESS`, `GUARDED_ADDRESS`, `REGISTRY_ADDRESS` (for the target command), and
+`EXPECTED_THRESHOLD`. The commands are passed to `bash -c`; only run trusted command text.
+
+For contracts already created by a setup command, use `--registry-address` and `--target-address`.
+Because every run starts a fresh chain, addresses from another node are not usable.
+
+The full input surface is:
+
+```text
+--target-address ADDRESS | --target-deploy-command COMMAND
+--registry-address ADDRESS | --registry-deploy-command COMMAND
+--guarded-call "SIGNATURE [ARGS...]"
+--marker-call "SIGNATURE [ARGS...]"                 # default markCurrentBlockCredible()
+--state-read-call "SIGNATURE [ARGS...]"
+--state-before VALUE
+--state-after VALUE
+--expected-threshold BLOCKS
+--marker-private-key KEY
+--guarded-private-key KEY
+--admin-private-key KEY
+--guard-error SIGNATURE                             # default NonCredibleBlock()
+--rpc-port PORT
+--gas-limit GAS
+```
+
+The default configuration check calls `credibleRegistry()(address)` and
+`failOpenBlockThreshold()(uint256)` on the target. Override their signatures with
+`--registry-read-call` and `--threshold-read-call`. If the upgrade exposes no suitable getters,
+provide a contract-specific adapter/assertion:
+
+```shell
+--config-assert-command \
+  'cast call --rpc-url "$RPC_URL" "$TARGET_ADDRESS" "guardConfigHash()(bytes32)" |
+   grep -qi "$(cast keccak "$(cast abi-encode "f(address,uint256)" \
+     "$REGISTRY_ADDRESS" "$EXPECTED_THRESHOLD")")"'
+```
+
+The assertion must exit zero only after proving that `TARGET_ADDRESS` uses exactly
+`REGISTRY_ADDRESS` and `EXPECTED_THRESHOLD`. A deployment script may instead assert the immutable,
+storage slot, or emitted upgrade/configuration event and expose that assertion through this hook.
+The runner fails before behavioral cases when the assertion fails.
+
+Use `--validate-only` to check arguments without starting Anvil. Argument parsing regression tests
+run with:
+
+```shell
+./examples/credible-block/test/test-script-arguments.sh
+```
+
+## Requirements and limitations
+
+- `anvil`, `cast`, `forge`, and `jq` must be on `PATH`.
+- The selected RPC port must be unused; the runner refuses to adopt an existing node.
+- The marker account must be authorized by the supplied registry configuration.
+- The guarded account must have all target-specific balances, approvals, roles, and prerequisites.
+  Deployment commands are responsible for arranging them.
+- `--state-read-call` must return one stable, directly comparable `cast call` value. For complex
+  effects, deploy a read-only adapter that returns a digest or scalar assertion value.
+- Each success case starts from the same post-deployment snapshot, so `--state-before` and
+  `--state-after` describe one guarded call.
+- The runner validates guard wiring and behavior, not the correctness or completeness of the
+  upgrade process itself.
+- The `credible-block` Foundry profile is selected automatically.
+- On macOS, Foundry may abort while reading system proxy settings inside a restricted sandbox. Run
+  the live integration outside that sandbox; `--validate-only` and the argument tests do not start
+  Foundry and can remain sandboxed.
