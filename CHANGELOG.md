@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Credible Block Guard**: `CredibleBlockGuard` reusable mixin (`src/protection/credible_block/`) exposing an `onlyCredibleBlock` modifier that gates functions on block credibility via the on-chain Credible Registry, failing open when the credible builder set goes offline so protected contracts are never bricked. Ships with an ABI-compatible `ICredibleRegistry` interface (matching `phylaxsystems/credible-registry`) and a full test suite.
 
+### Changed
+
+- **BREAKING**: `Assertion` now defines a nonpayable virtual no-op fallback so an unknown manifest selector is inert. Derived assertions that already define a fallback must mark it `override` and keep it nonpayable; previously compiled assertion bytecode is unchanged.
+
 ## [0.4.0] - 2025-01-22
 
 ### Added
