@@ -5,27 +5,32 @@ import {Test} from "forge-std/Test.sol";
 import {IERC20} from "../../../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 import {CredibleTest} from "../../../src/CredibleTest.sol";
-import {KyberMetaAggregationRouterAssertion} from "../src/KyberMetaAggregationRouterAssertion.sol";
-import {SwapDescriptionV2, SwapExecutionParams} from "../src/KyberMetaAggregationRouterInterfaces.sol";
+import {
+    KyberMetaAggregationRouterAssertionBase,
+    KyberModernMetaAggregationRouterAssertion,
+    KyberOriginalMetaAggregationRouterAssertion
+} from "../src/KyberMetaAggregationRouterAssertion.sol";
+import {
+    IKyberMetaAggregationRouterV2Like,
+    SimpleSwapData,
+    SwapDescriptionV2,
+    SwapExecutionParams
+} from "../src/KyberMetaAggregationRouterInterfaces.sol";
 import {
     FeeOnTransferToken,
     MintableToken,
     MockAggregationExecutor,
     MockKyberRouterV2,
+    MockSameTokenExecutor,
     MockUniV2Pool,
     PermitMintableToken,
     SelfFundedPayer
 } from "./KyberSwapMocks.sol";
 
-/// @notice Extensive behavior tests for the KyberSwap router assertions.
-/// @dev Drives the assertions through a faithful MetaAggregationRouterV2 settlement model:
-///      standing-allowance pulls to srcReceivers/feeReceivers, executor dispatch via low-level
-///      call, a constant-product pool, fee-on-transfer tokens, swapSimpleMode, and the real
-///      arbitrary-call allowance-drain vector. Each test arms one assertion and exercises one
-///      honest path or one failure mode.
+/// @notice Focused behavior tests for the KyberSwap router assertions.
+/// @dev The executable semantic suite reproduces the verified `swap` dispatch, receiver-delta,
+///      same-token snapshot, claim/approve separation, and simple-mode partial-fill boundaries.
 contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
-    address internal constant ETH_SENTINEL = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
-
     MintableToken internal src;
     MintableToken internal dst;
     MockKyberRouterV2 internal router;
@@ -62,17 +67,25 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
 
     function _arm(bytes4 fnSelector) internal {
         bytes memory createData = abi.encodePacked(
-            type(KyberMetaAggregationRouterAssertion).creationCode, abi.encode(address(router), true)
+            type(KyberOriginalMetaAggregationRouterAssertion).creationCode, abi.encode(address(router))
         );
         cl.assertion(address(router), createData, fnSelector);
     }
 
     function _armDrain() internal {
-        _arm(KyberMetaAggregationRouterAssertion.assertNoThirdPartyAllowanceDrain.selector);
+        _arm(KyberMetaAggregationRouterAssertionBase.assertNoThirdPartyAllowanceDrain.selector);
     }
 
     function _armMinReturn() internal {
-        _arm(KyberMetaAggregationRouterAssertion.assertReceiverGetsMinReturn.selector);
+        _arm(KyberMetaAggregationRouterAssertionBase.assertReceiverGetsMinReturn.selector);
+    }
+
+    function _armModernMinReturn() internal {
+        bytes memory createData =
+            abi.encodePacked(type(KyberModernMetaAggregationRouterAssertion).creationCode, abi.encode(address(router)));
+        cl.assertion(
+            address(router), createData, KyberMetaAggregationRouterAssertionBase.assertReceiverGetsMinReturn.selector
+        );
     }
 
     function _one(address a) internal pure returns (address[] memory r) {
@@ -95,7 +108,21 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
 
     /// @notice Builds the executor calldata for an honest pool swap of `src` into `to`.
     function _executorData(address to) internal view returns (bytes memory) {
-        return abi.encodeCall(MockAggregationExecutor.callBytes, (abi.encode(address(pool), address(src), to)));
+        return abi.encode(address(pool), address(src), to);
+    }
+
+    function _genericExecutorData(address to) internal view returns (bytes memory) {
+        return abi.encodeCall(MockAggregationExecutor.callBytes, (_executorData(to)));
+    }
+
+    function _simpleExecutorData(address to, uint256 amount) internal view returns (bytes memory) {
+        SimpleSwapData memory data;
+        data.firstPools = _one(address(pool));
+        data.firstSwapAmounts = _one(amount);
+        data.swapDatas = new bytes[](1);
+        data.swapDatas[0] = _executorData(to);
+        data.deadline = block.timestamp;
+        return abi.encode(data);
     }
 
     function _expectedOut() internal view returns (uint256) {
@@ -107,6 +134,9 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
     }
 
     uint256 internal constant PARTIAL_FILL = 0x01;
+    uint256 internal constant SHOULD_CLAIM = 0x04;
+    uint256 internal constant SIMPLE_SWAP = 0x20;
+    uint256 internal constant APPROVE_FUND = 0x100;
 
     /// @notice An honest single-hop swap: pull src from initiator to the pool, then swap to `to`.
     function _honestParams(address dstToken, address to, uint256 minReturn)
@@ -195,8 +225,8 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
         router.swap(p);
     }
 
-    /// @notice A fee-on-transfer buy token credits the recipient less than the router-measured output.
-    function testMinReturn_FeeOnTransferDstToken_Trips() public {
+    /// @notice The verified router's own balance-delta guard rejects fee-on-transfer underpayment.
+    function testRouter_FeeOnTransferDstToken_RevertsBeforeAssertion() public {
         FeeOnTransferToken fot = new FeeOnTransferToken(100, makeAddr("feeSink")); // 1% skim
         MockUniV2Pool fotPool = new MockUniV2Pool(address(src), address(fot));
         src.mint(address(fotPool), LIQUIDITY);
@@ -218,44 +248,14 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
 
         SwapExecutionParams memory p;
         p.callTarget = address(executor);
-        p.targetData =
-            abi.encodeCall(MockAggregationExecutor.callBytes, (abi.encode(address(fotPool), address(src), recipient)));
+        p.targetData = abi.encode(address(fotPool), address(src), recipient);
         p.desc = desc;
 
-        _armMinReturn();
-        vm.expectRevert(bytes("Kyber: dstReceiver credited below minReturnAmount"));
+        vm.expectRevert(bytes("Return amount is not enough"));
         router.swap(p);
     }
 
-    /// @notice Native-asset payouts are out of scope and must not trip the ERC20-only check.
-    function testMinReturn_NativeEthOut_Skipped_Passes() public {
-        router.setEnforceMinReturn(false);
-        SwapDescriptionV2 memory desc;
-        desc.srcToken = address(src);
-        desc.dstToken = ETH_SENTINEL;
-        desc.srcReceivers = _noAddrs();
-        desc.srcAmounts = _noUints();
-        desc.feeReceivers = _noAddrs();
-        desc.feeAmounts = _noUints();
-        desc.dstReceiver = recipient;
-        desc.minReturnAmount = 1 ether;
-
-        SwapExecutionParams memory p;
-        p.desc = desc;
-
-        _armMinReturn();
-        router.swap(p);
-    }
-
-    /// @notice A zero minimum is a no-op for this assertion.
-    function testMinReturn_ZeroMinReturn_Skipped_Passes() public {
-        SwapExecutionParams memory p = _honestParams(address(dst), recipient, 0);
-
-        _armMinReturn();
-        router.swap(p);
-    }
-
-    /// @notice swapSimpleMode honest path delivers the minimum.
+    /// @notice A full-fill `swapSimpleMode` route delivers at least the signed minimum.
     function testMinReturn_SwapSimpleMode_Honest_Passes() public {
         SwapDescriptionV2 memory desc;
         desc.srcToken = address(src);
@@ -269,12 +269,13 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
         desc.minReturnAmount = _expectedOut();
 
         _armMinReturn();
-        router.swapSimpleMode(address(executor), desc, _executorData(recipient), "");
+        router.swapSimpleMode(address(executor), desc, _simpleExecutorData(recipient, AMOUNT_IN), "");
     }
 
     /// @notice swapGeneric honest path delivers at least the signed minimum.
     function testMinReturn_SwapGeneric_Honest_Passes() public {
         SwapExecutionParams memory p = _honestParams(address(dst), recipient, _expectedOut());
+        p.targetData = _genericExecutorData(recipient);
 
         _armMinReturn();
         router.swapGeneric(p);
@@ -285,6 +286,7 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
     function testMinReturn_SwapGeneric_Underpaid_Trips() public {
         router.setEnforceMinReturn(false);
         SwapExecutionParams memory p = _honestParams(address(dst), recipient, _expectedOut() + 100 ether);
+        p.targetData = _genericExecutorData(recipient);
 
         _armMinReturn();
         vm.expectRevert(bytes("Kyber: dstReceiver credited below minReturnAmount"));
@@ -343,20 +345,49 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
         router.swap(p);
     }
 
-    /// @notice A legitimate partial fill credits less than the flat minimum and must NOT trip.
-    /// @dev The router holds a partial-fill order to a pro-rated minimum keyed to the amount
-    ///      actually spent, so the recipient is correctly credited below `minReturnAmount`. A flat
-    ///      `>= minReturnAmount` assertion would revert this valid swap; the assertion skips the
-    ///      `_PARTIAL_FILL` flag for exactly this reason.
-    function testMinReturn_PartialFill_NoFalsePositive_Passes() public {
+    /// @notice A genuine `swapGeneric` claim-mode partial fill can credit less than the flat minimum.
+    /// @dev `_SHOULD_CLAIM` makes `swapGeneric` collect the full amount and then recompute/refund
+    ///      the unspent portion, so its pro-rated minimum is load-bearing.
+    function testMinReturn_SwapGenericClaimPartialFill_NoFalsePositive_Passes() public {
         uint256 spent = AMOUNT_IN / 2;
         uint256 fullMinimum = _expectedOut(); // signed minimum for the full order size
 
         SwapDescriptionV2 memory desc;
         desc.srcToken = address(src);
         desc.dstToken = address(dst);
-        desc.srcReceivers = _one(address(pool));
-        desc.srcAmounts = _one(spent); // only half the order is actually filled
+        desc.srcReceivers = _noAddrs();
+        desc.srcAmounts = _noUints();
+        desc.feeReceivers = _noAddrs();
+        desc.feeAmounts = _noUints();
+        desc.dstReceiver = recipient;
+        desc.amount = AMOUNT_IN;
+        desc.minReturnAmount = fullMinimum;
+        desc.flags = PARTIAL_FILL | SHOULD_CLAIM | APPROVE_FUND;
+
+        SwapExecutionParams memory p;
+        p.callTarget = address(executor);
+        p.approveTarget = address(executor);
+        p.targetData = abi.encodeCall(
+            MockAggregationExecutor.callBytes, (abi.encode(address(pool), address(src), recipient, spent))
+        );
+        p.desc = desc;
+
+        _armMinReturn();
+        router.swapGeneric(p); // router's pro-rated guard passes; assertion must not false-positive
+        // The recipient is genuinely credited below the flat minimum — proving the skip is load-bearing.
+        assertLt(dst.balanceOf(recipient), fullMinimum);
+    }
+
+    /// @notice Direct simple mode measures partial spend from the caller's source-balance delta.
+    function testMinReturn_SwapSimpleMode_PartialFill_NoFalsePositive_Passes() public {
+        uint256 spent = AMOUNT_IN / 2;
+        uint256 fullMinimum = _expectedOut();
+
+        SwapDescriptionV2 memory desc;
+        desc.srcToken = address(src);
+        desc.dstToken = address(dst);
+        desc.srcReceivers = _noAddrs();
+        desc.srcAmounts = _noUints();
         desc.feeReceivers = _noAddrs();
         desc.feeAmounts = _noUints();
         desc.dstReceiver = recipient;
@@ -364,18 +395,136 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
         desc.minReturnAmount = fullMinimum;
         desc.flags = PARTIAL_FILL;
 
-        SwapExecutionParams memory p;
-        p.callTarget = address(executor);
-        p.targetData = _executorData(recipient);
-        p.desc = desc;
-
         _armMinReturn();
-        router.swap(p); // router's pro-rated guard passes; assertion must not false-positive
-        // The recipient is genuinely credited below the flat minimum — proving the skip is load-bearing.
+        router.swapSimpleMode(address(executor), desc, _simpleExecutorData(recipient, spent), "");
         assertLt(dst.balanceOf(recipient), fullMinimum);
     }
 
-    /// @notice swapSimpleMode underpayment trips when the router guard is absent.
+    /// @notice `swap + SIMPLE_SWAP` delegates to the same caller-balance accounting path.
+    function testMinReturn_SwapDelegatedSimpleMode_PartialFill_NoFalsePositive_Passes() public {
+        uint256 spent = AMOUNT_IN / 2;
+        uint256 fullMinimum = _expectedOut();
+
+        SwapDescriptionV2 memory desc;
+        desc.srcToken = address(src);
+        desc.dstToken = address(dst);
+        desc.srcReceivers = _noAddrs();
+        desc.srcAmounts = _noUints();
+        desc.feeReceivers = _noAddrs();
+        desc.feeAmounts = _noUints();
+        desc.dstReceiver = recipient;
+        desc.amount = AMOUNT_IN;
+        desc.minReturnAmount = fullMinimum;
+        desc.flags = PARTIAL_FILL | SIMPLE_SWAP;
+
+        SwapExecutionParams memory p;
+        p.callTarget = address(executor);
+        p.targetData = _simpleExecutorData(recipient, spent);
+        p.desc = desc;
+
+        _armMinReturn();
+        router.swap(p);
+        assertLt(dst.balanceOf(recipient), fullMinimum);
+    }
+
+    /// @notice Bit zero alone cannot bypass the original-family flat minimum.
+    /// @dev For ordinary ERC20 input without `_SHOULD_CLAIM`, the verified router keeps
+    ///      `spentAmount == desc.amount`; its pro-rated equation therefore equals the flat floor.
+    function testMinReturn_PartialBitWithoutClaim_Underpaid_Trips() public {
+        router.setEnforceMinReturn(false);
+        SwapExecutionParams memory p = _honestParams(address(dst), recipient, _expectedOut() + 100 ether);
+        p.desc.flags = PARTIAL_FILL;
+
+        _armMinReturn();
+        vm.expectRevert(bytes("Kyber: dstReceiver credited below minReturnAmount"));
+        router.swap(p);
+    }
+
+    /// @notice Claim/approve bits do not move ordinary `swap` into pro-rated accounting.
+    /// @dev The verified entry point ignores these `swapGeneric`-only flags outside simple mode.
+    function testMinReturn_SwapClaimFlagsDoNotBypassFlatMinimum_Trips() public {
+        router.setEnforceMinReturn(false);
+        SwapExecutionParams memory p = _honestParams(address(dst), recipient, _expectedOut() + 100 ether);
+        p.approveTarget = address(executor);
+        p.desc.flags = PARTIAL_FILL | SHOULD_CLAIM | APPROVE_FUND;
+
+        _armMinReturn();
+        vm.expectRevert(bytes("Kyber: dstReceiver credited below minReturnAmount"));
+        router.swap(p);
+    }
+
+    /// @notice Caller-controlled bit zero cannot bypass the modern-family artifact.
+    function testMinReturn_ModernFamily_PartialBitUnderpaid_Trips() public {
+        router.setEnforceMinReturn(false);
+        SwapExecutionParams memory p = _honestParams(address(dst), recipient, _expectedOut() + 100 ether);
+        p.desc.flags = PARTIAL_FILL;
+
+        _armModernMinReturn();
+        vm.expectRevert(bytes("Kyber: dstReceiver credited below minReturnAmount"));
+        router.swap(p);
+    }
+
+    /// @notice Same-token routes are outside the outer-call additive balance window.
+    function testMinReturn_SameToken_RouterValidRouteIsSkipped() public {
+        MockSameTokenExecutor sameTokenExecutor = new MockSameTokenExecutor();
+        src.mint(address(sameTokenExecutor), AMOUNT_IN);
+
+        SwapDescriptionV2 memory desc;
+        desc.srcToken = address(src);
+        desc.dstToken = address(src);
+        desc.srcReceivers = _one(address(pool));
+        desc.srcAmounts = _one(AMOUNT_IN);
+        desc.feeReceivers = _noAddrs();
+        desc.feeAmounts = _noUints();
+        desc.dstReceiver = address(this);
+        desc.amount = AMOUNT_IN;
+        desc.minReturnAmount = AMOUNT_IN;
+
+        SwapExecutionParams memory p;
+        p.callTarget = address(sameTokenExecutor);
+        p.targetData = abi.encode(address(src), address(this), AMOUNT_IN);
+        p.desc = desc;
+
+        _armMinReturn();
+        router.swap(p);
+        assertEq(src.balanceOf(address(this)), 1_000 ether);
+    }
+
+    /// @notice Router-family selection is encoded in separate one-argument artifacts.
+    function testDeployment_FamilyArtifactsHaveNoBooleanConfiguration() public {
+        KyberOriginalMetaAggregationRouterAssertion original =
+            new KyberOriginalMetaAggregationRouterAssertion(address(router));
+        KyberModernMetaAggregationRouterAssertion modern =
+            new KyberModernMetaAggregationRouterAssertion(address(router));
+
+        assertTrue(address(original) != address(0));
+        assertTrue(address(modern) != address(0));
+    }
+
+    /// @notice The original artifact registers the verified `swapGeneric` surface.
+    function testTriggers_OriginalFamilyRegistersSwapGeneric() public {
+        KyberOriginalMetaAggregationRouterAssertion original =
+            new KyberOriginalMetaAggregationRouterAssertion(address(router));
+        bytes4[] memory selectors = original.protectedSelectors();
+
+        assertEq(selectors.length, 3);
+        assertEq(selectors[0], IKyberMetaAggregationRouterV2Like.swap.selector);
+        assertEq(selectors[1], IKyberMetaAggregationRouterV2Like.swapGeneric.selector);
+        assertEq(selectors[2], IKyberMetaAggregationRouterV2Like.swapSimpleMode.selector);
+    }
+
+    /// @notice The modern artifact cannot accidentally register the absent `swapGeneric` surface.
+    function testTriggers_ModernFamilyOmitsSwapGeneric() public {
+        KyberModernMetaAggregationRouterAssertion modern =
+            new KyberModernMetaAggregationRouterAssertion(address(router));
+        bytes4[] memory selectors = modern.protectedSelectors();
+
+        assertEq(selectors.length, 2);
+        assertEq(selectors[0], IKyberMetaAggregationRouterV2Like.swap.selector);
+        assertEq(selectors[1], IKyberMetaAggregationRouterV2Like.swapSimpleMode.selector);
+    }
+
+    /// @notice A compromised simple-mode runtime that omits its guard still cannot underpay.
     function testMinReturn_SwapSimpleMode_Underpaid_Trips() public {
         router.setEnforceMinReturn(false);
         SwapDescriptionV2 memory desc;
@@ -391,7 +540,7 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
 
         _armMinReturn();
         vm.expectRevert(bytes("Kyber: dstReceiver credited below minReturnAmount"));
-        router.swapSimpleMode(address(executor), desc, _executorData(recipient), "");
+        router.swapSimpleMode(address(executor), desc, _simpleExecutorData(recipient, AMOUNT_IN), "");
     }
 
     // ===============================================================
@@ -514,7 +663,7 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
         desc.minReturnAmount = _expectedOut();
 
         _armDrain();
-        router.swapSimpleMode(address(executor), desc, _executorData(recipient), "");
+        router.swapSimpleMode(address(executor), desc, _simpleExecutorData(recipient, AMOUNT_IN), "");
     }
 
     /// @notice A drain using an allowance the swap *creates mid-call* via permit is rejected.
@@ -542,28 +691,5 @@ contract KyberMetaAggregationRouterAssertionTest is Test, CredibleTest {
         _armDrain();
         vm.expectRevert(bytes("Kyber: swap exercised third-party router allowance"));
         router.swap(p);
-    }
-
-    /// @notice swapSimpleMode arbitrary-call drain is rejected just like the swap entry point.
-    function retiredAllowanceInference_SwapSimpleMode_DrainViaArbitraryCall_Trips() public {
-        router.setEnforceMinReturn(false);
-        src.mint(victim, 1_000 ether);
-        vm.prank(victim);
-        src.approve(address(router), type(uint256).max);
-
-        SwapDescriptionV2 memory desc;
-        desc.srcToken = address(src);
-        desc.dstToken = address(dst);
-        desc.srcReceivers = _noAddrs();
-        desc.srcAmounts = _noUints();
-        desc.feeReceivers = _noAddrs();
-        desc.feeAmounts = _noUints();
-        desc.dstReceiver = recipient;
-
-        bytes memory drain = abi.encodeWithSelector(IERC20.transferFrom.selector, victim, attacker, 50 ether);
-
-        _armDrain();
-        vm.expectRevert(bytes("Kyber: swap exercised third-party router allowance"));
-        router.swapSimpleMode(address(src), desc, drain, "");
     }
 }

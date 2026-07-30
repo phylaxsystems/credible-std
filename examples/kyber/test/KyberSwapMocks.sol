@@ -4,7 +4,7 @@ pragma solidity ^0.8.20;
 import {ERC20} from "../../../lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "../../../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
-import {SwapDescriptionV2, SwapExecutionParams} from "../src/KyberMetaAggregationRouterInterfaces.sol";
+import {SimpleSwapData, SwapDescriptionV2, SwapExecutionParams} from "../src/KyberMetaAggregationRouterInterfaces.sol";
 
 /// @notice Standard 18-decimal token with a public mint, used as src/dst in faithful swaps.
 contract MintableToken is ERC20 {
@@ -33,8 +33,8 @@ contract PermitMintableToken is ERC20 {
 }
 
 /// @notice Fee-on-transfer token: the recipient is credited `value - fee`, the fee goes to a sink.
-/// @dev Models the realistic gap the min-return assertion closes: a transfer of `value` succeeds
-///      (so a router measuring the gross output is satisfied) while the recipient is credited less.
+/// @dev Proves the verified router measures the receiver's actual delta and rejects gross-output
+///      underpayment before the redundant assertion is relevant.
 contract FeeOnTransferToken is ERC20 {
     uint256 public immutable feeBps;
     address public immutable feeSink;
@@ -109,10 +109,34 @@ contract MockUniV2Pool {
 /// @notice Honest IAggregationExecutor-style adapter: routes the router's call into a pool swap.
 contract MockAggregationExecutor {
     /// @param data abi.encode(pool, tokenIn, recipient)
-    /// @return amountOut The gross output the pool reported (what a router measures).
+    /// @return amountOut The gross output the pool reported.
     function callBytes(bytes calldata data) external returns (uint256 amountOut) {
+        if (data.length == 128) {
+            (address pullPool, address pullTokenIn, address pullTo, uint256 pullAmount) =
+                abi.decode(data, (address, address, address, uint256));
+            IERC20(pullTokenIn).transferFrom(msg.sender, pullPool, pullAmount);
+            return MockUniV2Pool(pullPool).swap(pullTokenIn, pullTo);
+        }
         (address pool, address tokenIn, address to) = abi.decode(data, (address, address, address));
         return MockUniV2Pool(pool).swap(tokenIn, to);
+    }
+
+    /// @notice Faithful `swapSimpleMode` sequence callback after input reaches the first pool.
+    function swapSingleSequence(bytes calldata data) external {
+        (address pool, address tokenIn, address to) = abi.decode(data, (address, address, address));
+        MockUniV2Pool(pool).swap(tokenIn, to);
+    }
+
+    /// @notice Faithful terminal simple-mode callback; the focused fixtures need no extra work.
+    function finalTransactionProcessing(address, address, address, bytes calldata) external {}
+}
+
+/// @notice Executor fixture for a live-valid same-token route.
+contract MockSameTokenExecutor {
+    function callBytes(bytes calldata data) external returns (uint256 amountOut) {
+        (address token, address to, uint256 amount) = abi.decode(data, (address, address, uint256));
+        IERC20(token).transfer(to, amount);
+        return amount;
     }
 }
 
@@ -126,18 +150,18 @@ contract SelfFundedPayer {
     }
 }
 
-/// @notice Faithful MetaAggregationRouterV2 settlement model.
-/// @dev Reproduces the observable on-chain behavior the assertions rely on:
-///      - source funds and fees are pulled from `msg.sender` against standing allowances and routed
-///        to `srcReceivers` / `feeReceivers`;
-///      - settlement is delegated to a user-supplied target via a low-level `call` (the executor
-///        dispatch — the same opcode an arbitrary-call drain abuses);
-///      - min-return is enforced against the executor-reported output, not the recipient's true
-///        credited balance, which is exactly why a fork-aware recipient check still adds value.
-///      `enforceMinReturn` lets tests model a compromised/buggy router whose own guard is absent.
+/// @notice Original-family MetaAggregationRouterV2 settlement model for assertion semantics.
+/// @dev Models the verified accounting boundaries used by these tests: source transfers precede
+///      the destination snapshot, `swap` wraps route bytes in `callBytes(bytes)`, return amount is
+///      the receiver's actual balance delta, claim/approve behavior exists only on `swapGeneric`,
+///      and simple mode derives spent input from the caller balance delta. `enforceMinReturn`
+///      models a compromised router guard.
 contract MockKyberRouterV2 {
     address internal constant ETH_SENTINEL = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
     uint256 internal constant _PARTIAL_FILL = 0x01;
+    uint256 internal constant _SHOULD_CLAIM = 0x04;
+    uint256 internal constant _SIMPLE_SWAP = 0x20;
+    uint256 internal constant _APPROVE_FUND = 0x100;
 
     bool public enforceMinReturn = true;
 
@@ -145,14 +169,18 @@ contract MockKyberRouterV2 {
         enforceMinReturn = enforce;
     }
 
-    /// @notice `swap` entry point. The real router forces the executor `callBytes` selector here;
-    ///         the mock issues the raw executor call so a single helper drives every entry point.
     function swap(SwapExecutionParams calldata execution)
         external
         payable
         returns (uint256 returnAmount, uint256 gasUsed)
     {
-        returnAmount = _settle(execution.desc, execution.callTarget, execution.targetData);
+        require(execution.desc.minReturnAmount > 0, "Min return should not be 0");
+        require(execution.targetData.length > 0, "executorData should be not zero");
+        if (execution.desc.flags & _SIMPLE_SWAP != 0) {
+            return _swapSimpleMode(execution.callTarget, execution.desc, execution.targetData);
+        }
+        bytes memory targetData = abi.encodeCall(MockAggregationExecutor.callBytes, (execution.targetData));
+        returnAmount = _settle(execution.desc, execution.callTarget, address(0), targetData, false);
         return (returnAmount, gasUsed);
     }
 
@@ -163,7 +191,9 @@ contract MockKyberRouterV2 {
         payable
         returns (uint256 returnAmount, uint256 gasUsed)
     {
-        returnAmount = _settle(execution.desc, execution.callTarget, execution.targetData);
+        require(execution.desc.minReturnAmount > 0, "Invalid min return amount");
+        returnAmount =
+            _settle(execution.desc, execution.callTarget, execution.approveTarget, execution.targetData, true);
         return (returnAmount, gasUsed);
     }
 
@@ -173,37 +203,103 @@ contract MockKyberRouterV2 {
         bytes calldata executorData,
         bytes calldata
     ) external returns (uint256 returnAmount, uint256 gasUsed) {
-        returnAmount = _settle(desc, caller, executorData);
-        return (returnAmount, gasUsed);
+        return _swapSimpleMode(caller, desc, executorData);
     }
 
-    function _settle(SwapDescriptionV2 calldata desc, address callTarget, bytes calldata targetData)
-        internal
-        returns (uint256 returnAmount)
-    {
+    function _settle(
+        SwapDescriptionV2 calldata desc,
+        address callTarget,
+        address approveTarget,
+        bytes memory targetData,
+        bool generic
+    ) internal returns (uint256 returnAmount) {
         _runPermit(desc.srcToken, desc.permit);
 
-        uint256 spentAmount = _collect(desc.srcToken, desc.srcReceivers, desc.srcAmounts);
-        _collect(desc.srcToken, desc.feeReceivers, desc.feeAmounts);
+        bool collected = generic && desc.srcToken != ETH_SENTINEL && desc.flags & _SHOULD_CLAIM != 0;
+        if (collected) {
+            IERC20(desc.srcToken).transferFrom(msg.sender, address(this), desc.amount);
+        }
+
+        _collect(desc.srcToken, desc.srcReceivers, desc.srcAmounts, collected);
+        _collect(desc.srcToken, desc.feeReceivers, desc.feeAmounts, collected);
+
+        if (collected && desc.flags & _APPROVE_FUND != 0 && approveTarget != address(0)) {
+            IERC20(desc.srcToken).approve(approveTarget, desc.amount);
+        }
+
+        address receiver = desc.dstReceiver == address(0) ? msg.sender : desc.dstReceiver;
+        uint256 initialDstBalance = IERC20(desc.dstToken).balanceOf(receiver);
+        uint256 routerInitialSrcBalance =
+            desc.srcToken == ETH_SENTINEL ? address(this).balance : IERC20(desc.srcToken).balanceOf(address(this));
 
         if (callTarget != address(0)) {
-            (bool ok, bytes memory ret) = callTarget.call(targetData);
+            (bool ok,) = callTarget.call(targetData);
             require(ok, "MockKyberRouterV2: executor call failed");
-            if (ret.length >= 32) {
-                returnAmount = abi.decode(ret, (uint256));
+        }
+
+        returnAmount = IERC20(desc.dstToken).balanceOf(receiver) - initialDstBalance;
+        uint256 spentAmount = desc.amount;
+        if (desc.flags & _PARTIAL_FILL != 0 && (desc.srcToken == ETH_SENTINEL || (generic && collected))) {
+            uint256 currentRouterSrcBalance =
+                desc.srcToken == ETH_SENTINEL ? address(this).balance : IERC20(desc.srcToken).balanceOf(address(this));
+            if (currentRouterSrcBalance != routerInitialSrcBalance) {
+                spentAmount = routerInitialSrcBalance - currentRouterSrcBalance;
+                if (collected) {
+                    IERC20(desc.srcToken).transfer(msg.sender, desc.amount - spentAmount);
+                }
             }
         }
 
-        if (enforceMinReturn) {
-            // Mirrors MetaAggregationRouterV2._checkReturnAmount: a partial-fill order is held to a
-            // pro-rated minimum keyed to the amount actually spent, not the flat minReturnAmount.
-            if (desc.flags & _PARTIAL_FILL != 0) {
-                require(
-                    returnAmount * desc.amount >= desc.minReturnAmount * spentAmount, "Return amount is not enough"
-                );
-            } else {
-                require(returnAmount >= desc.minReturnAmount, "Return amount is not enough");
-            }
+        _checkReturnAmount(desc, spentAmount, returnAmount);
+    }
+
+    function _swapSimpleMode(address caller, SwapDescriptionV2 calldata desc, bytes calldata executorData)
+        internal
+        returns (uint256 returnAmount, uint256 gasUsed)
+    {
+        require(desc.srcToken != ETH_SENTINEL, "src is eth, should use normal swap");
+        _runPermit(desc.srcToken, desc.permit);
+
+        address receiver = desc.dstReceiver == address(0) ? msg.sender : desc.dstReceiver;
+        uint256 initialDstBalance = IERC20(desc.dstToken).balanceOf(receiver);
+        uint256 initialSrcBalance = IERC20(desc.srcToken).balanceOf(msg.sender);
+        SimpleSwapData memory data = abi.decode(executorData, (SimpleSwapData));
+        require(data.deadline >= block.timestamp, "ROUTER: Expired");
+        require(
+            data.firstPools.length == data.firstSwapAmounts.length && data.firstPools.length == data.swapDatas.length,
+            "invalid swap data length"
+        );
+
+        for (uint256 i; i < data.firstPools.length; ++i) {
+            IERC20(desc.srcToken).transferFrom(msg.sender, data.firstPools[i], data.firstSwapAmounts[i]);
+            (bool sequenceOk,) =
+                caller.call(abi.encodeCall(MockAggregationExecutor.swapSingleSequence, (data.swapDatas[i])));
+            require(sequenceOk, "swapSingleSequence failed");
+        }
+        (bool finalizationOk,) = caller.call(
+            abi.encodeCall(
+                MockAggregationExecutor.finalTransactionProcessing,
+                (desc.srcToken, desc.dstToken, receiver, data.destTokenFeeData)
+            )
+        );
+        require(finalizationOk, "finalTransactionProcessing failed");
+
+        returnAmount = IERC20(desc.dstToken).balanceOf(receiver) - initialDstBalance;
+        uint256 spentAmount = initialSrcBalance - IERC20(desc.srcToken).balanceOf(msg.sender);
+        _checkReturnAmount(desc, spentAmount, returnAmount);
+    }
+
+    function _checkReturnAmount(SwapDescriptionV2 calldata desc, uint256 spentAmount, uint256 returnAmount)
+        internal
+        view
+    {
+        if (!enforceMinReturn) {
+            return;
+        }
+        if (desc.flags & _PARTIAL_FILL != 0) {
+            require(returnAmount * desc.amount >= desc.minReturnAmount * spentAmount, "Return amount is not enough");
+        } else {
+            require(returnAmount >= desc.minReturnAmount, "Return amount is not enough");
         }
     }
 
@@ -218,19 +314,21 @@ contract MockKyberRouterV2 {
         require(ok, "MockKyberRouterV2: permit failed");
     }
 
-    function _collect(address token, address[] calldata receivers, uint256[] calldata amounts)
+    function _collect(address token, address[] calldata receivers, uint256[] calldata amounts, bool collected)
         internal
-        returns (uint256 total)
     {
         if (token == ETH_SENTINEL) {
-            return 0;
+            return;
         }
         for (uint256 i; i < receivers.length; ++i) {
             if (amounts[i] == 0) {
                 continue;
             }
-            IERC20(token).transferFrom(msg.sender, receivers[i], amounts[i]);
-            total += amounts[i];
+            if (collected) {
+                IERC20(token).transfer(receivers[i], amounts[i]);
+            } else {
+                IERC20(token).transferFrom(msg.sender, receivers[i], amounts[i]);
+            }
         }
     }
 }

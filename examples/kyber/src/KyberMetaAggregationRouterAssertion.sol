@@ -6,31 +6,19 @@ import {PhEvm} from "credible-std/PhEvm.sol";
 import {KyberMetaAggregationRouterHelpers} from "./KyberMetaAggregationRouterHelpers.sol";
 import {IKyberMetaAggregationRouterV2Like, SwapDescriptionV2} from "./KyberMetaAggregationRouterInterfaces.sol";
 
-/// @title KyberMetaAggregationRouterAssertion
+/// @title KyberMetaAggregationRouterAssertionBase
 /// @author Phylax Systems
-/// @notice Recipient-credit postcondition for KyberSwap MetaAggregationRouterV2.
-/// @dev Transfer and Approval logs do not identify the spender that moved funds, so the former
-///      allowance-drain heuristic is intentionally not registered. `originalRouterFamily_` must be
-///      true only for deployments whose bit 0 means partial fill and which expose `swapGeneric`.
-contract KyberMetaAggregationRouterAssertion is KyberMetaAggregationRouterHelpers {
-    constructor(address router_, bool originalRouterFamily_)
-        KyberMetaAggregationRouterHelpers(router_, originalRouterFamily_)
-    {}
+/// @notice Shared distinct-token ERC20 recipient-credit postcondition for KyberSwap routers.
+/// @dev This is deliberately a narrow defense-in-depth call postcondition, not a universal
+///      protocol invariant. Same-token, native-output, rebasing/reflection, and genuinely
+///      pro-rated partial-fill routes are outside its additive balance-delta model.
+abstract contract KyberMetaAggregationRouterAssertionBase is KyberMetaAggregationRouterHelpers {
+    constructor(address router_) KyberMetaAggregationRouterHelpers(router_) {}
 
-    /// @notice Registers the protected MetaAggregationRouterV2 settlement entry points.
-    /// @dev Both checks are call-scoped so reads are bound to the exact triggered settlement.
-    function triggers() external view override {
-        registerFnCallTrigger(
-            this.assertReceiverGetsMinReturn.selector, IKyberMetaAggregationRouterV2Like.swap.selector
-        );
-        if (ORIGINAL_ROUTER_FAMILY) {
-            registerFnCallTrigger(
-                this.assertReceiverGetsMinReturn.selector, IKyberMetaAggregationRouterV2Like.swapGeneric.selector
-            );
+    function _registerTriggers(bytes4[] memory selectors) internal view {
+        for (uint256 i; i < selectors.length; ++i) {
+            registerFnCallTrigger(this.assertReceiverGetsMinReturn.selector, selectors[i]);
         }
-        registerFnCallTrigger(
-            this.assertReceiverGetsMinReturn.selector, IKyberMetaAggregationRouterV2Like.swapSimpleMode.selector
-        );
     }
 
     /// @notice Legacy diagnostic retained for source compatibility; it is not registered.
@@ -44,19 +32,18 @@ contract KyberMetaAggregationRouterAssertion is KyberMetaAggregationRouterHelper
         _assertOnlyInitiatorAllowanceExercised(ctx.callStart, initiator);
     }
 
-    /// @notice The declared recipient must be credited at least the signed `minReturnAmount`.
-    /// @dev Decodes the swap description from the triggered calldata and compares the recipient's
-    ///      buy-token balance across the call as a fork-aware delta. This is path-independent
-    ///      defense-in-depth: the live router already enforces min-return against this same
-    ///      recipient balance delta, so the check earns its keep only if that guard is ever
-    ///      bypassed (a buggy/compromised settlement path), while still pinning the user-signed
-    ///      minimum from outside the router's own accounting.
+    /// @notice Checks a distinct, non-rebasing ERC20 receiver gets the applicable flat minimum.
+    /// @dev The call-scoped check intentionally duplicates Kyber's receiver balance-delta guard as
+    ///      defense in depth for a buggy or compromised settlement path. It skips accounting
+    ///      domains where the outer-call delta is not equivalent to Kyber's internal window.
     ///
     ///      Out of scope, and skipped to avoid false positives:
     ///      - zero-minimum swaps (nothing to enforce);
-    ///      - native-asset payouts (`dstToken == ETH_SENTINEL`) — this surface reads ERC20 balances only;
-    ///      - partial-fill orders (`_PARTIAL_FILL` flag) — the router enforces a pro-rated minimum
-    ///        keyed to the actual spent amount, which a flat `minReturnAmount` floor would not match.
+    ///      - native-asset payouts (`dstToken == ETH_SENTINEL`);
+    ///      - same-token routes, because Kyber snapshots after the source debit while this assertion
+    ///        snapshots around the outer call;
+    ///      - original-family partial fills only when the selected entry point makes the live router
+    ///        compute `spentAmount` from a balance delta rather than fixing it to `desc.amount`.
     ///      An unset recipient (`dstReceiver == address(0)`) is NOT skipped: the router credits
     ///      `msg.sender` in that case, so the check is retargeted to the resolved initiator.
     function assertReceiverGetsMinReturn() external view {
@@ -65,8 +52,8 @@ contract KyberMetaAggregationRouterAssertion is KyberMetaAggregationRouterHelper
 
         SwapDescriptionV2 memory desc = _swapDescriptionFor(ctx.selector, ph.callinputAt(ctx.callStart));
         if (
-            desc.minReturnAmount == 0 || desc.dstToken == ETH_SENTINEL
-                || (ORIGINAL_ROUTER_FAMILY && _flagsChecked(desc.flags, PARTIAL_FILL))
+            desc.minReturnAmount == 0 || desc.dstToken == ETH_SENTINEL || desc.srcToken == desc.dstToken
+                || _usesProRatedMinimum(ctx.selector, desc)
         ) {
             return;
         }
@@ -86,5 +73,71 @@ contract KyberMetaAggregationRouterAssertion is KyberMetaAggregationRouterHelper
         require(
             afterBalance - beforeBalance >= desc.minReturnAmount, "Kyber: dstReceiver credited below minReturnAmount"
         );
+    }
+
+    /// @dev Modern-family deployments override this with `false`: bit zero is otherwise ignored.
+    function _usesProRatedMinimum(bytes4 selector, SwapDescriptionV2 memory desc) internal pure virtual returns (bool);
+}
+
+/// @title KyberOriginalMetaAggregationRouterAssertion
+/// @notice Assertion artifact for the verified original router family with `swapGeneric`.
+/// @dev The artifact fixes original-family semantics at compile time; deployers cannot select a
+///      caller-controlled-bit interpretation with a constructor boolean.
+contract KyberOriginalMetaAggregationRouterAssertion is KyberMetaAggregationRouterAssertionBase {
+    constructor(address router_) KyberMetaAggregationRouterAssertionBase(router_) {}
+
+    /// @notice Registers all verified original-family settlement entry points.
+    function triggers() external view override {
+        _registerTriggers(protectedSelectors());
+    }
+
+    /// @notice Returns the selector manifest consumed directly by `triggers()`.
+    function protectedSelectors() public pure returns (bytes4[] memory selectors) {
+        selectors = new bytes4[](3);
+        selectors[0] = IKyberMetaAggregationRouterV2Like.swap.selector;
+        selectors[1] = IKyberMetaAggregationRouterV2Like.swapGeneric.selector;
+        selectors[2] = IKyberMetaAggregationRouterV2Like.swapSimpleMode.selector;
+    }
+
+    function _usesProRatedMinimum(bytes4 selector, SwapDescriptionV2 memory desc)
+        internal
+        pure
+        override
+        returns (bool)
+    {
+        if (!_flagsChecked(desc.flags, PARTIAL_FILL)) {
+            return false;
+        }
+        if (selector == IKyberMetaAggregationRouterV2Like.swapSimpleMode.selector) {
+            return true;
+        }
+        if (selector == IKyberMetaAggregationRouterV2Like.swap.selector) {
+            return desc.srcToken == ETH_SENTINEL || _flagsChecked(desc.flags, SIMPLE_SWAP);
+        }
+        return selector == IKyberMetaAggregationRouterV2Like.swapGeneric.selector
+            && (desc.srcToken == ETH_SENTINEL || _flagsChecked(desc.flags, SHOULD_CLAIM));
+    }
+}
+
+/// @title KyberModernMetaAggregationRouterAssertion
+/// @notice Assertion artifact for the verified modern router family without `swapGeneric`.
+/// @dev Modern-family bit zero has no partial-fill meaning, so it never disables the flat check.
+contract KyberModernMetaAggregationRouterAssertion is KyberMetaAggregationRouterAssertionBase {
+    constructor(address router_) KyberMetaAggregationRouterAssertionBase(router_) {}
+
+    /// @notice Registers only the verified modern-family settlement entry points.
+    function triggers() external view override {
+        _registerTriggers(protectedSelectors());
+    }
+
+    /// @notice Returns the selector manifest consumed directly by `triggers()`.
+    function protectedSelectors() public pure returns (bytes4[] memory selectors) {
+        selectors = new bytes4[](2);
+        selectors[0] = IKyberMetaAggregationRouterV2Like.swap.selector;
+        selectors[1] = IKyberMetaAggregationRouterV2Like.swapSimpleMode.selector;
+    }
+
+    function _usesProRatedMinimum(bytes4, SwapDescriptionV2 memory) internal pure override returns (bool) {
+        return false;
     }
 }
