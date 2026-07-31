@@ -32,6 +32,13 @@ expect_ok "mode=target" \
     --registry-address 0x2222222222222222222222222222222222222222 \
     --guarded-call "bump()" --state-read-call "count()(uint256)" \
     --state-before 0 --state-after 1 --expected-threshold 75
+expect_ok "mode=target" \
+    --target-address 0x1111111111111111111111111111111111111111 \
+    --registry-address 0x2222222222222222222222222222222222222222 \
+    --guarded-call "setName(string)" --guarded-call-arg "hello world" \
+    --state-read-call "nameOf(address)(string)" \
+    --state-read-call-arg 0x3333333333333333333333333333333333333333 \
+    --state-before old --state-after "hello world"
 expect_fail "unknown argument: --wat" --wat
 expect_fail "target mode requires --guarded-call" \
     --target-address 0x1111111111111111111111111111111111111111 \

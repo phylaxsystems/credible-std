@@ -19,8 +19,11 @@ TARGET_DEPLOY_COMMAND=""
 REGISTRY_ADDRESS=""
 REGISTRY_DEPLOY_COMMAND=""
 GUARDED_CALL=""
+GUARDED_CALL_ARGS=()
 MARKER_CALL="markCurrentBlockCredible()"
+MARKER_CALL_ARGS=()
 STATE_READ_CALL=""
+STATE_READ_CALL_ARGS=()
 STATE_BEFORE=""
 STATE_AFTER=""
 REGISTRY_READ_CALL="credibleRegistry()(address)"
@@ -38,8 +41,10 @@ Usage:
 Target options:
   --target-address ADDRESS                         Existing target on the fresh Anvil chain
   --target-deploy-command COMMAND                  Deploy/upgrade; final stdout line is its address
-  --guarded-call SIGNATURE                         e.g. 'deposit(uint256)' 100
+  --guarded-call SIGNATURE                         e.g. 'setName(string)'
+  --guarded-call-arg ARGUMENT                      Repeat for each argument, e.g. 'hello world'
   --state-read-call SIGNATURE                      e.g. 'totalAssets()(uint256)'
+  --state-read-call-arg ARGUMENT                   Repeat for each state-read argument
   --state-before VALUE                             Expected state before/after rejected calls
   --state-after VALUE                              Expected state after successful guarded call
 
@@ -47,6 +52,7 @@ Registry/configuration options:
   --registry-address ADDRESS                       Existing registry on the fresh Anvil chain
   --registry-deploy-command COMMAND                Deploy/configure; final stdout line is its address
   --marker-call SIGNATURE                          Default: markCurrentBlockCredible()
+  --marker-call-arg ARGUMENT                       Repeat for each marker-call argument
   --expected-threshold BLOCKS                      Default in fixture mode: 10
   --registry-read-call SIGNATURE                   Default: credibleRegistry()(address)
   --threshold-read-call SIGNATURE                  Default: failOpenBlockThreshold()(uint256)
@@ -80,8 +86,11 @@ while [[ $# -gt 0 ]]; do
         --registry-address)        need_value "$@"; REGISTRY_ADDRESS="$2"; shift 2 ;;
         --registry-deploy-command) need_value "$@"; REGISTRY_DEPLOY_COMMAND="$2"; shift 2 ;;
         --guarded-call)            need_value "$@"; GUARDED_CALL="$2"; shift 2 ;;
+        --guarded-call-arg)        need_value "$@"; GUARDED_CALL_ARGS+=("$2"); shift 2 ;;
         --marker-call)             need_value "$@"; MARKER_CALL="$2"; shift 2 ;;
+        --marker-call-arg)         need_value "$@"; MARKER_CALL_ARGS+=("$2"); shift 2 ;;
         --state-read-call)         need_value "$@"; STATE_READ_CALL="$2"; shift 2 ;;
+        --state-read-call-arg)     need_value "$@"; STATE_READ_CALL_ARGS+=("$2"); shift 2 ;;
         --state-before)            need_value "$@"; STATE_BEFORE="$2"; shift 2 ;;
         --state-after)             need_value "$@"; STATE_AFTER="$2"; shift 2 ;;
         --registry-read-call)      need_value "$@"; REGISTRY_READ_CALL="$2"; shift 2 ;;
@@ -118,7 +127,8 @@ if [[ -n "$TARGET_ADDRESS" || -n "$TARGET_DEPLOY_COMMAND" ]]; then
     [[ -n "$REGISTRY_ADDRESS" || -n "$REGISTRY_DEPLOY_COMMAND" ]] ||
         die "target mode requires --registry-address or --registry-deploy-command"
 else
-    [[ -z "$GUARDED_CALL$STATE_READ_CALL$STATE_BEFORE$STATE_AFTER$REGISTRY_ADDRESS$REGISTRY_DEPLOY_COMMAND$CONFIG_ASSERT_COMMAND" ]] ||
+    [[ -z "$GUARDED_CALL$STATE_READ_CALL$STATE_BEFORE$STATE_AFTER$REGISTRY_ADDRESS$REGISTRY_DEPLOY_COMMAND$CONFIG_ASSERT_COMMAND" &&
+        ${#GUARDED_CALL_ARGS[@]} -eq 0 && ${#STATE_READ_CALL_ARGS[@]} -eq 0 ]] ||
         die "target-specific options require --target-address or --target-deploy-command"
     GUARDED_CALL="bump()"
     STATE_READ_CALL="count()(uint256)"
@@ -162,10 +172,13 @@ rpc() { cast rpc --rpc-url "$RPC_URL" "$@" >/dev/null; }
 mine_blocks() { rpc anvil_mine "$(cast to-hex "$1")"; }
 receipt_status() { cast receipt --rpc-url "$RPC_URL" --async "$1" --json 2>/dev/null | jq -r '.status'; }
 receipt_block() { cast to-dec "$(cast receipt --rpc-url "$RPC_URL" --async "$1" --json | jq -r '.blockNumber')"; }
-read_state() { cast call --rpc-url "$RPC_URL" "$TARGET_ADDRESS" $STATE_READ_CALL; }
+read_state() {
+    cast call --rpc-url "$RPC_URL" "$TARGET_ADDRESS" "$STATE_READ_CALL" "${STATE_READ_CALL_ARGS[@]}"
+}
 send_async() {
-    local key="$1" address="$2" call="$3"
-    cast send --rpc-url "$RPC_URL" --private-key "$key" --gas-limit "$GAS_LIMIT" --async "$address" $call
+    local key="$1" address="$2" call="$3"; shift 3
+    cast send --rpc-url "$RPC_URL" --private-key "$key" --gas-limit "$GAS_LIMIT" \
+        --async "$address" "$call" "$@"
 }
 reset_state() {
     rpc evm_revert "$SNAPSHOT"
@@ -241,8 +254,8 @@ SNAPSHOT=$(cast rpc --rpc-url "$RPC_URL" evm_snapshot | tr -d '"')
 
 section "Case 1: marker + guarded call in one manually mined block"
 reset_state
-MARKER_TX=$(send_async "$MARKER_KEY" "$REGISTRY_ADDRESS" "$MARKER_CALL")
-GUARDED_TX=$(send_async "$GUARDED_KEY" "$TARGET_ADDRESS" "$GUARDED_CALL")
+MARKER_TX=$(send_async "$MARKER_KEY" "$REGISTRY_ADDRESS" "$MARKER_CALL" "${MARKER_CALL_ARGS[@]}")
+GUARDED_TX=$(send_async "$GUARDED_KEY" "$TARGET_ADDRESS" "$GUARDED_CALL" "${GUARDED_CALL_ARGS[@]}")
 rpc evm_mine
 check "marker transaction succeeded" "$(receipt_status "$MARKER_TX")" "0x1"
 check "guarded transaction succeeded" "$(receipt_status "$GUARDED_TX")" "0x1"
@@ -252,15 +265,15 @@ check "guarded action produced expected state" "$(read_state)" "$STATE_AFTER"
 
 section "Case 2: unmarked call while builder window is live"
 reset_state
-SEED_TX=$(send_async "$MARKER_KEY" "$REGISTRY_ADDRESS" "$MARKER_CALL")
+SEED_TX=$(send_async "$MARKER_KEY" "$REGISTRY_ADDRESS" "$MARKER_CALL" "${MARKER_CALL_ARGS[@]}")
 rpc evm_mine
-GUARDED_TX=$(send_async "$GUARDED_KEY" "$TARGET_ADDRESS" "$GUARDED_CALL")
+GUARDED_TX=$(send_async "$GUARDED_KEY" "$TARGET_ADDRESS" "$GUARDED_CALL" "${GUARDED_CALL_ARGS[@]}")
 rpc evm_mine
 check "guarded transaction reverted" "$(receipt_status "$GUARDED_TX")" "0x0"
 check "rejected call left target state unchanged" "$(read_state)" "$STATE_BEFORE"
 ERROR_SELECTOR=$(cast sig "$GUARD_ERROR")
 CALL_OUT=$(cast call --rpc-url "$RPC_URL" --from "$GUARDED_ADDRESS" \
-    "$TARGET_ADDRESS" $GUARDED_CALL 2>&1 || true)
+    "$TARGET_ADDRESS" "$GUARDED_CALL" "${GUARDED_CALL_ARGS[@]}" 2>&1 || true)
 if grep -qi "$ERROR_SELECTOR" <<<"$CALL_OUT"; then
     echo "  ${GREEN}PASS${NC} static call reverted with $GUARD_ERROR"
     PASS_COUNT=$((PASS_COUNT + 1))
@@ -271,15 +284,15 @@ fi
 
 section "Case 3: builder inactivity boundary and strict fail-open"
 reset_state
-MARKER_TX=$(send_async "$MARKER_KEY" "$REGISTRY_ADDRESS" "$MARKER_CALL")
+MARKER_TX=$(send_async "$MARKER_KEY" "$REGISTRY_ADDRESS" "$MARKER_CALL" "${MARKER_CALL_ARGS[@]}")
 rpc evm_mine
 M=$(receipt_block "$MARKER_TX")
 mine_blocks $((FAIL_OPEN_THRESHOLD - 1))
-BOUNDARY_TX=$(send_async "$GUARDED_KEY" "$TARGET_ADDRESS" "$GUARDED_CALL")
+BOUNDARY_TX=$(send_async "$GUARDED_KEY" "$TARGET_ADDRESS" "$GUARDED_CALL" "${GUARDED_CALL_ARGS[@]}")
 rpc evm_mine
 check "gap == threshold still reverts" "$(receipt_status "$BOUNDARY_TX")" "0x0"
 check "boundary rejection left target state unchanged" "$(read_state)" "$STATE_BEFORE"
-OPEN_TX=$(send_async "$GUARDED_KEY" "$TARGET_ADDRESS" "$GUARDED_CALL")
+OPEN_TX=$(send_async "$GUARDED_KEY" "$TARGET_ADDRESS" "$GUARDED_CALL" "${GUARDED_CALL_ARGS[@]}")
 rpc evm_mine
 check "gap > threshold succeeds" "$(receipt_status "$OPEN_TX")" "0x1"
 check "fail-open call produced expected state" "$(read_state)" "$STATE_AFTER"

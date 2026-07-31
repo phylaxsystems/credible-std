@@ -45,7 +45,8 @@ means supplying deployment/upgrade commands:
     'forge script script/DeployRegistry.s.sol --rpc-url "$RPC_URL" --broadcast; echo 0xREGISTRY' \
   --target-deploy-command \
     'forge script script/UpgradeVault.s.sol --rpc-url "$RPC_URL" --broadcast; echo 0xPROXY' \
-  --guarded-call 'deposit(uint256) 1000000' \
+  --guarded-call 'deposit(uint256)' \
+  --guarded-call-arg 1000000 \
   --state-read-call 'totalAssets()(uint256)' \
   --state-before 0 \
   --state-after 1000000 \
@@ -67,9 +68,12 @@ The full input surface is:
 ```text
 --target-address ADDRESS | --target-deploy-command COMMAND
 --registry-address ADDRESS | --registry-deploy-command COMMAND
---guarded-call "SIGNATURE [ARGS...]"
---marker-call "SIGNATURE [ARGS...]"                 # default markCurrentBlockCredible()
---state-read-call "SIGNATURE [ARGS...]"
+--guarded-call "SIGNATURE"
+--guarded-call-arg "ARGUMENT"                      # repeat once per argument
+--marker-call "SIGNATURE"                          # default markCurrentBlockCredible()
+--marker-call-arg "ARGUMENT"                       # repeat once per argument
+--state-read-call "SIGNATURE"
+--state-read-call-arg "ARGUMENT"                   # repeat once per argument
 --state-before VALUE
 --state-after VALUE
 --expected-threshold BLOCKS
