@@ -43,9 +43,6 @@ abstract contract AnomalyGatedAccountingAssertion is AnomalyGatedBaseAssertion {
 
     /// @notice Reverts only when the transaction is anomalous and the share price leaves tolerance.
     function assertAnomalousAccounting() external view {
-        if (!_anomalous()) {
-            return;
-        }
         if (_accountingCorroborates()) {
             revert AnomalousAccounting();
         }

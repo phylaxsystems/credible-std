@@ -25,8 +25,10 @@ import {AnomalyGatedBaseAssertion} from "./AnomalyGatedBaseAssertion.sol";
 ///           negations. It must be a non-revert outcome of the same evaluation that would otherwise
 ///           block, or the alert cell is not derivable.
 ///
-///      The disposition (see `AnomalyGatedBaseAssertion`): `block = a AND H` reverts, `pass = NOT a`
-///      returns early, and `alert = a AND NOT H` falls through without reverting.
+///      The disposition (see `AnomalyGatedBaseAssertion`): `block = a AND H` reverts and
+///      `alert = a AND NOT H` falls through without reverting. `pass = NOT a` costs nothing here at
+///      all: the trigger carries the sensitivity level, so a transaction that clears no level never
+///      dispatches this function and the corroboration reads are never reached.
 ///
 ///      The corroboration reads use the base primitives, the same ones the individual mixins call.
 ///      Deploy one composite per protocol, parameters as the only difference. Override `_extra` to
@@ -48,7 +50,7 @@ contract AnomalyCompositeAssertion is AnomalyGatedBaseAssertion {
     ///         storage, and `bareGateBaseline`, which only gates the constructor.
     struct Config {
         address target;
-        uint16 anomalyThresholdBps;
+        uint8 sensitivity; // a level from `Sensitivity`, 1..=10
         bool requireAll; // true: block on AND of the enabled heuristics; false: OR
         bool bareGateBaseline; // explicit opt-in: with no heuristic enabled, block on the score alone
         bool useDrain;
@@ -84,7 +86,7 @@ contract AnomalyCompositeAssertion is AnomalyGatedBaseAssertion {
     /// @dev Stored, not immutable: `bytes` cannot be immutable. Read only when `useOracle`.
     bytes internal oracleQuery;
 
-    constructor(Config memory c) AnomalyGatedBaseAssertion(c.target, c.anomalyThresholdBps) {
+    constructor(Config memory c) AnomalyGatedBaseAssertion(c.target, c.sensitivity) {
         if (!(c.bareGateBaseline || c.useDrain || c.useUpgrade || c.useAccounting || c.useOracle)) {
             revert NoHeuristicEnabled();
         }
@@ -134,10 +136,6 @@ contract AnomalyCompositeAssertion is AnomalyGatedBaseAssertion {
     ///      fold hits the operator's absorbing value: a silent leg under AND, a corroborating leg
     ///      under OR. The alert cell (`a AND NOT H`) is the deliberate fall-through with no revert.
     function assertComposite() external {
-        if (!_anomalous()) {
-            return; // pass: not anomalous
-        }
-
         bool anyEnabled;
         bool corroborated = requireAll; // the operator's identity: AND folds from true, OR from false
 

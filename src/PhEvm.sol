@@ -34,7 +34,7 @@ interface PhEvm {
         /// @dev The `get*CallInputs` queries (getAllCallInputs/getCallInputs/getStaticCallInputs/
         ///      getDelegateCallInputs/getCallCodeInputs) key on `selector`, so it is stripped from
         ///      this field and only the argument tail remains. To rebuild full calldata, prepend the
-        ///      selector: `bytes.concat(selector, input)`. Do NOT slice `input[4:]` — the selector is
+        ///      selector: `bytes.concat(selector, input)`. Do NOT slice `input[4:]`, the selector is
         ///      already gone, and slicing would drop the first argument word. Contrast `callinputAt`,
         ///      which returns the raw selector-prefixed calldata.
         bytes input;
@@ -144,7 +144,7 @@ interface PhEvm {
     }
 
     // ---------------------------------------------------------------
-    //  Legacy fork-switching (deprecated — prefer ForkId-based access)
+    //  Legacy fork-switching (deprecated, prefer ForkId-based access)
     // ---------------------------------------------------------------
 
     /// @notice Fork to the state before the assertion-triggering transaction
@@ -328,7 +328,7 @@ interface PhEvm {
 
     /// @notice Returns calls matching the given target, selector, and filter criteria.
     /// @dev Each returned `TriggerCall.input` is the ABI-encoded arguments WITHOUT the 4-byte
-    ///      selector — prepend `selector` before decoding (see the `TriggerCall.input` field docs).
+    ///      selector, prepend `selector` before decoding (see the `TriggerCall.input` field docs).
     /// @param target The target contract address.
     /// @param selector The function selector to filter by.
     /// @param filter Filtering criteria (call type, depth, success).
@@ -401,7 +401,7 @@ interface PhEvm {
         returns (bytes32 pre, bytes32 post, bool changed);
 
     // ---------------------------------------------------------------
-    //  V2: Protection suite — ERC4626 share price
+    //  V2: Protection suite. ERC4626 share price
     // ---------------------------------------------------------------
 
     /// @notice Checks ERC4626 share price consistency across all fork points.
@@ -422,7 +422,7 @@ interface PhEvm {
         returns (bool);
 
     // ---------------------------------------------------------------
-    //  V2: Protection suite — balance conservation
+    //  V2: Protection suite, balance conservation
     // ---------------------------------------------------------------
 
     /// @notice Checks that an account's ERC20 balance is unchanged between two forks.
@@ -437,7 +437,7 @@ interface PhEvm {
         returns (bool);
 
     // ---------------------------------------------------------------
-    //  V2: Protection suite — cumulative outflow circuit breaker
+    //  V2: Protection suite, cumulative outflow circuit breaker
     // ---------------------------------------------------------------
 
     /// @notice Context about the outflow that triggered an assertion via watchCumulativeOutflow.
@@ -468,7 +468,7 @@ interface PhEvm {
     function outflowContext() external view returns (OutflowContext memory ctx);
 
     // ---------------------------------------------------------------
-    //  V2: Protection suite — cumulative inflow circuit breaker
+    //  V2: Protection suite, cumulative inflow circuit breaker
     // ---------------------------------------------------------------
 
     /// @notice Context about the inflow that triggered an assertion via watchCumulativeInflow.
@@ -508,7 +508,7 @@ interface PhEvm {
     ///      extra storage). A single 10s bucket draining the whole snapshot reads
     ///      ~1000 bps/s. Use this to suppress false positives of the cumulative
     ///      breaker: a large-but-slow withdrawal reads a benign peak rate. Never
-    ///      gate the cumulative alert on it — treat it as OR-style escalation only.
+    ///      gate the cumulative alert on it, treat it as OR-style escalation only.
     struct FlowRateContext {
         /// @notice The ERC20 token that triggered the assertion. address(0) if no flow trigger fired.
         address token;
@@ -546,10 +546,19 @@ interface PhEvm {
 
     /// @notice Context returned by `anomalyContext(target)` describing the
     ///         anomaly detector's view of `target` for the current tx.
-    /// @dev `scoreBps` is in basis points (0..=10_000), where 0 is
-    ///      "very likely not anomalous" and 10_000 is "very likely anomalous".
+    /// @dev `firesAt` is the strictest sensitivity level (1..=10) the model's
+    ///      score clears against `target`'s own ladder; 0 clears none. An
+    ///      assertion registered at level `L` is anomalous when
+    ///      `firesAt != 0 && L >= firesAt`, so a zero-filled context, meaning an
+    ///      unscored target, fails open by construction.
+    /// @dev The level is the whole verdict. The raw score is spent resolving it
+    ///      against the ladder that lives with the model, and never reaches
+    ///      Solidity: basis points mean nothing without that ladder, and a
+    ///      threshold written against them belongs to one contract and one model
+    ///      version. A level carries over to another contract and survives a
+    ///      retrain.
     struct AnomalyContext {
-        uint16 scoreBps;
+        uint8 firesAt;
     }
 
     /// @notice Returns the anomaly detector's view of `target` for the
@@ -561,7 +570,7 @@ interface PhEvm {
     function anomalyContext(address target) external view returns (AnomalyContext memory ctx);
 
     // ---------------------------------------------------------------
-    //  V2: Protection suite — oracle sanity
+    //  V2: Protection suite, oracle sanity
     // ---------------------------------------------------------------
 
     /// @notice Checks oracle price consistency across all fork points.

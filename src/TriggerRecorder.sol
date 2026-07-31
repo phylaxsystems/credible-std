@@ -86,15 +86,18 @@ interface TriggerRecorder {
         external
         view;
 
-    /// @notice Registers an anomaly-detection trigger. Fires whenever the
-    ///         executor's configured AnomalySubsystem produces a score for
-    ///         `target` in a transaction that touches it.
-    /// @dev The model owns the firing decision: the trigger fires whenever
-    ///      anomaly detection returns a score at all. The assertion reads the
-    ///      score back via `ph.anomalyContext(target)` and decides whether
-    ///      to revert, run extra checks, or ignore.
+    /// @notice Registers an anomaly-detection trigger at a sensitivity level.
+    ///         Fires when the executor's configured AnomalySubsystem scores
+    ///         `target` anomalously enough to clear `sensitivity`.
+    /// @dev The level is resolved against `target`'s own model where the
+    ///      trigger is evaluated, so a sub-threshold transaction never spawns
+    ///      the assertion at all. The assertion may still read the level back
+    ///      via `ph.anomalyContext(target)`, which reports `firesAt` and
+    ///      nothing else. There is no score to re-read.
     /// @param target The address whose anomaly score this assertion observes.
-    /// @param fnSelector The assertion function to invoke when `target` is
-    ///        scored.
-    function watchAnomaly(address target, bytes4 fnSelector) external view;
+    /// @param fnSelector The assertion function to invoke when `target` clears
+    ///        the level.
+    /// @param sensitivity The level from `Sensitivity`, 1..=10. Reverts the
+    ///        registration if outside that range.
+    function watchAnomaly(address target, bytes4 fnSelector, uint8 sensitivity) external view;
 }

@@ -57,36 +57,47 @@ contract BacktestingIntegrationTest is CredibleTestWithBacktesting {
 /// @title Single Transaction Backtesting Tests
 /// @notice Tests single transaction backtesting with known fixtures
 contract SingleTxBacktestingTest is CredibleTestWithBacktesting {
-    // Known USDC transfer on Optimism Sepolia
-    // https://sepolia-optimism.etherscan.io/tx/0x...
+    // USDC on Optimism Sepolia
     address constant USDC_OP_SEPOLIA = 0x5fd84259d66Cd46123540766Be93DFE6D43130D7;
 
-    /// @notice Test single transaction backtesting with a known transfer
-    /// @dev This test requires RPC access to Optimism Sepolia
+    /// @notice A `transfer(address,uint256)` of 10 USDC in block 31336940, the one transaction the
+    ///         block-range suite above discovers over its window, pinned here by hash.
+    bytes32 constant TRANSFER_TX = 0xbdfa042cfaa2c5305dc131e4fb1ef50bf43b2654ab511a2913444ea614f5eba7;
+
+    /// @notice Backtest one transaction by hash and check the ERC20 invariant holds on it.
     function testSingleTransactionBacktest() public {
-        // Skip if no RPC available (for CI without RPC secrets)
-        try vm.envString("OP_SEPOLIA_RPC_URL") returns (string memory rpcUrl) {
-            // Use a real transaction hash from Optimism Sepolia
-            // This should be a USDC transfer transaction
-            bytes32 txHash = 0x0000000000000000000000000000000000000000000000000000000000000000;
+        BacktestingTypes.BacktestingResults memory results = executeBacktestForTransaction(
+            TRANSFER_TX,
+            USDC_OP_SEPOLIA,
+            type(ERC20Assertion).creationCode,
+            ERC20Assertion.assertionTransferInvariant.selector,
+            _rpcUrl()
+        );
 
-            if (txHash == bytes32(0)) {
-                console.log("SKIP: No fixture transaction hash configured");
-                return;
+        _assertExactlyOneSuccessfulValidation(results);
+    }
+
+    /// @notice Assert the backtest actually validated the transaction.
+    /// @dev `assertionFailures == 0` alone is satisfied by a transaction that was skipped, failed to
+    ///      replay, or errored, so the assertion may never have run and the test still passes. The
+    ///      counters are tracked independently, so all of them have to be pinned for the result to
+    ///      mean "one transaction was replayed and the invariant held on it".
+    function _assertExactlyOneSuccessfulValidation(BacktestingTypes.BacktestingResults memory results) internal pure {
+        assertEq(results.totalTransactions, 1, "the pinned transaction is the only one backtested");
+        assertEq(results.successfulValidations, 1, "the assertion did not run successfully");
+        assertEq(results.assertionFailures, 0, "a plain transfer keeps the invariant");
+        assertEq(results.skippedTransactions, 0, "the transaction was skipped rather than validated");
+        assertEq(results.replayFailures, 0, "the transaction failed to replay");
+        assertEq(results.unknownErrors, 0, "the backtest hit an unknown error");
+    }
+
+    /// @dev `OP_SEPOLIA_RPC_URL` overrides the public endpoint the block-range suite also uses.
+    function _rpcUrl() internal view returns (string memory) {
+        try vm.envString("OP_SEPOLIA_RPC_URL") returns (string memory url) {
+            if (bytes(url).length > 0) {
+                return url;
             }
-
-            BacktestingTypes.BacktestingResults memory results = executeBacktestForTransaction(
-                txHash,
-                USDC_OP_SEPOLIA,
-                type(ERC20Assertion).creationCode,
-                ERC20Assertion.assertionTransferInvariant.selector,
-                rpcUrl
-            );
-
-            assertEq(results.totalTransactions, 1, "Should process exactly 1 transaction");
-            assertEq(results.assertionFailures, 0, "Assertion should pass");
-        } catch {
-            console.log("SKIP: OP_SEPOLIA_RPC_URL not set");
-        }
+        } catch {}
+        return "https://sepolia.optimism.io";
     }
 }

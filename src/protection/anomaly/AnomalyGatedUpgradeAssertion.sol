@@ -43,9 +43,6 @@ abstract contract AnomalyGatedUpgradeAssertion is AnomalyGatedBaseAssertion {
 
     /// @notice Reverts only when the transaction is anomalous and a watched config slot changes.
     function assertAnomalousUpgrade() external view {
-        if (!_anomalous()) {
-            return;
-        }
         if (_upgradeCorroborates()) {
             revert AnomalousUpgrade();
         }
