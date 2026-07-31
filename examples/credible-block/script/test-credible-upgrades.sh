@@ -145,13 +145,13 @@ for command in anvil cast forge jq; do
     command -v "$command" >/dev/null || die "required command not found on PATH: $command"
 done
 
-export FOUNDRY_PROFILE=credible-block
 RPC_URL="http://127.0.0.1:${RPC_PORT}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 MARKER_ADDRESS=$(cast wallet address "$MARKER_KEY")
 GUARDED_ADDRESS=$(cast wallet address "$GUARDED_KEY")
 export RPC_URL REPO_ROOT ADMIN_KEY MARKER_KEY GUARDED_KEY MARKER_ADDRESS GUARDED_ADDRESS
+export EXPECTED_THRESHOLD="$FAIL_OPEN_THRESHOLD"
 
 RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; BLUE=$'\033[0;34m'; BOLD=$'\033[1m'; NC=$'\033[0m'
 PASS_COUNT=0; FAIL_COUNT=0; ANVIL_PID=""
@@ -172,8 +172,14 @@ rpc() { cast rpc --rpc-url "$RPC_URL" "$@" >/dev/null; }
 mine_blocks() { rpc anvil_mine "$(cast to-hex "$1")"; }
 receipt_status() { cast receipt --rpc-url "$RPC_URL" --async "$1" --json 2>/dev/null | jq -r '.status'; }
 receipt_block() { cast to-dec "$(cast receipt --rpc-url "$RPC_URL" --async "$1" --json | jq -r '.blockNumber')"; }
+normalize_cast_value() {
+    local value="$1"
+    printf '%s' "${value%% \[*}"
+}
 read_state() {
-    cast call --rpc-url "$RPC_URL" "$TARGET_ADDRESS" "$STATE_READ_CALL" "${STATE_READ_CALL_ARGS[@]}"
+    local value
+    value=$(cast call --rpc-url "$RPC_URL" "$TARGET_ADDRESS" "$STATE_READ_CALL" "${STATE_READ_CALL_ARGS[@]}")
+    normalize_cast_value "$value"
 }
 send_async() {
     local key="$1" address="$2" call="$3"; shift 3
@@ -211,19 +217,19 @@ cast block-number --rpc-url "$RPC_URL" >/dev/null 2>&1 ||
 if [[ -n "$REGISTRY_DEPLOY_COMMAND" ]]; then
     REGISTRY_ADDRESS=$(run_address_command "registry deployment/configuration" "$REGISTRY_DEPLOY_COMMAND")
 elif [[ -z "$REGISTRY_ADDRESS" ]]; then
-    REGISTRY_ADDRESS=$(cd "$REPO_ROOT" && forge create \
+    REGISTRY_ADDRESS=$(cd "$REPO_ROOT" && FOUNDRY_PROFILE=credible-block forge create \
         examples/credible-block/src/CredibleRegistry.sol:CredibleRegistry \
         --rpc-url "$RPC_URL" --private-key "$ADMIN_KEY" --broadcast --json \
         --constructor-args "$MARKER_ADDRESS" | jq -r '.deployedTo')
 fi
 REGISTRY_ADDRESS=$(cast to-check-sum-address "$REGISTRY_ADDRESS" 2>/dev/null) ||
     die "registry address is not a valid address"
-export REGISTRY_ADDRESS EXPECTED_THRESHOLD="$FAIL_OPEN_THRESHOLD"
+export REGISTRY_ADDRESS
 
 if [[ -n "$TARGET_DEPLOY_COMMAND" ]]; then
     TARGET_ADDRESS=$(run_address_command "target deployment/upgrade" "$TARGET_DEPLOY_COMMAND")
 elif [[ -z "$TARGET_ADDRESS" ]]; then
-    TARGET_ADDRESS=$(cd "$REPO_ROOT" && forge create \
+    TARGET_ADDRESS=$(cd "$REPO_ROOT" && FOUNDRY_PROFILE=credible-block forge create \
         examples/credible-block/src/GuardedCounter.sol:GuardedCounter \
         --rpc-url "$RPC_URL" --private-key "$ADMIN_KEY" --broadcast --json \
         --constructor-args "$REGISTRY_ADDRESS" "$FAIL_OPEN_THRESHOLD" | jq -r '.deployedTo')
@@ -243,10 +249,13 @@ if [[ -n "$CONFIG_ASSERT_COMMAND" ]]; then
         die "contract-specific configuration assertion failed"
     fi
 else
+    CONFIG_FAILURES=$FAIL_COUNT
     check "target uses expected registry" \
         "$(cast call --rpc-url "$RPC_URL" "$TARGET_ADDRESS" "$REGISTRY_READ_CALL")" "$REGISTRY_ADDRESS"
     check "target uses expected fail-open threshold" \
-        "$(cast call --rpc-url "$RPC_URL" "$TARGET_ADDRESS" "$THRESHOLD_READ_CALL")" "$FAIL_OPEN_THRESHOLD"
+        "$(normalize_cast_value "$(cast call --rpc-url "$RPC_URL" "$TARGET_ADDRESS" "$THRESHOLD_READ_CALL")")" \
+        "$FAIL_OPEN_THRESHOLD"
+    [[ "$FAIL_COUNT" -eq "$CONFIG_FAILURES" ]] || die "target configuration verification failed"
 fi
 check "initial target state" "$(read_state)" "$STATE_BEFORE"
 

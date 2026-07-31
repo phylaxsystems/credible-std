@@ -122,7 +122,8 @@ run with:
   `--state-after` describe one guarded call.
 - The runner validates guard wiring and behavior, not the correctness or completeness of the
   upgrade process itself.
-- The `credible-block` Foundry profile is selected automatically.
+- The `credible-block` Foundry profile is selected only for the built-in fixture deployments;
+  user-supplied deployment commands keep their caller-provided Foundry profile.
 - On macOS, Foundry may abort while reading system proxy settings inside a restricted sandbox. Run
   the live integration outside that sandbox; `--validate-only` and the argument tests do not start
   Foundry and can remain sandboxed.
