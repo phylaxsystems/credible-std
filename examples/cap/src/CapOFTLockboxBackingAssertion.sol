@@ -59,11 +59,8 @@ contract CapOFTLockboxBackingAssertion is Assertion {
     }
 
     function triggers() external view override {
-        // Covers every transaction that calls the adapter, including a valid receive combined
-        // with an unrelated outflow. The ERC-20 change trigger additionally covers direct token
-        // allowance pulls that never call the adapter itself.
-        registerTxEndTrigger(this.assertReleaseOnlyOnReceive.selector);
-        registerErc20ChangeTrigger(this.assertReleaseOnlyOnReceive.selector, LOCKED_TOKEN);
+        // Quarantined: payload amount alone does not bind the configured origin peer, intended
+        // recipient, live endpoint/token relationship, or production conversion domain.
     }
 
     /// @notice Locked cUSD may only leave the lockbox via a verified endpoint `lzReceive`, and only

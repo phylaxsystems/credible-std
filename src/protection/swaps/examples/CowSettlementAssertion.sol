@@ -30,10 +30,8 @@ contract CowSettlementAssertion is CowSettlementHelpers {
 
     /// @notice Registers the per-token outflow reconciliation at transaction end and on token changes.
     function triggers() external view override {
-        registerTxEndTrigger(this.assertBufferConserved.selector);
-        for (uint256 i; i < bufferTokens.length; ++i) {
-            registerErc20ChangeTrigger(this.assertBufferConserved.selector, bufferTokens[i]);
-        }
+        // Quarantined: aggregate Trade sell volume is not causally tied to watched-token buffer
+        // outflow and can authorize an unrelated drain in the same settlement transaction.
     }
 
     /// @notice Watched-token outflow must be explained by same-token trade volume or a DAO sweep.

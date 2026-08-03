@@ -20,6 +20,7 @@ contract RoycoVaultTrancheAssertion is RoycoVaultTrancheOperationAssertion {
     }
 
     function triggers() external view override {
-        _registerOperationInvariantTriggers();
+        // Quarantined: preview, return, and share deltas do not prove the official asset transfer
+        // into the Kernel on deposit or to the receiver on redeem.
     }
 }

@@ -87,10 +87,19 @@ contract BoringVaultAssertionTest is Test, CredibleTest {
         vault.enter(address(0), address(0), 0, alice, 100 ether);
     }
 
-    function testNonzeroAssetZeroAmountExitPasses() public {
+    function testAuthorizedNonzeroAssetZeroAmountExitPasses() public {
         vault.enter(address(0), address(0), 0, alice, 100 ether);
         _arm(BoringVaultAssertion.assertExitAccounting.selector);
 
+        vault.exit(alice, address(asset), 0, alice, 50 ether);
+    }
+
+    function testUnauthorizedNonzeroAssetZeroAmountExitTrips() public {
+        vault.enter(address(0), address(0), 0, alice, 100 ether);
+        _arm(BoringVaultAssertion.assertExitAccounting.selector);
+
+        vm.prank(alice);
+        vm.expectRevert(bytes("BoringVault: unauthorized share-only caller"));
         vault.exit(alice, address(asset), 0, alice, 50 ether);
     }
 
