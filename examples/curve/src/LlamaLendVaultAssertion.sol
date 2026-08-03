@@ -37,6 +37,11 @@ contract LlamaLendVaultAssertion is ERC4626PreviewAssertion, LlamaLendVaultProto
         registerTxEndTrigger(this.assertControllerCustodyCoversAvailableBalance.selector);
     }
 
+    /// @dev Pinned LlamaLend vault operations return the pre-state previewed amount exactly.
+    function _maxPreviewDeviation() internal pure override returns (uint256) {
+        return 0;
+    }
+
     /// @notice Checks `totalAssets()` equals controller available balance plus debt minus admin fees.
     function assertTotalAssetsMatchesControllerAccounting() external {
         PhEvm.ForkId memory fork = _postTx();

@@ -23,12 +23,9 @@ import {ERC4626BaseAssertion} from "./ERC4626BaseAssertion.sol";
 ///       previewWithdraw rounds UP   (returns more shares   -> favors vault)
 ///       previewRedeem   rounds DOWN (returns fewer assets   -> favors vault)
 ///
-/// @dev Uses V2 `registerFnCallTrigger` + `ph.context()` for call-scoped triggers,
-///      `ph.callinputAt()` to read call arguments, and `ph.callOutputAt()` to read the
-///      actual return value — replacing the totalSupply/totalAssets delta inference from V1.
-///      ERC-4626 specifies the conservative direction of previews, but it does not set a generic
-///      maximum distance from the state-changing result. Concrete vaults may override
-///      `_maxPreviewDeviation()` when their implementation proves a tighter bound.
+/// @dev In addition to return values, every operation proves the corresponding receiver/owner
+///      share delta, total-supply delta, and underlying-token movement. ERC-4626 does not define a
+///      universal preview-distance bound, so every concrete supported adapter must provide one.
 abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
     /// @notice Register the default trigger set for preview-consistency invariants.
     /// @dev Each ERC-4626 operation gets its own assertion function via registerFnCallTrigger.
@@ -40,11 +37,8 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
     }
 
     /// @notice Maximum acceptable deviation between a preview result and the actual result.
-    /// @dev Defaults to no generic distance cap. Override only when the concrete vault's
-    ///      implementation proves a smaller maximum.
-    function _maxPreviewDeviation() internal view virtual returns (uint256) {
-        return type(uint256).max;
-    }
+    /// @dev Must be derived from the concrete vault implementation; no generic default is sound.
+    function _maxPreviewDeviation() internal view virtual returns (uint256);
 
     // ---------------------------------------------------------------
     //  deposit: previewDeposit(assets) <= actualSharesMinted
@@ -55,20 +49,32 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
     ///         actualSharesMinted - previewDeposit(assets) <= maxDeviation
     function assertDepositPreview() external {
         PhEvm.TriggerContext memory ctx = ph.context();
-        _requireVaultConfigurationAt(_preCall(ctx.callStart));
+        PhEvm.ForkId memory pre = _preCall(ctx.callStart);
+        PhEvm.ForkId memory post = _postCall(ctx.callEnd);
+        _requireVaultConfigurationAt(pre);
 
         bytes memory input = ph.callinputAt(ctx.callStart);
         uint256 assets = _firstUint256Arg(input);
+        address receiver = _receiver(input, ctx);
 
         // Preview at pre-call state
-        uint256 previewShares =
-            _readUintAt(vault, abi.encodeCall(IERC4626.previewDeposit, (assets)), _preCall(ctx.callStart));
+        uint256 previewShares = _readUintAt(vault, abi.encodeCall(IERC4626.previewDeposit, (assets)), pre);
 
         // Actual return value: deposit returns shares minted
         uint256 actualShares = abi.decode(ph.callOutputAt(ctx.callStart), (uint256));
 
         require(previewShares <= actualShares, "ERC4626: previewDeposit > actual shares");
         require(actualShares - previewShares <= _maxPreviewDeviation(), "ERC4626: deposit preview deviates from actual");
+        _requireIncrease(
+            _shareBalanceAt(receiver, pre),
+            _shareBalanceAt(receiver, post),
+            actualShares,
+            "ERC4626: deposit receiver shares mismatch"
+        );
+        _requireIncrease(_totalSupplyAt(pre), _totalSupplyAt(post), actualShares, "ERC4626: deposit supply mismatch");
+        _requireIncrease(
+            _assetBalanceAt(vault, pre), _assetBalanceAt(vault, post), assets, "ERC4626: deposit asset payment mismatch"
+        );
     }
 
     // ---------------------------------------------------------------
@@ -80,19 +86,34 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
     ///         previewMint(shares) - actualAssetsCharged <= maxDeviation
     function assertMintPreview() external {
         PhEvm.TriggerContext memory ctx = ph.context();
-        _requireVaultConfigurationAt(_preCall(ctx.callStart));
+        PhEvm.ForkId memory pre = _preCall(ctx.callStart);
+        PhEvm.ForkId memory post = _postCall(ctx.callEnd);
+        _requireVaultConfigurationAt(pre);
 
         bytes memory input = ph.callinputAt(ctx.callStart);
         uint256 shares = _firstUint256Arg(input);
+        address receiver = _receiver(input, ctx);
 
-        uint256 previewAssets =
-            _readUintAt(vault, abi.encodeCall(IERC4626.previewMint, (shares)), _preCall(ctx.callStart));
+        uint256 previewAssets = _readUintAt(vault, abi.encodeCall(IERC4626.previewMint, (shares)), pre);
 
         // Actual return value: mint returns assets charged
         uint256 actualAssets = abi.decode(ph.callOutputAt(ctx.callStart), (uint256));
 
         require(previewAssets >= actualAssets, "ERC4626: previewMint < actual assets");
         require(previewAssets - actualAssets <= _maxPreviewDeviation(), "ERC4626: mint preview deviates from actual");
+        _requireIncrease(
+            _shareBalanceAt(receiver, pre),
+            _shareBalanceAt(receiver, post),
+            shares,
+            "ERC4626: mint receiver shares mismatch"
+        );
+        _requireIncrease(_totalSupplyAt(pre), _totalSupplyAt(post), shares, "ERC4626: mint supply mismatch");
+        _requireIncrease(
+            _assetBalanceAt(vault, pre),
+            _assetBalanceAt(vault, post),
+            actualAssets,
+            "ERC4626: mint asset payment mismatch"
+        );
     }
 
     // ---------------------------------------------------------------
@@ -104,13 +125,15 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
     ///         previewWithdraw(assets) - actualSharesBurned <= maxDeviation
     function assertWithdrawPreview() external {
         PhEvm.TriggerContext memory ctx = ph.context();
-        _requireVaultConfigurationAt(_preCall(ctx.callStart));
+        PhEvm.ForkId memory pre = _preCall(ctx.callStart);
+        PhEvm.ForkId memory post = _postCall(ctx.callEnd);
+        _requireVaultConfigurationAt(pre);
 
         bytes memory input = ph.callinputAt(ctx.callStart);
         uint256 assets = _firstUint256Arg(input);
+        (address receiver, address owner) = _withdrawAccounts(input, ctx);
 
-        uint256 previewShares =
-            _readUintAt(vault, abi.encodeCall(IERC4626.previewWithdraw, (assets)), _preCall(ctx.callStart));
+        uint256 previewShares = _readUintAt(vault, abi.encodeCall(IERC4626.previewWithdraw, (assets)), pre);
 
         // Actual return value: withdraw returns shares burned
         uint256 actualShares = abi.decode(ph.callOutputAt(ctx.callStart), (uint256));
@@ -118,6 +141,22 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
         require(previewShares >= actualShares, "ERC4626: previewWithdraw < actual shares");
         require(
             previewShares - actualShares <= _maxPreviewDeviation(), "ERC4626: withdraw preview deviates from actual"
+        );
+        _requireDecrease(
+            _shareBalanceAt(owner, pre),
+            _shareBalanceAt(owner, post),
+            actualShares,
+            "ERC4626: withdraw owner shares mismatch"
+        );
+        _requireDecrease(_totalSupplyAt(pre), _totalSupplyAt(post), actualShares, "ERC4626: withdraw supply mismatch");
+        _requireDecrease(
+            _assetBalanceAt(vault, pre), _assetBalanceAt(vault, post), assets, "ERC4626: withdraw vault assets mismatch"
+        );
+        _requireIncrease(
+            _assetBalanceAt(receiver, pre),
+            _assetBalanceAt(receiver, post),
+            assets,
+            "ERC4626: withdraw receiver assets mismatch"
         );
     }
 
@@ -130,19 +169,37 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
     ///         actualAssetsReturned - previewRedeem(shares) <= maxDeviation
     function assertRedeemPreview() external {
         PhEvm.TriggerContext memory ctx = ph.context();
-        _requireVaultConfigurationAt(_preCall(ctx.callStart));
+        PhEvm.ForkId memory pre = _preCall(ctx.callStart);
+        PhEvm.ForkId memory post = _postCall(ctx.callEnd);
+        _requireVaultConfigurationAt(pre);
 
         bytes memory input = ph.callinputAt(ctx.callStart);
         uint256 shares = _firstUint256Arg(input);
+        (address receiver, address owner) = _withdrawAccounts(input, ctx);
 
-        uint256 previewAssets =
-            _readUintAt(vault, abi.encodeCall(IERC4626.previewRedeem, (shares)), _preCall(ctx.callStart));
+        uint256 previewAssets = _readUintAt(vault, abi.encodeCall(IERC4626.previewRedeem, (shares)), pre);
 
         // Actual return value: redeem returns assets returned
         uint256 actualAssets = abi.decode(ph.callOutputAt(ctx.callStart), (uint256));
 
         require(previewAssets <= actualAssets, "ERC4626: previewRedeem > actual assets");
         require(actualAssets - previewAssets <= _maxPreviewDeviation(), "ERC4626: redeem preview deviates from actual");
+        _requireDecrease(
+            _shareBalanceAt(owner, pre), _shareBalanceAt(owner, post), shares, "ERC4626: redeem owner shares mismatch"
+        );
+        _requireDecrease(_totalSupplyAt(pre), _totalSupplyAt(post), shares, "ERC4626: redeem supply mismatch");
+        _requireDecrease(
+            _assetBalanceAt(vault, pre),
+            _assetBalanceAt(vault, post),
+            actualAssets,
+            "ERC4626: redeem vault assets mismatch"
+        );
+        _requireIncrease(
+            _assetBalanceAt(receiver, pre),
+            _assetBalanceAt(receiver, post),
+            actualAssets,
+            "ERC4626: redeem receiver assets mismatch"
+        );
     }
 
     // ---------------------------------------------------------------
@@ -166,5 +223,49 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
         assembly ("memory-safe") {
             value := mload(add(input, 36))
         }
+    }
+
+    function _receiver(bytes memory input, PhEvm.TriggerContext memory ctx) internal view returns (address) {
+        return input.length >= 68 ? _addressArg(input, 1) : _triggerCaller(ctx);
+    }
+
+    function _withdrawAccounts(bytes memory input, PhEvm.TriggerContext memory ctx)
+        internal
+        view
+        returns (address receiver, address owner)
+    {
+        address caller = _triggerCaller(ctx);
+        receiver = input.length >= 68 ? _addressArg(input, 1) : caller;
+        owner = input.length >= 100 ? _addressArg(input, 2) : caller;
+    }
+
+    function _triggerCaller(PhEvm.TriggerContext memory ctx) internal view returns (address) {
+        PhEvm.CallInputs[] memory calls = ph.getAllCallInputs(vault, ctx.selector);
+        for (uint256 i; i < calls.length; ++i) {
+            if (calls[i].id == ctx.callStart) return calls[i].caller;
+        }
+        revert("ERC4626: triggered call not found");
+    }
+
+    function _addressArg(bytes memory input, uint256 index) internal pure returns (address value) {
+        uint256 offset = 36 + index * 32;
+        require(input.length >= 4 + (index + 1) * 32, "ERC4626Preview: address arg missing");
+        assembly ("memory-safe") {
+            value := mload(add(input, offset))
+        }
+    }
+
+    function _requireIncrease(uint256 beforeValue, uint256 afterValue, uint256 amount, string memory reason)
+        internal
+        pure
+    {
+        require(afterValue >= beforeValue && afterValue - beforeValue == amount, reason);
+    }
+
+    function _requireDecrease(uint256 beforeValue, uint256 afterValue, uint256 amount, string memory reason)
+        internal
+        pure
+    {
+        require(beforeValue >= afterValue && beforeValue - afterValue == amount, reason);
     }
 }

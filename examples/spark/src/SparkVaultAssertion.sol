@@ -25,10 +25,7 @@ import {SparkVaultHelpers} from "./SparkVaultHelpers.sol";
 ///      Beyond ERC-4626, Spark's savings-rate model requires mutating accrual paths to fully
 ///      settle pending `chi` growth for the current block, while `take()` must only move
 ///      liquidity and `assetsOutstanding()` without changing liabilities or rate state.
-contract SparkVaultAssertion is
-    ERC4626PreviewAssertion,
-    SparkVaultHelpers
-{
+contract SparkVaultAssertion is ERC4626PreviewAssertion, SparkVaultHelpers {
     /// @param vault_ Spark vault instance whose selectors this bundle will monitor.
     constructor(address vault_, address asset_) ERC4626BaseAssertion(vault_, asset_) {
         registerAssertionSpec(AssertionSpec.Reshiram);
@@ -47,6 +44,11 @@ contract SparkVaultAssertion is
         _registerSparkReferralOverloadTriggers();
         _registerSparkRateAccumulationTriggers();
         _registerSparkManagedLiquidityTriggers();
+    }
+
+    /// @dev Pinned Spark vault operations return the pre-state previewed amount exactly.
+    function _maxPreviewDeviation() internal pure override returns (uint256) {
+        return 0;
     }
 
     /// @notice Reuses the inherited share-price and preview assertions against Spark's
