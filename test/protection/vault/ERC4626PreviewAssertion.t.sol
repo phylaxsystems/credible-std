@@ -10,13 +10,21 @@ import {AssertionSpec} from "../../../src/SpecRecorder.sol";
 import {ERC4626BaseAssertion} from "../../../src/protection/vault/ERC4626BaseAssertion.sol";
 import {ERC4626PreviewAssertion} from "../../../src/protection/vault/ERC4626PreviewAssertion.sol";
 
+contract PreviewAssetCustodian {
+    function release(ERC20Mock token, address receiver, uint256 amount) external {
+        token.transfer(receiver, amount);
+    }
+}
+
 contract PreviewEffectsVault is ERC20 {
     ERC20Mock public immutable underlying;
+    address public immutable custodian;
     bool public skipShares;
     bool public skipAssets;
 
-    constructor(ERC20Mock underlying_) ERC20("Vault Share", "VS") {
+    constructor(ERC20Mock underlying_, address custodian_) ERC20("Vault Share", "VS") {
         underlying = underlying_;
+        custodian = custodian_ == address(0) ? address(this) : custodian_;
     }
 
     function setFaults(bool skipShares_, bool skipAssets_) external {
@@ -49,32 +57,40 @@ contract PreviewEffectsVault is ERC20 {
     }
 
     function deposit(uint256 assets, address receiver) external returns (uint256 shares) {
-        if (!skipAssets) underlying.transferFrom(msg.sender, address(this), assets);
+        if (!skipAssets) underlying.transferFrom(msg.sender, custodian, assets);
         if (!skipShares) _mint(receiver, assets);
         return assets;
     }
 
     function mint(uint256 shares, address receiver) external returns (uint256 assets) {
-        if (!skipAssets) underlying.transferFrom(msg.sender, address(this), shares);
+        if (!skipAssets) underlying.transferFrom(msg.sender, custodian, shares);
         if (!skipShares) _mint(receiver, shares);
         return shares;
     }
 
     function withdraw(uint256 assets, address receiver, address owner) external returns (uint256 shares) {
         if (!skipShares) _burn(owner, assets);
-        if (!skipAssets) underlying.transfer(receiver, assets);
+        if (!skipAssets) _release(receiver, assets);
         return assets;
     }
 
     function redeem(uint256 shares, address receiver, address owner) external returns (uint256 assets) {
         if (!skipShares) _burn(owner, shares);
-        if (!skipAssets) underlying.transfer(receiver, shares);
+        if (!skipAssets) _release(receiver, shares);
         return shares;
+    }
+
+    function _release(address receiver, uint256 amount) internal {
+        if (custodian == address(this)) underlying.transfer(receiver, amount);
+        else PreviewAssetCustodian(custodian).release(underlying, receiver, amount);
     }
 }
 
 contract PreviewEffectsAssertion is ERC4626PreviewAssertion {
-    constructor(address vault_, address asset_) ERC4626BaseAssertion(vault_, asset_) {
+    address internal immutable custody;
+
+    constructor(address vault_, address asset_, address custody_) ERC4626BaseAssertion(vault_, asset_) {
+        custody = custody_;
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
@@ -85,6 +101,10 @@ contract PreviewEffectsAssertion is ERC4626PreviewAssertion {
     function _maxPreviewDeviation() internal pure override returns (uint256) {
         return 0;
     }
+
+    function _assetCustodyAccount() internal view override returns (address) {
+        return custody;
+    }
 }
 
 contract ERC4626PreviewAssertionTest is Test, CredibleTest {
@@ -94,14 +114,15 @@ contract ERC4626PreviewAssertionTest is Test, CredibleTest {
 
     function setUp() public {
         asset = new ERC20Mock();
-        vault = new PreviewEffectsVault(asset);
+        vault = new PreviewEffectsVault(asset, address(0));
         asset.mint(address(this), 1_000 ether);
         asset.approve(address(vault), type(uint256).max);
     }
 
     function _arm(bytes4 selector) internal {
-        bytes memory createData =
-            abi.encodePacked(type(PreviewEffectsAssertion).creationCode, abi.encode(address(vault), address(asset)));
+        bytes memory createData = abi.encodePacked(
+            type(PreviewEffectsAssertion).creationCode, abi.encode(address(vault), address(asset), vault.custodian())
+        );
         cl.assertion(address(vault), createData, selector);
     }
 
@@ -125,6 +146,27 @@ contract ERC4626PreviewAssertionTest is Test, CredibleTest {
         vault.deposit(100 ether, address(this));
         _arm(ERC4626PreviewAssertion.assertRedeemPreview.selector);
         vault.redeem(40 ether, receiver, address(this));
+    }
+
+    function testDepositSupportsExternalAssetCustody() public {
+        PreviewAssetCustodian externalCustodian = new PreviewAssetCustodian();
+        vault = new PreviewEffectsVault(asset, address(externalCustodian));
+        asset.approve(address(vault), type(uint256).max);
+
+        _arm(ERC4626PreviewAssertion.assertDepositPreview.selector);
+        vault.deposit(100 ether, receiver);
+        assertEq(asset.balanceOf(address(externalCustodian)), 100 ether);
+    }
+
+    function testWithdrawSupportsExternalAssetCustody() public {
+        PreviewAssetCustodian externalCustodian = new PreviewAssetCustodian();
+        vault = new PreviewEffectsVault(asset, address(externalCustodian));
+        asset.approve(address(vault), type(uint256).max);
+        vault.deposit(100 ether, address(this));
+
+        _arm(ERC4626PreviewAssertion.assertWithdrawPreview.selector);
+        vault.withdraw(40 ether, receiver, address(this));
+        assertEq(asset.balanceOf(address(externalCustodian)), 60 ether);
     }
 
     function testFavorableReturnWithoutSharesTrips() public {

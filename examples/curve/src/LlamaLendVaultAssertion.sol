@@ -42,6 +42,12 @@ contract LlamaLendVaultAssertion is ERC4626PreviewAssertion, LlamaLendVaultProto
         return 0;
     }
 
+    /// @dev LlamaLend vault operations transfer the borrowed token directly through the
+    ///      controller; the vault contract itself never holds the ERC-4626 payment inventory.
+    function _assetCustodyAccount() internal view override returns (address) {
+        return controller;
+    }
+
     /// @notice Checks `totalAssets()` equals controller available balance plus debt minus admin fees.
     function assertTotalAssetsMatchesControllerAccounting() external {
         PhEvm.ForkId memory fork = _postTx();

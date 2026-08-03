@@ -40,6 +40,14 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
     /// @dev Must be derived from the concrete vault implementation; no generic default is sound.
     function _maxPreviewDeviation() internal view virtual returns (uint256);
 
+    /// @notice Account whose underlying-token balance reflects ERC-4626 payments and payouts.
+    /// @dev Standard vaults custody assets themselves. Managed-custody adapters such as
+    ///      LlamaLend must override this with the controller that actually receives and sends the
+    ///      underlying token.
+    function _assetCustodyAccount() internal view virtual returns (address) {
+        return vault;
+    }
+
     // ---------------------------------------------------------------
     //  deposit: previewDeposit(assets) <= actualSharesMinted
     // ---------------------------------------------------------------
@@ -73,7 +81,10 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
         );
         _requireIncrease(_totalSupplyAt(pre), _totalSupplyAt(post), actualShares, "ERC4626: deposit supply mismatch");
         _requireIncrease(
-            _assetBalanceAt(vault, pre), _assetBalanceAt(vault, post), assets, "ERC4626: deposit asset payment mismatch"
+            _assetBalanceAt(_assetCustodyAccount(), pre),
+            _assetBalanceAt(_assetCustodyAccount(), post),
+            assets,
+            "ERC4626: deposit asset payment mismatch"
         );
     }
 
@@ -109,8 +120,8 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
         );
         _requireIncrease(_totalSupplyAt(pre), _totalSupplyAt(post), shares, "ERC4626: mint supply mismatch");
         _requireIncrease(
-            _assetBalanceAt(vault, pre),
-            _assetBalanceAt(vault, post),
+            _assetBalanceAt(_assetCustodyAccount(), pre),
+            _assetBalanceAt(_assetCustodyAccount(), post),
             actualAssets,
             "ERC4626: mint asset payment mismatch"
         );
@@ -150,7 +161,10 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
         );
         _requireDecrease(_totalSupplyAt(pre), _totalSupplyAt(post), actualShares, "ERC4626: withdraw supply mismatch");
         _requireDecrease(
-            _assetBalanceAt(vault, pre), _assetBalanceAt(vault, post), assets, "ERC4626: withdraw vault assets mismatch"
+            _assetBalanceAt(_assetCustodyAccount(), pre),
+            _assetBalanceAt(_assetCustodyAccount(), post),
+            assets,
+            "ERC4626: withdraw vault assets mismatch"
         );
         _requireIncrease(
             _assetBalanceAt(receiver, pre),
@@ -189,8 +203,8 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
         );
         _requireDecrease(_totalSupplyAt(pre), _totalSupplyAt(post), shares, "ERC4626: redeem supply mismatch");
         _requireDecrease(
-            _assetBalanceAt(vault, pre),
-            _assetBalanceAt(vault, post),
+            _assetBalanceAt(_assetCustodyAccount(), pre),
+            _assetBalanceAt(_assetCustodyAccount(), post),
             actualAssets,
             "ERC4626: redeem vault assets mismatch"
         );
