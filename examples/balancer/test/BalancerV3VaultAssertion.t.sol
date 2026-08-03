@@ -61,7 +61,9 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
             address(vault), address(pool), vault.swapHooks(), INVARIANT_DUST_TOLERANCE, RATE_DRIFT_TOLERANCE_BPS
         );
         vm.mockCallRevert(
-            address(uint160(uint256(keccak256("SpecRecorder")))), bytes(""), bytes("quarantined wrapper registered a trigger")
+            address(uint160(uint256(keccak256("TriggerRecorder")))),
+            bytes(""),
+            bytes("quarantined wrapper registered a trigger")
         );
         assertion.triggers();
     }

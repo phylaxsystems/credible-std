@@ -101,7 +101,9 @@ contract AaveV4HubAccountingAssertionTest is Test, CredibleTest {
     function testPublishedWrapperCannotRegisterUnsafeChecks() public {
         AaveV4HubAccountingAssertion assertion = new AaveV4HubAccountingAssertion(address(hub), 1, 4, 0);
         vm.mockCallRevert(
-            address(uint160(uint256(keccak256("SpecRecorder")))), bytes(""), bytes("quarantined wrapper registered a trigger")
+            address(uint160(uint256(keccak256("TriggerRecorder")))),
+            bytes(""),
+            bytes("quarantined wrapper registered a trigger")
         );
         assertion.triggers();
     }

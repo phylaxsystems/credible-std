@@ -176,7 +176,9 @@ contract LighterBridgeAssertionTest is Test, CredibleTest {
     function testPublishedWrapperCannotRegisterUnsafeChecks() public {
         LighterBridgeAssertion assertion = new LighterBridgeAssertion(address(bridge));
         vm.mockCallRevert(
-            address(uint160(uint256(keccak256("SpecRecorder")))), bytes(""), bytes("quarantined wrapper registered a trigger")
+            address(uint160(uint256(keccak256("TriggerRecorder")))),
+            bytes(""),
+            bytes("quarantined wrapper registered a trigger")
         );
         assertion.triggers();
     }

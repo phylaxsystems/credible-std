@@ -122,7 +122,9 @@ contract SymbioticVaultFlowAssertionTest is Test, CredibleTest {
     function testPublishedWrapperCannotRegisterUnsafeChecks() public {
         SymbioticVaultProtection assertion = new SymbioticVaultProtection(address(vault), address(asset));
         vm.mockCallRevert(
-            address(uint160(uint256(keccak256("SpecRecorder")))), bytes(""), bytes("quarantined wrapper registered a trigger")
+            address(uint160(uint256(keccak256("TriggerRecorder")))),
+            bytes(""),
+            bytes("quarantined wrapper registered a trigger")
         );
         assertion.triggers();
     }
