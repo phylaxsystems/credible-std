@@ -158,7 +158,7 @@ contract RoycoVaultTrancheAssertionTest is Test, CredibleTest {
         RoycoVaultTrancheAssertion assertion =
             new RoycoVaultTrancheAssertion(address(tranche), address(kernel), RoycoTrancheType.SENIOR);
         vm.mockCallRevert(
-            address(uint160(uint256(keccak256("SpecRecorder")))),
+            address(uint160(uint256(keccak256("TriggerRecorder")))),
             bytes(""),
             bytes("quarantined wrapper registered a trigger")
         );

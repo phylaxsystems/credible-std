@@ -120,7 +120,7 @@ contract CapLiquidationAssertionTest is Test, CredibleTest {
     function testPublishedWrapperCannotRegisterUnsafeChecks() public {
         CapLiquidationAssertion assertion = new CapLiquidationAssertion();
         vm.mockCallRevert(
-            address(uint160(uint256(keccak256("SpecRecorder")))),
+            address(uint160(uint256(keccak256("TriggerRecorder")))),
             bytes(""),
             bytes("quarantined wrapper registered a trigger")
         );

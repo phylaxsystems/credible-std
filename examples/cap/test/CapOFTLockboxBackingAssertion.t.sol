@@ -111,7 +111,7 @@ contract CapOFTLockboxBackingAssertionTest is Test, CredibleTest {
         CapOFTLockboxBackingAssertion assertion =
             new CapOFTLockboxBackingAssertion(address(lockbox), address(cusd), address(endpoint), 1e12);
         vm.mockCallRevert(
-            address(uint160(uint256(keccak256("SpecRecorder")))),
+            address(uint160(uint256(keccak256("TriggerRecorder")))),
             bytes(""),
             bytes("quarantined wrapper registered a trigger")
         );

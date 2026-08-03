@@ -206,7 +206,7 @@ contract CowSettlementAssertionTest is Test, CredibleTest {
         CowSettlementAssertion assertion =
             new CowSettlementAssertion(address(settlement), sweepRecipient, bufferTokens, 0);
         vm.mockCallRevert(
-            address(uint160(uint256(keccak256("SpecRecorder")))),
+            address(uint160(uint256(keccak256("TriggerRecorder")))),
             bytes(""),
             bytes("quarantined wrapper registered a trigger")
         );
