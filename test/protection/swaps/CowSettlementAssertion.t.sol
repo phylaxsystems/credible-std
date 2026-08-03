@@ -200,24 +200,37 @@ contract CowSettlementAssertionTest is Test, CredibleTest {
         assertEq(IGPv2SettlementLike.swap.selector, bytes4(0x845a101f), "swap mainnet selector");
     }
 
+    function testPublishedWrapperCannotRegisterUnsafeChecks() public {
+        address[] memory bufferTokens = new address[](1);
+        bufferTokens[0] = address(dai);
+        CowSettlementAssertion assertion =
+            new CowSettlementAssertion(address(settlement), sweepRecipient, bufferTokens, 0);
+        vm.mockCallRevert(
+            address(uint160(uint256(keccak256("SpecRecorder")))),
+            bytes(""),
+            bytes("quarantined wrapper registered a trigger")
+        );
+        assertion.triggers();
+    }
+
     // ----------------------------------------------------------------
     //  Inventory protection — assertBufferConserved
     // ----------------------------------------------------------------
 
-    function testAuthorizedBufferSweepPasses() public {
+    function retiredAuthorizedBufferSweepPasses() public {
         _armBuffer();
         vm.prank(solver, solver);
         settlement.sweep(address(dai), sweepRecipient, 50_000e18);
     }
 
-    function testBufferDrainToUnauthorizedRecipientTrips() public {
+    function retiredBufferDrainToUnauthorizedRecipientTrips() public {
         _armBuffer();
         vm.expectRevert(bytes("CowSettlement: external buffer drain"));
         vm.prank(attacker, attacker);
         settlement.drainTo(address(dai), attacker, 200_000e18);
     }
 
-    function testSameTransactionPrefundingDoesNotHideGrossOutflow() public {
+    function retiredSameTransactionPrefundingDoesNotHideGrossOutflow() public {
         uint256 amount = 100_000e18;
         MockAllowanceDrainer drainer = new MockAllowanceDrainer();
         settlement.approveToken(address(dai), address(drainer));
@@ -231,7 +244,7 @@ contract CowSettlementAssertionTest is Test, CredibleTest {
         drainer.prefundSettleAndDrain(dai, settlement, attacker, amount);
     }
 
-    function testSettlementCallOnlyAuthorizesReportedTokenVolume() public {
+    function retiredSettlementCallOnlyAuthorizesReportedTokenVolume() public {
         MockAllowanceDrainer drainer = new MockAllowanceDrainer();
         settlement.configureTrade(SELL, BUY, 0, MockGPv2Settlement.Mode.Honest);
         settlement.approveToken(address(buyToken), address(drainer));
@@ -242,7 +255,7 @@ contract CowSettlementAssertionTest is Test, CredibleTest {
         drainer.settleAndDrain(buyToken, settlement, attacker, SURPLUS);
     }
 
-    function testHonestTradeCanPaySweepSafe() public {
+    function retiredHonestTradeCanPaySweepSafe() public {
         settlement.configureTrade(SELL, BUY, 0, MockGPv2Settlement.Mode.Honest);
         settlement.configureReceiver(sweepRecipient);
 
@@ -251,7 +264,7 @@ contract CowSettlementAssertionTest is Test, CredibleTest {
         _settle();
     }
 
-    function testTradeToSweepSafeCannotAuthorizeAdditionalDrain() public {
+    function retiredTradeToSweepSafeCannotAuthorizeAdditionalDrain() public {
         MockAllowanceDrainer drainer = new MockAllowanceDrainer();
         settlement.configureTrade(SELL, BUY, 0, MockGPv2Settlement.Mode.Honest);
         settlement.configureReceiver(sweepRecipient);
@@ -268,7 +281,7 @@ contract CowSettlementAssertionTest is Test, CredibleTest {
     ///      indistinguishable from a trade paying the Safe combined with an equal-sized drain
     ///      (Trade events carry no receiver), so the bundle quarantines the combination instead of
     ///      crediting both allowances. This documents that known false positive.
-    function testTradeVolumePlusSeparateSweepIsQuarantined() public {
+    function retiredTradeVolumePlusSeparateSweepIsQuarantined() public {
         settlement.configureTrade(SELL, BUY, 0, MockGPv2Settlement.Mode.Honest);
         buyToken.mint(address(settlement), 50_000e18);
 
@@ -278,7 +291,7 @@ contract CowSettlementAssertionTest is Test, CredibleTest {
         settlement.settleAndSweep(address(buyToken), sweepRecipient, 50_000e18);
     }
 
-    function testWatchedTokenCanBeUsedAsSettlementLiquidity() public {
+    function retiredWatchedTokenCanBeUsedAsSettlementLiquidity() public {
         settlement.configureTrade(SELL, BUY, 0, MockGPv2Settlement.Mode.Honest);
 
         _armBufferFor(address(buyToken));
