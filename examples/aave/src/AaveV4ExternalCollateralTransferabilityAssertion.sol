@@ -47,6 +47,14 @@ contract AaveV4ExternalCollateralTransferabilityAssertion is AaveV4ExternalColla
     // local executor limit. Deploy one instance per reserve instead of creating an unsafe bundle.
     uint256 internal constant MAX_POLICY_COUNT = 1;
     bytes32 internal constant FULL_RESTRICTED_STAKER_ROLE = keccak256("FULL_RESTRICTED_STAKER_ROLE");
+    bytes32 internal constant ERC1967_IMPLEMENTATION_SLOT =
+        0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+
+    // Verified Ethereum weETH implementations. The legacy implementation had no transfer pause or
+    // blacklist hooks. The restricted implementation added paused(), pausedUntil(), and the
+    // external Blacklister hook. Unknown proxy implementations fail closed below.
+    address internal constant WEETH_LEGACY_UNRESTRICTED_IMPLEMENTATION = 0x2d10683E941275D502173053927AD6066e6aFd6B;
+    address internal constant WEETH_RESTRICTED_IMPLEMENTATION = 0xA6Ca0607190d03CF16fe6F2865Cf40c3D160ccf3;
 
     address internal immutable SPOKE;
     CollateralPolicy[] internal collateralPolicies;
@@ -153,6 +161,16 @@ contract AaveV4ExternalCollateralTransferabilityAssertion is AaveV4ExternalColla
         }
 
         if (policy.adapter == AdapterKind.WeEth) {
+            address implementation =
+                address(uint160(uint256(ph.loadStateAt(policy.token, ERC1967_IMPLEMENTATION_SLOT, fork))));
+            if (implementation == WEETH_LEGACY_UNRESTRICTED_IMPLEMENTATION) {
+                return true;
+            }
+            require(
+                implementation == address(0) || implementation == WEETH_RESTRICTED_IMPLEMENTATION,
+                "AaveV4Transferability: unsupported weETH implementation"
+            );
+
             bool indefinitePause = _pausedAt(policy.token, fork);
             uint256 timedPause = _readUintAt(policy.token, abi.encodeCall(IExternalTimedPausable.pausedUntil, ()), fork);
             uint256 hubBlacklist = _readUintAt(

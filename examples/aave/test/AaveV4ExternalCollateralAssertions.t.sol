@@ -213,6 +213,10 @@ abstract contract AaveV4ExternalCollateralTestBase is Test, CredibleTest {
     uint256 internal constant GOOD_RESERVE = 1;
     uint256 internal constant INITIAL_DEBT_RAY = 100e27;
     bytes32 internal constant FULL_RESTRICTED_STAKER_ROLE = keccak256("FULL_RESTRICTED_STAKER_ROLE");
+    bytes32 internal constant ERC1967_IMPLEMENTATION_SLOT =
+        0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+    address internal constant WEETH_LEGACY_UNRESTRICTED_IMPLEMENTATION = 0x2d10683E941275D502173053927AD6066e6aFd6B;
+    address internal constant WEETH_RESTRICTED_IMPLEMENTATION = 0xA6Ca0607190d03CF16fe6F2865Cf40c3D160ccf3;
 
     address internal user = makeAddr("borrower");
     address internal hub = makeAddr("Aave Hub");
@@ -308,6 +312,41 @@ contract AaveV4ExternalCollateralTransferabilityAssertionTest is AaveV4ExternalC
         blacklister.setBlacklistedUntil(hub, block.timestamp);
         _arm(Transferability.AdapterKind.WeEth, address(blacklister));
         spoke.borrow(GOOD_RESERVE, 1, user);
+    }
+
+    function testLegacyUnrestrictedWeEthImplementationDoesNotRequireNewStatusAbi() public {
+        vm.store(
+            address(token),
+            ERC1967_IMPLEMENTATION_SLOT,
+            bytes32(uint256(uint160(WEETH_LEGACY_UNRESTRICTED_IMPLEMENTATION)))
+        );
+        token.setRevertPausedRead(true);
+
+        _arm(Transferability.AdapterKind.WeEth, address(blacklister));
+        spoke.borrow(GOOD_RESERVE, 1, user);
+    }
+
+    function testRestrictedWeEthImplementationStillChecksPauseState() public {
+        vm.store(
+            address(token), ERC1967_IMPLEMENTATION_SLOT, bytes32(uint256(uint160(WEETH_RESTRICTED_IMPLEMENTATION)))
+        );
+        token.setPaused(true);
+
+        _expectBorrowFailure(
+            Transferability.AdapterKind.WeEth,
+            address(blacklister),
+            "AaveV4Transferability: collateral restricted before risk increase"
+        );
+    }
+
+    function testUnknownWeEthImplementationFailsClosed() public {
+        vm.store(address(token), ERC1967_IMPLEMENTATION_SLOT, bytes32(uint256(uint160(makeAddr("unknown weETH impl")))));
+
+        _expectBorrowFailure(
+            Transferability.AdapterKind.WeEth,
+            address(blacklister),
+            "AaveV4Transferability: unsupported weETH implementation"
+        );
     }
 
     function testBlockedHubTrips() public {
