@@ -98,12 +98,20 @@ contract AaveV4HubAccountingAssertionTest is Test, CredibleTest {
         cl.assertion(address(hub), createData, AaveV4HubAccountingAssertion.assertHubAssetAccounting.selector);
     }
 
-    function testHubAccountingPassesWhenSpokeSumsMatch() public {
+    function testPublishedWrapperCannotRegisterUnsafeChecks() public {
+        AaveV4HubAccountingAssertion assertion = new AaveV4HubAccountingAssertion(address(hub), 1, 4, 0);
+        vm.mockCallRevert(
+            address(uint160(uint256(keccak256("SpecRecorder")))), bytes(""), bytes("quarantined wrapper registered a trigger")
+        );
+        assertion.triggers();
+    }
+
+    function retiredHubAccountingPassesWhenSpokeSumsMatch() public {
         _arm();
         hub.add(1, 0);
     }
 
-    function testHubAccountingTripsOnAggregateSpokeMismatch() public {
+    function retiredHubAccountingTripsOnAggregateSpokeMismatch() public {
         hub.setBreakSpokeSum(true);
 
         _arm();

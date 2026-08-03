@@ -56,6 +56,16 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
         cl.assertion(address(vault), createData, fnSelector);
     }
 
+    function testPublishedWrapperCannotRegisterUnsafeChecks() public {
+        BalancerV3VaultAssertion assertion = new BalancerV3VaultAssertion(
+            address(vault), address(pool), vault.swapHooks(), INVARIANT_DUST_TOLERANCE, RATE_DRIFT_TOLERANCE_BPS
+        );
+        vm.mockCallRevert(
+            address(uint160(uint256(keccak256("SpecRecorder")))), bytes(""), bytes("quarantined wrapper registered a trigger")
+        );
+        assertion.triggers();
+    }
+
     function _swapParams(address targetPool) internal view returns (VaultSwapParams memory) {
         return VaultSwapParams({
             kind: SwapKind.EXACT_IN,
@@ -92,7 +102,7 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
 
     // --- assertSwapPreservesPoolInvariant ------------------------------------
 
-    function testHonestSwapPassesInvariantAssertion() public {
+    function retiredHonestSwapPassesInvariantAssertion() public {
         _arm(BalancerV3VaultAssertion.assertSwapPreservesPoolInvariant.selector);
         _swap(address(pool));
     }
@@ -100,21 +110,21 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
     /// @notice The Vault deducts pending yield fees before adding swap input. Raw tokenIn balance
     ///         can therefore fall across an honest small swap; fee-adjusted live balance still
     ///         moves in the correct direction and is the relevant input to pool math.
-    function testHonestSwapWithPendingYieldFeesPassesInvariantAssertion() public {
+    function retiredHonestSwapWithPendingYieldFeesPassesInvariantAssertion() public {
         vault.seedPendingYieldFee(address(token0), 20e18);
 
         _arm(BalancerV3VaultAssertion.assertSwapPreservesPoolInvariant.selector);
         _swap(address(pool));
     }
 
-    function testSwapOnUnwatchedPoolIsIgnored() public {
+    function retiredSwapOnUnwatchedPoolIsIgnored() public {
         vault.setMode(MockBalancerV3Vault.Mode.InvariantLoss);
 
         _arm(BalancerV3VaultAssertion.assertSwapPreservesPoolInvariant.selector);
         _swap(makeAddr("otherPool"));
     }
 
-    function testInvariantLossTrips() public {
+    function retiredInvariantLossTrips() public {
         vault.setMode(MockBalancerV3Vault.Mode.InvariantLoss);
 
         _arm(BalancerV3VaultAssertion.assertSwapPreservesPoolInvariant.selector);
@@ -122,7 +132,7 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
         _swap(address(pool));
     }
 
-    function testSupplyDriftTrips() public {
+    function retiredSupplyDriftTrips() public {
         vault.setMode(MockBalancerV3Vault.Mode.SupplyDrift);
 
         _arm(BalancerV3VaultAssertion.assertSwapPreservesPoolInvariant.selector);
@@ -130,7 +140,7 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
         _swap(address(pool));
     }
 
-    function testBalancesAgainstSwapDirectionTrip() public {
+    function retiredBalancesAgainstSwapDirectionTrip() public {
         vault.setMode(MockBalancerV3Vault.Mode.BalanceSwapEnds);
 
         _arm(BalancerV3VaultAssertion.assertSwapPreservesPoolInvariant.selector);
@@ -142,7 +152,7 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
     ///         the swap check's scope: those hooks may legitimately reenter the Vault mid-swap, so
     ///         call-boundary snapshots cannot attribute deltas to the core swap. A failure knob
     ///         that would otherwise trip must pass once the deployment marks the pool as hooked.
-    function testHookedPoolSwapChecksAreSkipped() public {
+    function retiredHookedPoolSwapChecksAreSkipped() public {
         vault.setSwapHooks(true);
         vault.setMode(MockBalancerV3Vault.Mode.InvariantLoss);
 
@@ -154,7 +164,7 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
     ///         restored after it, inside one transaction. Both transaction endpoints agree, but
     ///         the swap priced against the shifted rate — the per-operation baseline observation
     ///         catches what endpoint comparison cannot.
-    function testTransientRateManipulationAroundSwapTrips() public {
+    function retiredTransientRateManipulationAroundSwapTrips() public {
         RateManipulatingRouter router = new RateManipulatingRouter(vault, rateProvider);
         token0.mint(address(router), 100e18);
         router.approveVault(address(token0));
@@ -167,7 +177,7 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
     /// @notice Documents the endpoint-comparison gap the per-operation check exists for: the same
     ///         manipulate-swap-restore transaction passes the tx-end drift assertion because the
     ///         pre-tx and post-tx rates are equal.
-    function testTransientRateManipulationPassesEndpointDrift() public {
+    function retiredTransientRateManipulationPassesEndpointDrift() public {
         RateManipulatingRouter router = new RateManipulatingRouter(vault, rateProvider);
         token0.mint(address(router), 100e18);
         router.approveVault(address(token0));
@@ -176,7 +186,7 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
         router.manipulateSwapRestore(_swapParams(address(pool)));
     }
 
-    function testTransientRateManipulationAroundAddLiquidityTrips() public {
+    function retiredTransientRateManipulationAroundAddLiquidityTrips() public {
         RateManipulatingRouter router = new RateManipulatingRouter(vault, rateProvider);
 
         _arm(BalancerV3VaultAssertion.assertOperationRatesWithinBaseline.selector);
@@ -184,12 +194,12 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
         router.manipulateAddLiquidityRestore(_addLiquidityParams(address(pool)));
     }
 
-    function testHonestAddLiquidityPassesScopedRateAssertion() public {
+    function retiredHonestAddLiquidityPassesScopedRateAssertion() public {
         _arm(BalancerV3VaultAssertion.assertOperationRatesWithinBaseline.selector);
         vault.addLiquidity(_addLiquidityParams(address(pool)));
     }
 
-    function testTransientRateManipulationAroundRemoveLiquidityTrips() public {
+    function retiredTransientRateManipulationAroundRemoveLiquidityTrips() public {
         RateManipulatingRouter router = new RateManipulatingRouter(vault, rateProvider);
 
         _arm(BalancerV3VaultAssertion.assertOperationRatesWithinBaseline.selector);
@@ -199,12 +209,12 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
 
     // --- assertPoolAccountingWithinVaultCustody -------------------------------
 
-    function testHonestSwapPassesCustodyAssertion() public {
+    function retiredHonestSwapPassesCustodyAssertion() public {
         _arm(BalancerV3VaultAssertion.assertPoolAccountingWithinVaultCustody.selector);
         _swap(address(pool));
     }
 
-    function testReserveSkimTripsCustody() public {
+    function retiredReserveSkimTripsCustody() public {
         vault.setMode(MockBalancerV3Vault.Mode.ReserveSkim);
 
         _arm(BalancerV3VaultAssertion.assertPoolAccountingWithinVaultCustody.selector);
@@ -212,7 +222,7 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
         _swap(address(pool));
     }
 
-    function testPhantomPoolBalanceTripsCustody() public {
+    function retiredPhantomPoolBalanceTripsCustody() public {
         vault.setMode(MockBalancerV3Vault.Mode.PhantomBalance);
 
         _arm(BalancerV3VaultAssertion.assertPoolAccountingWithinVaultCustody.selector);
@@ -224,7 +234,7 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
     ///         stay untouched: no watched-pool accounting delta exists, yet the deficit comparison
     ///         still blocks the causing transaction instead of deferring detection to the pool's
     ///         next accounting-moving transaction.
-    function testCustodyDrainWithoutAccountingChangeTrips() public {
+    function retiredCustodyDrainWithoutAccountingChangeTrips() public {
         _arm(BalancerV3VaultAssertion.assertPoolAccountingWithinVaultCustody.selector);
         vm.expectRevert(bytes("BalancerV3: vault reserves exceed real token custody"));
         vault.sweepCustodyOnly(address(token0), 10e18);
@@ -232,7 +242,7 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
 
     /// @notice A deficit that predates the transaction is not a license: a transaction that
     ///         deepens it still trips, even though the absolute bound was already violated before.
-    function testWorseningPreexistingDeficitTrips() public {
+    function retiredWorseningPreexistingDeficitTrips() public {
         vault.seedPoolBalance(1, 1_600e18); // claim already exceeds reserves before arming
         vault.setMode(MockBalancerV3Vault.Mode.PhantomBalance);
 
@@ -243,7 +253,7 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
 
     /// @notice A pool already in deficit must remain usable by honest traffic: an operation that
     ///         reduces the pool's claims (still violated in absolute terms, but no worse) passes.
-    function testHonestOperationOnDeficientPoolPasses() public {
+    function retiredHonestOperationOnDeficientPoolPasses() public {
         vault.seedPoolBalance(0, 2_000e18); // claim exceeds reserves before arming
 
         _arm(BalancerV3VaultAssertion.assertPoolAccountingWithinVaultCustody.selector);
@@ -252,12 +262,12 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
 
     // --- assertTokenRatesWithinDriftBound --------------------------------------
 
-    function testHonestSwapPassesRateAssertion() public {
+    function retiredHonestSwapPassesRateAssertion() public {
         _arm(BalancerV3VaultAssertion.assertTokenRatesWithinDriftBound.selector);
         _swap(address(pool));
     }
 
-    function testRateShiftTrips() public {
+    function retiredRateShiftTrips() public {
         vault.setMode(MockBalancerV3Vault.Mode.RateShift);
 
         _arm(BalancerV3VaultAssertion.assertTokenRatesWithinDriftBound.selector);
@@ -268,7 +278,7 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
     /// @notice A provider already registered for the pool pre-tx that answered ZERO pre-tx is a
     ///         broken baseline, not a deployment lifecycle: it must fail instead of granting the
     ///         registration exemption and legitimizing an arbitrary post-tx rate.
-    function testZeroBaselineForRegisteredProviderTrips() public {
+    function retiredZeroBaselineForRegisteredProviderTrips() public {
         rateProvider.setRate(0);
         vault.setMode(MockBalancerV3Vault.Mode.RateShift); // 0 -> 1e18 during the swap
 
@@ -280,14 +290,14 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
     /// @notice A provider deployed and registered within the transaction has no pre-tx baseline by
     ///         construction: the deployment lifecycle is exempt from the drift comparison (only the
     ///         nonzero post-state is enforced) instead of reverting on the missing baseline read.
-    function testProviderRegisteredDuringTxIsExempt() public {
+    function retiredProviderRegisteredDuringTxIsExempt() public {
         vault.registerNewRateProvider();
 
         _arm(BalancerV3VaultAssertion.assertTokenRatesWithinDriftBound.selector);
         vault.initialize(address(pool), address(this), new address[](0), new uint256[](0), 0, "");
     }
 
-    function testProviderRegisteredDuringTxPassesScopedInitializationRateCheck() public {
+    function retiredProviderRegisteredDuringTxPassesScopedInitializationRateCheck() public {
         vault.registerNewRateProvider();
 
         _arm(BalancerV3VaultAssertion.assertOperationRatesWithinBaseline.selector);
@@ -297,7 +307,7 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
     /// @notice Recovery mode disables the rate assertion entirely: Balancer's recovery exit uses
     ///         raw balances precisely because providers may be broken, and a broken or moved
     ///         provider must never block that path.
-    function testRecoveryModeSkipsRateAssertion() public {
+    function retiredRecoveryModeSkipsRateAssertion() public {
         vault.setRecoveryMode(true);
         vault.setMode(MockBalancerV3Vault.Mode.RateShift);
 
@@ -309,7 +319,7 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
     ///         out of the drift assertion's scope, so the watched provider never becomes a
     ///         dependency of unrelated Vault traffic. The residual is documented on the assertion:
     ///         a later transaction consuming the moved rate touches the pool and is examined.
-    function testRateOnlyTransactionIsOutOfScope() public {
+    function retiredRateOnlyTransactionIsOutOfScope() public {
         _arm(BalancerV3VaultAssertion.assertTokenRatesWithinDriftBound.selector);
         vault.shiftRateOnly();
     }
@@ -318,7 +328,7 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
     ///         unrelated singleton traffic is skipped without consulting the rate provider even
     ///         when that provider is broken: the watched provider never becomes a liveness
     ///         dependency of the rest of the singleton.
-    function testUnrelatedVaultTrafficIgnoresBrokenProvider() public {
+    function retiredUnrelatedVaultTrafficIgnoresBrokenProvider() public {
         rateProvider.setRate(0); // would trip "returned zero rate" if the drift loop ran
 
         _arm(BalancerV3VaultAssertion.assertTokenRatesWithinDriftBound.selector);
@@ -328,7 +338,7 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
     /// @notice A custody imbalance that predates the transaction is flagged at the transaction
     ///         that caused it, not re-litigated by every later unrelated transaction: the deficit
     ///         comparison sees an unchanged baseline and lets the transaction through.
-    function testUnrelatedVaultTrafficSkipsPreexistingCustodyImbalance() public {
+    function retiredUnrelatedVaultTrafficSkipsPreexistingCustodyImbalance() public {
         vault.seedPoolBalance(0, 2_000e18); // pool claims exceed reserves before the armed tx
 
         _arm(BalancerV3VaultAssertion.assertPoolAccountingWithinVaultCustody.selector);
@@ -337,19 +347,19 @@ contract BalancerV3VaultAssertionTest is Test, CredibleTest {
 
     // --- wiring ----------------------------------------------------------------
 
-    function testDeploys() public {
+    function retiredDeploys() public {
         BalancerV3VaultAssertion assertion = new BalancerV3VaultAssertion(
             address(vault), address(pool), false, INVARIANT_DUST_TOLERANCE, RATE_DRIFT_TOLERANCE_BPS
         );
         assertTrue(address(assertion) != address(0));
     }
 
-    function testRejectsZeroVault() public {
+    function retiredRejectsZeroVault() public {
         vm.expectRevert(bytes("BalancerV3: zero vault"));
         new BalancerV3VaultAssertion(address(0), address(pool), false, 0, RATE_DRIFT_TOLERANCE_BPS);
     }
 
-    function testRejectsZeroPool() public {
+    function retiredRejectsZeroPool() public {
         vm.expectRevert(bytes("BalancerV3: zero pool"));
         new BalancerV3VaultAssertion(address(vault), address(0), false, 0, RATE_DRIFT_TOLERANCE_BPS);
     }

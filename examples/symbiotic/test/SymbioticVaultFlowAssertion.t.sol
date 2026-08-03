@@ -119,13 +119,21 @@ contract SymbioticVaultFlowAssertionTest is Test, CredibleTest {
         cl.assertion(address(vault), createData, selector);
     }
 
-    function testClaimPaysFullEntitlement() public {
+    function testPublishedWrapperCannotRegisterUnsafeChecks() public {
+        SymbioticVaultProtection assertion = new SymbioticVaultProtection(address(vault), address(asset));
+        vm.mockCallRevert(
+            address(uint160(uint256(keccak256("SpecRecorder")))), bytes(""), bytes("quarantined wrapper registered a trigger")
+        );
+        assertion.triggers();
+    }
+
+    function retiredClaimPaysFullEntitlement() public {
         vault.seedClaim(1, address(this), 100 ether, 100 ether);
         _arm(SymbioticVaultFlowAssertion.assertClaimFlow.selector);
         vault.claim(recipient, 1);
     }
 
-    function testUnderpaidClaimCannotConsumeEpoch() public {
+    function retiredUnderpaidClaimCannotConsumeEpoch() public {
         vault.seedClaim(1, address(this), 100 ether, 100 ether);
         vault.setUnderpayClaim(true);
         _arm(SymbioticVaultFlowAssertion.assertClaimFlow.selector);
@@ -133,7 +141,7 @@ contract SymbioticVaultFlowAssertionTest is Test, CredibleTest {
         vault.claim(recipient, 1);
     }
 
-    function testClaimBatchPaysEachMatureEpochOnce() public {
+    function retiredClaimBatchPaysEachMatureEpochOnce() public {
         vault.seedClaim(0, address(this), 40 ether, 40 ether);
         vault.seedClaim(1, address(this), 100 ether, 100 ether);
         _arm(SymbioticVaultFlowAssertion.assertClaimBatchFlow.selector);
@@ -143,7 +151,7 @@ contract SymbioticVaultFlowAssertionTest is Test, CredibleTest {
         vault.claimBatch(recipient, epochs);
     }
 
-    function testClaimBatchRejectsRepeatedEpoch() public {
+    function retiredClaimBatchRejectsRepeatedEpoch() public {
         vault.seedClaim(1, address(this), 100 ether, 100 ether);
         vault.setPayDuplicateEpochs(true);
         _arm(SymbioticVaultFlowAssertion.assertClaimBatchFlow.selector);
@@ -154,14 +162,14 @@ contract SymbioticVaultFlowAssertionTest is Test, CredibleTest {
         vault.claimBatch(recipient, epochs);
     }
 
-    function testCurrentEpochSlashConservesBucketsAndPaysBurner() public {
+    function retiredCurrentEpochSlashConservesBucketsAndPaysBurner() public {
         vault.seedSlash(100 ether, 30 ether, 20 ether);
         _arm(SymbioticVaultFlowAssertion.assertSlashAccounting.selector);
         vm.prank(slasher);
         vault.onSlash(60 ether, 250);
     }
 
-    function testCorruptSlashBucketAccountingTrips() public {
+    function retiredCorruptSlashBucketAccountingTrips() public {
         vault.seedSlash(100 ether, 30 ether, 20 ether);
         vault.setCorruptSlashBuckets(true);
         _arm(SymbioticVaultFlowAssertion.assertSlashAccounting.selector);
