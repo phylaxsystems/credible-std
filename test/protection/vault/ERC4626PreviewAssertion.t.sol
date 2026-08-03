@@ -77,6 +77,7 @@ contract PreviewEffectsAssertion is ERC4626PreviewAssertion {
     constructor(address vault_, address asset_) ERC4626BaseAssertion(vault_, asset_) {
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
+
     function triggers() external view override {
         _registerPreviewTriggers();
     }
