@@ -3,6 +3,11 @@
 Runtime Credible Layer assertions for Lighter's L1 bridge / rollup contract (`ZkLighter`, the proxy
 at `0x3B4D794a66304F130a4Db8F2551B0070dfCf5ca7` on Ethereum mainnet).
 
+> **Unavailable:** the `LighterBridgeAssertion` wrapper is quarantined and registers no triggers.
+> It must bind the current proxy implementation, causally bind root changes to the executed batch,
+> and validate official request expiry before desert-mode activation. The outflow circuit breaker is
+> a separate operational policy and is not represented as a bridge invariant.
+
 Lighter is an app-specific ZK validity rollup whose single proxied contract is simultaneously the
 funds-custody bridge and the rollup state machine: a `committed -> verified -> executed` batch
 pipeline, a parallel priority-request queue for L1->L2 deposits / forced transactions, and a

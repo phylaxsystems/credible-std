@@ -256,6 +256,7 @@ contract SymbioticVaultProtection is SymbioticVaultFlowAssertion {
     ///      in v1 `totalStake()` is defined from the same bucket getters the per-call checks
     ///      already read, so a tx-end reread is redundant.
     function triggers() external view override {
-        _registerVaultFlowTriggers();
+        // Quarantined with the published bundle; direct function bodies remain for redesign and
+        // regression development but this wrapper cannot arm them.
     }
 }

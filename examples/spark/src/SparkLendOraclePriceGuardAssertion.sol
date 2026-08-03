@@ -102,11 +102,9 @@ contract SparkLendOraclePriceGuardAssertion is Assertion {
     /// @dev Supply and repay are deliberately not registered. This leaves debt repayment
     ///      open when a watched wrapped asset depegs and risky calls enter reduce-only mode.
     function triggers() external view override {
-        registerFnCallTrigger(this.assertOraclePricesTrackMarket.selector, IAaveV3LikePool.borrow.selector);
-        registerFnCallTrigger(this.assertOraclePricesTrackMarket.selector, IAaveV3LikePool.withdraw.selector);
-        // Liquidations are deliberately not gated: rejecting them during a depeg prevents the
-        // permissionless risk-reducing path this policy is meant to preserve. eMode needs an
-        // old/new-category-aware adapter so exits and no-op selections remain available.
+        // Quarantined: the current surface misses collateral-disable, outgoing finalizeTransfer,
+        // and risk-increasing eMode transitions. Partial oracle gating must not ship as complete
+        // protection; liquidation remains deliberately available.
     }
 
     /// @notice Checks touched watched assets against off-chain market reference prices.

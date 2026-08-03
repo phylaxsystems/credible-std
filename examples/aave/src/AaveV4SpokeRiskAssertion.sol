@@ -37,7 +37,7 @@ contract AaveV4SpokeRiskAssertion is AaveV4Helpers {
     constructor(address spoke_, uint256 maxReservesToScan_, uint256 oracleDeviationBps_) {
         require(spoke_ != address(0), "AaveV4Spoke: spoke zero");
         require(maxReservesToScan_ > 0, "AaveV4Spoke: max reserves zero");
-        require(oracleDeviationBps_ <= BPS, "AaveV4Spoke: bad oracle tolerance");
+        require(oracleDeviationBps_ < BPS, "AaveV4Spoke: bad oracle tolerance");
 
         SPOKE = spoke_;
         MAX_RESERVES_TO_SCAN = maxReservesToScan_;
@@ -48,24 +48,8 @@ contract AaveV4SpokeRiskAssertion is AaveV4Helpers {
     /// @dev Calls that intentionally refresh stored risk premium are distinguished from paths
     ///      that only change collateral composition without refreshing premium debt.
     function triggers() external view override {
-        registerFnCallTrigger(this.assertAccountDataMatchesIndependentState.selector, IAaveV4Spoke.withdraw.selector);
-        registerFnCallTrigger(this.assertAccountDataMatchesIndependentState.selector, IAaveV4Spoke.borrow.selector);
-        registerFnCallTrigger(
-            this.assertAccountDataMatchesIndependentState.selector, IAaveV4Spoke.setUsingAsCollateral.selector
-        );
-        registerFnCallTrigger(
-            this.assertAccountDataMatchesIndependentState.selector, IAaveV4Spoke.updateUserRiskPremium.selector
-        );
-        registerFnCallTrigger(
-            this.assertAccountDataMatchesIndependentState.selector, IAaveV4Spoke.updateUserDynamicConfig.selector
-        );
-        registerFnCallTrigger(
-            this.assertAccountDataMatchesIndependentState.selector, IAaveV4Spoke.liquidationCall.selector
-        );
-
-        registerFnCallTrigger(
-            this.assertLiquidationReducesBorrowerDebt.selector, IAaveV4Spoke.liquidationCall.selector
-        );
+        // Quarantined: reserve enumeration has no protocol-level maximum and therefore cannot be
+        // represented safely by this immutable deployment bound.
     }
 
     /// @notice Recomputes account data from primitive state and compares it to the Spoke view.

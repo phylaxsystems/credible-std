@@ -2,6 +2,11 @@
 
 Assertion examples for Balancer V3's singleton Vault architecture.
 
+> **Unavailable:** `BalancerV3VaultAssertion` is quarantined and registers no triggers. Hook and
+> token-rate behavior must be derived from live registered Vault configuration and bound to a
+> supported pool/factory revision before this wrapper can be activated. The outflow circuit breaker
+> remains a separate operational policy.
+
 ## Build
 
 ```sh
