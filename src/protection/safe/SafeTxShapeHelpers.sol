@@ -546,6 +546,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
             uint256 peakAllowance = cumulativeIncrease > type(uint256).max - initialAllowance
                 ? type(uint256).max
                 : initialAllowance + cumulativeIncrease;
+            if (peakAllowance == type(uint256).max && policy.allowUnlimited) return;
             revert SafeTxShapeApprovalAmountAboveCap(
                 token, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE, peakAllowance, policy.maxAmount
             );

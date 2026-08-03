@@ -603,6 +603,28 @@ contract SafeTxShapeAssertionTest is Test, CredibleTest {
         _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_DELEGATECALL);
     }
 
+    function testIncreaseAllowanceCanReachUnlimitedWhenPolicyAllowsIt() public {
+        SafeTxShapeHelpers.ApprovalPolicy[] memory approvals = _approvalPolicies(false);
+        approvals[1].allowUnlimited = true;
+
+        _armPolicyFor(
+            _baselineTargets(),
+            _baselineSelectors(),
+            _baselineBatchPolicies(4),
+            approvals,
+            false,
+            _noModules(),
+            SafeTxShapeAssertion.assertSafeApprovalPolicy.selector
+        );
+
+        _execOwner(
+            address(erc20Token),
+            0,
+            abi.encodeWithSelector(INCREASE_ALLOWANCE_SELECTOR, TRUSTED_SPENDER, type(uint256).max),
+            OP_CALL
+        );
+    }
+
     function testBlocksDuplicatePolicyEntries() public {
         SafeTxShapeHelpers.TargetPolicy[] memory targets = _baselineTargets();
         targets[1].target = targets[0].target;
