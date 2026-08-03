@@ -21,9 +21,8 @@ interface ITydroPoolCurrent {
         address asset,
         address from,
         address to,
-        uint256 amount,
-        uint256 scaledBalanceFromBefore,
-        uint256 scaledBalanceToBefore
+        uint256 scaledAmount,
+        uint256 scaledBalanceFromBefore
     ) external;
     function setUserUseReserveAsCollateralOnBehalfOf(address asset, bool useAsCollateral, address onBehalfOf) external;
     function setUserEModeOnBehalfOf(uint8 categoryId, address onBehalfOf) external;
@@ -94,10 +93,9 @@ contract TydroProtectionSuite is AaveV3LikeProtectionSuite {
             operation.kind = OperationKind.Borrow;
             operation.account = triggered.caller;
             operation.asset = _assetByL2Id(args);
-            // Borrow shares the compact uint128 max sentinel: the Pool reads type(uint128).max as a
-            // full type(uint256).max borrow, so the operation context must expand it the same way
-            // withdraw does, or downstream amount checks see a shortened value.
-            operation.amount = _decodeL2Amount(args, true);
+            // Revision 11 expands the compact max sentinel for withdraw/repay/liquidation,
+            // but not for borrow. A max uint128 borrow therefore remains uint128.max.
+            operation.amount = _decodeL2Amount(args, false);
             operation.increasesDebt = operation.amount != 0;
             return operation;
         }
@@ -126,13 +124,13 @@ contract TydroProtectionSuite is AaveV3LikeProtectionSuite {
             if (operation.amount == L2_MAX_AMOUNT) {
                 operation.amount = type(uint256).max;
             }
-            operation.metadata = abi.encode(((uint256(args2) >> 128) & 1) == 0);
+            operation.metadata = abi.encode(((uint256(args2) >> 128) & 1) != 0);
             return operation;
         }
 
         if (triggered.selector == ITydroL2Pool.setUserUseReserveAsCollateral.selector) {
             bytes32 args = abi.decode(triggered.input[4:], (bytes32));
-            bool useAsCollateral = ((uint256(args) >> 16) & 1) == 0;
+            bool useAsCollateral = ((uint256(args) >> 16) & 1) != 0;
 
             if (!useAsCollateral) {
                 operation.kind = OperationKind.DisableCollateral;
@@ -152,14 +150,14 @@ contract TydroProtectionSuite is AaveV3LikeProtectionSuite {
         operation.caller = triggered.caller;
 
         if (triggered.selector == ITydroPoolCurrent.finalizeTransfer.selector) {
-            (address asset, address from, address to, uint256 amount,,) =
-                abi.decode(triggered.input[4:], (address, address, address, uint256, uint256, uint256));
+            (address asset, address from, address to, uint256 scaledAmount,) =
+                abi.decode(triggered.input[4:], (address, address, address, uint256, uint256));
             operation.kind = OperationKind.TransferCollateral;
             operation.account = from;
             operation.asset = asset;
             operation.counterparty = to;
-            operation.amount = amount;
-            operation.reducesEffectiveCollateral = from != to && amount != 0;
+            operation.amount = scaledAmount;
+            operation.reducesEffectiveCollateral = from != to && scaledAmount != 0;
             return operation;
         }
 
