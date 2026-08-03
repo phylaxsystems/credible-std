@@ -565,11 +565,42 @@ contract SafeTxShapeAssertionTest is Test, CredibleTest {
                 address(erc20Token),
                 TRUSTED_SPENDER,
                 APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE,
-                uint256(101),
+                uint256(102),
                 uint256(100)
             )
         );
         _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_CALL);
+    }
+
+    function testBlocksTransientAllowanceAcrossMultipleBatchGrants() public {
+        _armBaselinePolicyFor(false, SafeTxShapeAssertion.assertSafeApprovalPolicy.selector);
+
+        bytes memory txs = bytes.concat(
+            _packMultiSendTx(
+                OP_CALL,
+                address(erc20Token),
+                0,
+                abi.encodeWithSelector(INCREASE_ALLOWANCE_SELECTOR, TRUSTED_SPENDER, uint256(60))
+            ),
+            _packMultiSendTx(
+                OP_CALL,
+                address(erc20Token),
+                0,
+                abi.encodeWithSelector(INCREASE_ALLOWANCE_SELECTOR, TRUSTED_SPENDER, uint256(60))
+            )
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SafeTxShapeHelpers.SafeTxShapeApprovalAmountAboveCap.selector,
+                address(erc20Token),
+                TRUSTED_SPENDER,
+                APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE,
+                uint256(120),
+                uint256(100)
+            )
+        );
+        _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_DELEGATECALL);
     }
 
     function testBlocksDuplicatePolicyEntries() public {

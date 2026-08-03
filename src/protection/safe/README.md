@@ -179,7 +179,7 @@ Approval policy:
 
 Approval resets and revocations are allowed by default when the token is configured for that approval kind: ERC-20 `approve(spender, 0)`, ERC-721 `approve(address(0), tokenId)`, and `setApprovalForAll(operator, false)` reduce approval risk. Risk-increasing approvals to untrusted spenders/operators, ERC-20 unlimited approvals without explicit permission, and ERC-20 amounts above cap are blocked.
 
-For ERC-20 `approve(spender, amount)` the cap binds `amount` directly. For ERC-20 `increaseAllowance(spender, addedValue)` the cap binds the post-state `allowance(safe, spender)` so two consecutive `increaseAllowance` calls inside a `MultiSend` cannot stack above the cap.
+For ERC-20 `approve(spender, amount)` the cap binds `amount` directly. For ERC-20 `increaseAllowance(spender, addedValue)` the cap binds the pre-execution allowance plus all positive grants requested for that owner/token/spender in the batch. This is intentionally stricter than checking final state: consuming or reducing an oversized transient allowance later in the transaction does not make the batch valid. For CALL-based executors, the executor is the token owner; for DELEGATECALL-based executors, the Safe is the owner.
 
 ### Material Effect
 
@@ -224,7 +224,7 @@ Owner and module set hashes are computed by sorting addresses ascending and hash
 
 For modules, `bytes32(0)` in `approvedModuleSetHashes` means modules must be disabled. This is useful when the safest policy is that only owner-approved Safe transactions may execute.
 
-Module-set checks paginate Safe modules in pages of 256. Very large module sets may exceed the assertion gas limit while reading and hashing the full set; keep protected Safes below that practical cap or split module-heavy operational surfaces behind a smaller approved module set.
+Module-set checks paginate Safe modules in pages of 256. The complete set is always read and hashed; very large sets can exceed the assertion execution budget, so deployments should benchmark their configured set size and prefer a smaller operational module surface. The regression suite covers a 32-module set within the current assertion gas limit; this is a tested bound, not a protocol-enforced maximum.
 
 ## Material Effect
 

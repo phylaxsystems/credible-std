@@ -15,6 +15,10 @@ contract DeployCredibleSafeGuard is Script {
     /// @notice Thrown when a required registry read (isCredibleBlock / lastCredibleBlock) does not
     ///         return a single, well-formed 32-byte word.
     error RegistryReadFailed(address registry, string read);
+    /// @notice Thrown when the registry reports a block that cannot yet have been credible.
+    error RegistryLastCredibleBlockInFuture(address registry, uint256 reportedBlock, uint256 currentBlock);
+
+    uint256 internal constant REGISTRY_READ_GAS_LIMIT = 50_000;
 
     function run() external returns (CredibleSafeGuard guard) {
         address registry = vm.envAddress("CREDIBLE_REGISTRY");
@@ -56,14 +60,38 @@ contract DeployCredibleSafeGuard is Script {
         // it passes the length check but the guard's runtime decode treats it as unreadable
         // (see CredibleSafeGuard._tryIsCredibleBlock's `value > 1` branch), which would otherwise
         // let a registry silently deploy a permanently-fail-open guard.
-        (bool credibleOk, bytes memory credibleData) =
-            registry.staticcall(abi.encodeCall(ICredibleRegistry.isCredibleBlock, (block.number)));
-        if (!credibleOk || credibleData.length != 32 || abi.decode(credibleData, (uint256)) > 1) {
+        (bool credibleOk, uint256 credibleWord) =
+            _boundedRegistryRead(registry, abi.encodeCall(ICredibleRegistry.isCredibleBlock, (block.number)));
+        if (!credibleOk || credibleWord > 1) {
             revert RegistryReadFailed(registry, "isCredibleBlock");
         }
 
-        (bool lastOk, bytes memory lastData) =
-            registry.staticcall(abi.encodeCall(ICredibleRegistry.lastCredibleBlock, ()));
-        if (!lastOk || lastData.length != 32) revert RegistryReadFailed(registry, "lastCredibleBlock");
+        (bool lastOk, uint256 lastCredibleBlock) =
+            _boundedRegistryRead(registry, abi.encodeCall(ICredibleRegistry.lastCredibleBlock, ()));
+        if (!lastOk) revert RegistryReadFailed(registry, "lastCredibleBlock");
+        if (lastCredibleBlock > block.number) {
+            revert RegistryLastCredibleBlockInFuture(registry, lastCredibleBlock, block.number);
+        }
+    }
+
+    /// @dev Mirrors the guard's runtime boundary: 50k gas, exactly one return word, and no
+    ///      unbounded returndata allocation. Deployment rejects failures; runtime fails open.
+    function _boundedRegistryRead(address registry, bytes memory callData)
+        internal
+        view
+        returns (bool readable, uint256 value)
+    {
+        assembly ("memory-safe") {
+            readable := staticcall(
+                REGISTRY_READ_GAS_LIMIT,
+                registry,
+                add(callData, 0x20),
+                mload(callData),
+                0x00,
+                0x20
+            )
+            readable := and(readable, eq(returndatasize(), 0x20))
+            value := mload(0x00)
+        }
     }
 }
