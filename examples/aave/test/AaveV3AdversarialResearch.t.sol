@@ -481,11 +481,11 @@ contract ResearchPool is IAaveV3LikePool {
             );
         }
 
-        /// @dev The upstream liability is aToken supply plus scaled accrued treasury; the assertion omits the latter.
-        function testBackingOmittedTreasuryClaimPassesDespiteEconomicShortfall() public {
+        function testBackingIncludesAccruedTreasuryLiability() public {
             pool.setAccruedToTreasury(address(collateralAsset), uint128(10 ether));
 
             _armBacking();
+            vm.expectRevert(bytes("AaveV3Horizon: reserve backing deficit"));
             pool.borrow(address(debtAsset), 1, 2, 0, alice);
         }
 
