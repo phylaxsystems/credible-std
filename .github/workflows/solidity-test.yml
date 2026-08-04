@@ -108,6 +108,9 @@ jobs:
           fi
           if [ "${assertion_count}" -eq 0 ]; then
             echo "::error::No runtime assertion execution evidence found in ${report}"
+            awk '/<testcase |<system-out>/ { print; if (++count == 20) exit }' "${report}" | while IFS= read -r line; do
+              echo "::error::JUnit ${line}"
+            done
             exit 1
           fi
           echo "Verified ${assertion_count} assertion-running test case(s) across ${testcase_count} tests"
