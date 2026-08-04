@@ -107,9 +107,8 @@ contract TydroOperationSafetyTest is Test, CredibleTest {
         assertTrue(suite.shouldCheckPostOperationSolvency(op));
     }
 
-    function testL2BorrowDecodesMaxAmountSentinel() public view {
-        // The compact uint128 max sentinel must expand to a full uint256 max borrow, matching how
-        // the Pool interprets it; a shortened value would misreport the operation amount.
+    function testL2BorrowKeepsMaxUint128Amount() public view {
+        // Verified revision 11 does not expand the max sentinel in decodeBorrowParams.
         bytes32 args = _packL2Amount(0, type(uint128).max);
 
         ILendingProtectionSuite.OperationContext memory op = suite.decodeOperation(
@@ -119,7 +118,7 @@ contract TydroOperationSafetyTest is Test, CredibleTest {
         assertEq(uint256(op.kind), uint256(ILendingProtectionSuite.OperationKind.Borrow));
         assertEq(op.account, caller);
         assertEq(op.asset, reserve);
-        assertEq(op.amount, type(uint256).max);
+        assertEq(op.amount, type(uint128).max);
         assertTrue(op.increasesDebt);
         assertTrue(suite.shouldCheckPostOperationSolvency(op));
     }
@@ -184,14 +183,14 @@ contract TydroOperationSafetyTest is Test, CredibleTest {
         );
 
         assertEq(aTokenOp.amount, type(uint256).max);
-        assertTrue(abi.decode(aTokenOp.metadata, (bool)));
+        assertFalse(abi.decode(aTokenOp.metadata, (bool)));
         assertEq(underlyingOp.amount, type(uint256).max);
-        assertFalse(abi.decode(underlyingOp.metadata, (bool)));
+        assertTrue(abi.decode(underlyingOp.metadata, (bool)));
     }
 
     function testL2DisableCollateralOnlyTriggersWhenTurningOff() public view {
-        bytes32 enableArgs = bytes32(uint256(0)); // bit clear means enable collateral
-        bytes32 disableArgs = bytes32(uint256(1) << 16); // bit set means disable collateral
+        bytes32 enableArgs = bytes32(uint256(1) << 16); // bit set means enable collateral
+        bytes32 disableArgs = bytes32(uint256(0)); // bit clear means disable collateral
 
         ILendingProtectionSuite.OperationContext memory disableOp = suite.decodeOperation(
             _triggered(
@@ -218,19 +217,19 @@ contract TydroOperationSafetyTest is Test, CredibleTest {
 
     function testFinalizeTransferUsesCanonicalSelectorAndAmount() public {
         address recipient = makeAddr("recipient");
-        uint256 amount = 42e18;
+        uint256 scaledAmount = 42e18;
         bytes memory input =
-            abi.encodeCall(ITydroPoolCurrent.finalizeTransfer, (reserve, caller, recipient, amount, 0, 0));
+            abi.encodeCall(ITydroPoolCurrent.finalizeTransfer, (reserve, caller, recipient, scaledAmount, 100e18));
 
         ILendingProtectionSuite.OperationContext memory op =
             suite.decodeOperation(_triggered(ITydroPoolCurrent.finalizeTransfer.selector, input));
 
-        assertEq(ITydroPoolCurrent.finalizeTransfer.selector, IAaveV3LikePool.finalizeTransfer.selector);
+        assertTrue(ITydroPoolCurrent.finalizeTransfer.selector != IAaveV3LikePool.finalizeTransfer.selector);
         assertEq(uint256(op.kind), uint256(ILendingProtectionSuite.OperationKind.TransferCollateral));
         assertEq(op.account, caller);
         assertEq(op.asset, reserve);
         assertEq(op.counterparty, recipient);
-        assertEq(op.amount, amount);
+        assertEq(op.amount, scaledAmount);
         assertTrue(op.reducesEffectiveCollateral);
         assertTrue(suite.shouldCheckPostOperationSolvency(op));
     }

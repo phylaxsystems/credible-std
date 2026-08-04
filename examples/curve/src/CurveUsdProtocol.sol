@@ -186,7 +186,10 @@ abstract contract CurveUsdControllerProtocolHelpers is Assertion {
     }
 
     function _wordArg(bytes memory input, uint256 argIndex) internal pure returns (bytes32 word) {
-        uint256 offset = 4 + argIndex * 32;
+        // `PhEvm.getAllCallInputs` returns selector-stripped ABI arguments. Do not skip
+        // another four bytes here: doing so shifts every explicit-account overload into
+        // the next ABI word and can make the health checks inspect an unrelated address.
+        uint256 offset = argIndex * 32;
         require(input.length >= offset + 32, "CurveUSD: calldata arg missing");
         assembly {
             word := mload(add(add(input, 0x20), offset))
