@@ -92,6 +92,16 @@ jobs:
           fi
           testcase_count=$(grep -c '<testcase ' "${report}" || true)
           assertion_count=$(grep -c 'Assertion gas cost:' "${report}" || true)
+          # PCL 1.5.1 can omit per-test system-out while suites finish concurrently. If that
+          # happens, rerun serially so the JUnit report still carries runner-produced evidence.
+          if [ "${testcase_count}" -gt 0 ] && [ "${assertion_count}" -eq 0 ]; then
+            if ! RUST_MIN_STACK=16777216 FOUNDRY_PROFILE="${PROFILE}" pcl test -j 1 -vv --junit > "${report}"; then
+              cat "${report}"
+              exit 1
+            fi
+            testcase_count=$(grep -c '<testcase ' "${report}" || true)
+            assertion_count=$(grep -c 'Assertion gas cost:' "${report}" || true)
+          fi
           if [ "${testcase_count}" -eq 0 ]; then
             echo "::error::No executed testcases found in ${report}"
             exit 1
