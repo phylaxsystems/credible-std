@@ -86,7 +86,7 @@ jobs:
           PROFILE: ${{ matrix.profile }}
         run: |
           report="${RUNNER_TEMP}/pcl-${PROFILE}.xml"
-          if ! FOUNDRY_PROFILE="${PROFILE}" pcl test -vv --junit > "${report}"; then
+          if ! RUST_MIN_STACK=16777216 FOUNDRY_PROFILE="${PROFILE}" pcl test -vv --junit > "${report}"; then
             cat "${report}"
             exit 1
           fi
@@ -98,9 +98,10 @@ jobs:
           report = sys.argv[1]
           output = Path(report).read_text()
           xml_start = output.find("<?xml")
-          if xml_start == -1:
+          xml_end = output.rfind("</testsuites>")
+          if xml_start == -1 or xml_end == -1:
               raise SystemExit(f"No JUnit XML found in {report}")
-          root = ET.fromstring(output[xml_start:])
+          root = ET.fromstring(output[xml_start : xml_end + len("</testsuites>")])
           testcases = root.findall(".//testcase")
           assertion_runs = sum(
               "Assertion gas cost:" in "".join(testcase.itertext())
