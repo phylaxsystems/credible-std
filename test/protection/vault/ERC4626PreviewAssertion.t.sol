@@ -189,4 +189,50 @@ contract ERC4626PreviewAssertionTest is Test, CredibleTest {
         vm.expectRevert(bytes("ERC4626: deposit asset payment mismatch"));
         vault.deposit(100 ether, receiver);
     }
+
+    function testMintMissingShareEffectTrips() public {
+        vault.setFaults(true, false);
+        _arm(ERC4626PreviewAssertion.assertMintPreview.selector);
+        vm.expectRevert(bytes("ERC4626: mint receiver shares mismatch"));
+        vault.mint(100 ether, receiver);
+    }
+
+    function testMintMissingAssetEffectTrips() public {
+        vault.setFaults(false, true);
+        _arm(ERC4626PreviewAssertion.assertMintPreview.selector);
+        vm.expectRevert(bytes("ERC4626: mint asset payment mismatch"));
+        vault.mint(100 ether, receiver);
+    }
+
+    function testWithdrawMissingShareEffectTrips() public {
+        vault.deposit(100 ether, address(this));
+        vault.setFaults(true, false);
+        _arm(ERC4626PreviewAssertion.assertWithdrawPreview.selector);
+        vm.expectRevert(bytes("ERC4626: withdraw owner shares mismatch"));
+        vault.withdraw(40 ether, receiver, address(this));
+    }
+
+    function testWithdrawMissingAssetEffectTrips() public {
+        vault.deposit(100 ether, address(this));
+        vault.setFaults(false, true);
+        _arm(ERC4626PreviewAssertion.assertWithdrawPreview.selector);
+        vm.expectRevert(bytes("ERC4626: withdraw vault assets mismatch"));
+        vault.withdraw(40 ether, receiver, address(this));
+    }
+
+    function testRedeemMissingShareEffectTrips() public {
+        vault.deposit(100 ether, address(this));
+        vault.setFaults(true, false);
+        _arm(ERC4626PreviewAssertion.assertRedeemPreview.selector);
+        vm.expectRevert(bytes("ERC4626: redeem owner shares mismatch"));
+        vault.redeem(40 ether, receiver, address(this));
+    }
+
+    function testRedeemMissingAssetEffectTrips() public {
+        vault.deposit(100 ether, address(this));
+        vault.setFaults(false, true);
+        _arm(ERC4626PreviewAssertion.assertRedeemPreview.selector);
+        vm.expectRevert(bytes("ERC4626: redeem vault assets mismatch"));
+        vault.redeem(40 ether, receiver, address(this));
+    }
 }
