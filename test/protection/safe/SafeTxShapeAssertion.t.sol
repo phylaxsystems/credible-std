@@ -470,6 +470,18 @@ contract SafeTxShapeAssertionTest is Test, CredibleTest {
         _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_DELEGATECALL);
     }
 
+    function testRejectsBatchPolicyAboveMeasuredGlobalLimit() public {
+        vm.expectRevert(SafeTxShapeHelpers.SafeTxShapeInvalidPolicy.selector);
+        new SafeTxShapeAssertion(
+            _baselineTargets(),
+            _baselineSelectors(),
+            _baselineBatchPolicies(5),
+            _approvalPolicies(false),
+            false,
+            _noModules()
+        );
+    }
+
     function testBlocksErc20ApprovalToUntrustedSpender() public {
         _armBaselinePolicyFor(false, SafeTxShapeAssertion.assertSafeApprovalPolicy.selector);
 
@@ -600,6 +612,63 @@ contract SafeTxShapeAssertionTest is Test, CredibleTest {
                 uint256(100)
             )
         );
+        _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_DELEGATECALL);
+    }
+
+    function testManyBatchAllowanceGrantsAccumulateInOnePass() public {
+        _armPolicyFor(
+            _baselineTargets(),
+            _baselineSelectors(),
+            _baselineBatchPolicies(4),
+            _approvalPolicies(false),
+            false,
+            _noModules(),
+            SafeTxShapeAssertion.assertSafeApprovalPolicy.selector
+        );
+
+        bytes memory txs;
+        for (uint256 i; i < 4; ++i) {
+            txs = bytes.concat(
+                txs,
+                _packMultiSendTx(
+                    OP_CALL,
+                    address(erc20Token),
+                    0,
+                    abi.encodeWithSelector(INCREASE_ALLOWANCE_SELECTOR, TRUSTED_SPENDER, uint256(24))
+                )
+            );
+        }
+
+        _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_DELEGATECALL);
+    }
+
+    function testApprovalPolicyEnforcesConfiguredBatchLimitIndependently() public {
+        _armPolicyFor(
+            _baselineTargets(),
+            _baselineSelectors(),
+            _baselineBatchPolicies(1),
+            _approvalPolicies(false),
+            false,
+            _noModules(),
+            SafeTxShapeAssertion.assertSafeApprovalPolicy.selector
+        );
+
+        bytes memory txs = bytes.concat(
+            _packMultiSendTx(
+                OP_CALL,
+                address(erc20Token),
+                0,
+                abi.encodeWithSelector(INCREASE_ALLOWANCE_SELECTOR, TRUSTED_SPENDER, uint256(1))
+            ),
+            _packMultiSendTx(
+                OP_CALL,
+                address(erc20Token),
+                0,
+                abi.encodeWithSelector(INCREASE_ALLOWANCE_SELECTOR, TRUSTED_SPENDER, uint256(1))
+            )
+        );
+
+        vm.expectRevert(abi.encodeWithSelector(SafeTxShapeHelpers.SafeTxShapeBatchTooManyActions.selector, 1));
         _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_DELEGATECALL);
     }
 

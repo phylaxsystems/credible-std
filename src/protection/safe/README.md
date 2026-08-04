@@ -160,7 +160,7 @@ Batch executor policy:
 - approved executor address;
 - approved batch selector, normally `multiSend(bytes)`;
 - whether top-level delegatecall to that executor is allowed;
-- maximum inner action count;
+- maximum inner action count, capped globally at four based on the PCL assertion-gas regression;
 - nested batching flag, reserved for future support and rejected in this MVP.
 
 Module policy:
@@ -179,7 +179,7 @@ Approval policy:
 
 Approval resets and revocations are allowed by default when the token is configured for that approval kind: ERC-20 `approve(spender, 0)`, ERC-721 `approve(address(0), tokenId)`, and `setApprovalForAll(operator, false)` reduce approval risk. Risk-increasing approvals to untrusted spenders/operators, ERC-20 unlimited approvals without explicit permission, and ERC-20 amounts above cap are blocked.
 
-For ERC-20 `approve(spender, amount)` the cap binds `amount` directly. For ERC-20 `increaseAllowance(spender, addedValue)` the cap binds the pre-execution allowance plus all positive grants requested for that owner/token/spender in the batch. This is intentionally stricter than checking final state: consuming or reducing an oversized transient allowance later in the transaction does not make the batch valid. For CALL-based executors, the executor is the token owner; for DELEGATECALL-based executors, the Safe is the owner.
+For ERC-20 `approve(spender, amount)` the cap binds `amount` directly. For ERC-20 `increaseAllowance(spender, addedValue)` the cap binds the pre-execution allowance plus all positive grants requested for that owner/token/spender in the batch. This is intentionally stricter than checking final state: consuming or reducing an oversized transient allowance later in the transaction does not make the batch valid. The approval assertion decodes the batch once, accumulates each configured allowance by policy index, and reads each initial allowance once, so multiple grants do not trigger repeated prefix rescans. Batch policies cannot configure more than four actions; the four-grant regression executes below PCL's 300,000-gas local assertion ceiling, while the former unbounded configuration could exhaust the budget before reaching a policy decision. For CALL-based executors, the executor is the token owner; for DELEGATECALL-based executors, the Safe is the owner.
 
 ### Material Effect
 
