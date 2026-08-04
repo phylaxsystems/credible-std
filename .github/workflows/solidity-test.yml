@@ -90,29 +90,17 @@ jobs:
             cat "${report}"
             exit 1
           fi
-          python3 - "${report}" <<'PY'
-          import sys
-          import xml.etree.ElementTree as ET
-          from pathlib import Path
-
-          report = sys.argv[1]
-          output = Path(report).read_text()
-          xml_start = output.find("<?xml")
-          xml_end = output.rfind("</testsuites>")
-          if xml_start == -1 or xml_end == -1:
-              raise SystemExit(f"No JUnit XML found in {report}")
-          root = ET.fromstring(output[xml_start : xml_end + len("</testsuites>")])
-          testcases = root.findall(".//testcase")
-          assertion_runs = sum(
-              "Assertion gas cost:" in "".join(testcase.itertext())
-              for testcase in testcases
-          )
-          if not testcases:
-              raise SystemExit(f"No tests executed according to {report}")
-          if assertion_runs == 0:
-              raise SystemExit(f"No assertion execution evidence found in {report}")
-          print(f"Verified {assertion_runs} assertion-running test case(s) across {len(testcases)} tests")
-          PY
+          testcase_count=$(grep -c '<testcase ' "${report}" || true)
+          assertion_count=$(grep -c 'Assertion gas cost:' "${report}" || true)
+          if [ "${testcase_count}" -eq 0 ]; then
+            echo "::error::No executed testcases found in ${report}"
+            exit 1
+          fi
+          if [ "${assertion_count}" -eq 0 ]; then
+            echo "::error::No runtime assertion execution evidence found in ${report}"
+            exit 1
+          fi
+          echo "Verified ${assertion_count} assertion-running test case(s) across ${testcase_count} tests"
 
   # Real Gnosis Safe compatibility and deployment tooling use the legacy compiler pipeline and
   # plain Forge intentionally; they do not depend on Credible assertion cheatcodes.
