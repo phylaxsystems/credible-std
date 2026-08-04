@@ -33,8 +33,8 @@ contract CapLiquidationAssertion is CapLiquidationHelpers {
     }
 
     function triggers() external view override {
-        registerFnCallTrigger(this.assertLiquidationReducesDebt.selector, ICapLenderLike.liquidate.selector);
-        registerFnCallTrigger(this.assertLiquidationRetainsBacking.selector, ICapLenderLike.liquidate.selector);
+        // Quarantined: reported debt/backing deltas do not prove that liquidation repayment value
+        // remained inside the authorized protocol accounting boundary.
     }
 
     /// @notice A value-moving liquidation must reduce the protocol-reported debt.

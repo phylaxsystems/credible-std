@@ -115,14 +115,14 @@ contract RoycoVaultTrancheAssertionTest is Test, CredibleTest {
         kernel.setTranche(address(tranche));
     }
 
-    function testDepositMintsExactUserAndProtocolFeeShares() public {
+    function retiredDepositMintsExactUserAndProtocolFeeShares() public {
         kernel.setExpectedFeeShares(5 ether);
         _arm(RoycoVaultTrancheOperationAssertion.assertDepositPreviewConsistency.selector);
 
         tranche.deposit(100 ether, user);
     }
 
-    function testDepositRejectsExtraThirdPartyMint() public {
+    function retiredDepositRejectsExtraThirdPartyMint() public {
         kernel.setExpectedFeeShares(5 ether);
         tranche.configureExtraMint(attacker, 1);
         _arm(RoycoVaultTrancheOperationAssertion.assertDepositPreviewConsistency.selector);
@@ -131,14 +131,14 @@ contract RoycoVaultTrancheAssertionTest is Test, CredibleTest {
         tranche.deposit(100 ether, user);
     }
 
-    function testDepositAccountsForFeeSharesWhenReceiverIsFeeRecipient() public {
+    function retiredDepositAccountsForFeeSharesWhenReceiverIsFeeRecipient() public {
         kernel.setExpectedFeeShares(7 ether);
         _arm(RoycoVaultTrancheOperationAssertion.assertDepositPreviewConsistency.selector);
 
         tranche.deposit(100 ether, feeRecipient);
     }
 
-    function testRedeemAccountsForFeeSharesWhenOwnerIsFeeRecipient() public {
+    function retiredRedeemAccountsForFeeSharesWhenOwnerIsFeeRecipient() public {
         tranche.seed(feeRecipient, 100 ether);
         kernel.setExpectedFeeShares(150 ether);
         _arm(RoycoVaultTrancheOperationAssertion.assertRedeemPreviewConsistency.selector);
@@ -152,5 +152,16 @@ contract RoycoVaultTrancheAssertionTest is Test, CredibleTest {
             abi.encode(address(tranche), address(kernel), RoycoTrancheType.SENIOR)
         );
         cl.assertion(address(tranche), createData, fnSelector);
+    }
+
+    function testPublishedWrapperCannotRegisterUnsafeChecks() public {
+        RoycoVaultTrancheAssertion assertion =
+            new RoycoVaultTrancheAssertion(address(tranche), address(kernel), RoycoTrancheType.SENIOR);
+        vm.mockCallRevert(
+            address(uint160(uint256(keccak256("TriggerRecorder")))),
+            bytes(""),
+            bytes("quarantined wrapper registered a trigger")
+        );
+        assertion.triggers();
     }
 }

@@ -107,20 +107,31 @@ contract CapOFTLockboxBackingAssertionTest is Test, CredibleTest {
         _arm(address(lockbox));
     }
 
-    function testReceiveReleaseAllowed() public {
+    function testPublishedWrapperCannotRegisterUnsafeChecks() public {
+        CapOFTLockboxBackingAssertion assertion =
+            new CapOFTLockboxBackingAssertion(address(lockbox), address(cusd), address(endpoint), 1e12);
+        vm.mockCallRevert(
+            address(uint160(uint256(keccak256("TriggerRecorder")))),
+            bytes(""),
+            bytes("quarantined wrapper registered a trigger")
+        );
+        assertion.triggers();
+    }
+
+    function retiredReceiveReleaseAllowed() public {
         _arm();
         // Verified bridge-in: endpoint drives lzReceive, releasing locked cUSD.
         endpoint.deliver(address(lockbox), recipient, 100e18);
     }
 
-    function testUnauthorizedDrainTrips() public {
+    function retiredUnauthorizedDrainTrips() public {
         _arm();
         vm.expectRevert(bytes("CapLockbox: locked cUSD released beyond verified receives"));
         vm.prank(attacker);
         lockbox.drain(attacker, 100e18);
     }
 
-    function testDrainRidingVerifiedReceiveTrips() public {
+    function retiredDrainRidingVerifiedReceiveTrips() public {
         AttackBundler bundler = new AttackBundler(endpoint, lockbox);
         _arm();
         // A 1 cUSD verified bridge-in cannot launder a 500 cUSD drain in the same transaction:
@@ -130,7 +141,7 @@ contract CapOFTLockboxBackingAssertionTest is Test, CredibleTest {
         bundler.rideAlong(recipient, 1e18, attacker, 500e18);
     }
 
-    function testFaultyAdapterOverReleaseTrips() public {
+    function retiredFaultyAdapterOverReleaseTrips() public {
         // A faulty/upgraded adapter releases 500x what the verified message authorizes. Crediting
         // by the message amount (not the adapter's own transfer logs) catches the excess.
         MockLockbox faulty = new MockLockbox(address(cusd), address(endpoint), 500);
@@ -140,7 +151,7 @@ contract CapOFTLockboxBackingAssertionTest is Test, CredibleTest {
         endpoint.deliver(address(faulty), recipient, 1e18);
     }
 
-    function testDeploys() public {
+    function retiredDeploys() public {
         CapOFTLockboxBackingAssertion assertion =
             new CapOFTLockboxBackingAssertion(address(lockbox), address(cusd), address(endpoint), 1e12);
         assertTrue(address(assertion) != address(0));

@@ -26,26 +26,15 @@ Verified with `pcl` 1.4.0 (commit `a600e1d`).
 - `CapRedemptionGateAssertion.sol` — currently registers no triggers. Strategy divest inflows net
   against redemption outflows in the executor, while the watcher denominator is idle custody.
 
-### Liquidations — debt is repaid, proceeds stay in the protocol
+### Quarantined liquidation and OFT prototypes
 
-- `CapLiquidationAssertion.sol` — deployed against the `Lender`. A liquidation that moves value
-  must strictly reduce the borrower's debt for the liquidated asset (no seizing collateral without
-  repaying debt), and the vault's claimable backing (`availableBalance = totalSupplies -
-  totalBorrows`) may not fall below its pre-call value minus the restaker interest the liquidation
-  legitimately realizes (proceeds stay in the protocol as backing rather than draining the vault).
-  Each check is scoped per `liquidate` call via PreCall/PostCall snapshots.
+- `CapLiquidationAssertion.sol` — registers no triggers. Reported debt and available-balance deltas
+  do not prove that realized repayment value stayed in the authorized protocol boundary.
 - `CapLiquidationHelpers.sol` — triggered-call resolution and fork-aware reads (all in asset units).
 - `CapLiquidationInterfaces.sol`
 
-### Cross-chain backing — keep the OFT lockbox honest
-
-- `CapOFTLockboxBackingAssertion.sol` — on the home chain, the gross outflow of locked cUSD from the
-  `OFTLockbox` (LayerZero `OFTAdapter`) must be covered by endpoint-driven `lzReceive` calls, each
-  credited at `min(message-authorized amount, amount actually released inside the call)`. Capping by
-  the decoded OFT message amount binds the release to what the remote chain verifiably burned (a
-  faulty/upgraded adapter over-releasing trips); the in-call release floor gates success (a reverted
-  receive credits nothing). A drain therefore cannot ride alongside an unrelated, reverted, or
-  dust-sized bridge-in and leave remote `L2Token` supply unbacked.
+- `CapOFTLockboxBackingAssertion.sol` — registers no triggers until the live endpoint, origin peer,
+  token, conversion domain, and intended recipient are all bound to each credited receive.
 - `CapOFTLockboxInterfaces.sol`
 
 ### Existing examples

@@ -117,13 +117,23 @@ contract CapLiquidationAssertionTest is Test, CredibleTest {
         cl.assertion(address(lender), createData, CapLiquidationAssertion.assertLiquidationRetainsBacking.selector);
     }
 
-    function testHonestLiquidationReducesDebt() public {
+    function testPublishedWrapperCannotRegisterUnsafeChecks() public {
+        CapLiquidationAssertion assertion = new CapLiquidationAssertion();
+        vm.mockCallRevert(
+            address(uint160(uint256(keccak256("TriggerRecorder")))),
+            bytes(""),
+            bytes("quarantined wrapper registered a trigger")
+        );
+        assertion.triggers();
+    }
+
+    function retiredHonestLiquidationReducesDebt() public {
         _armReducesDebt();
         vm.prank(liquidator);
         lender.liquidate(agent, usdc, 60e6, 0);
     }
 
-    function testNoRepayLiquidationTrips() public {
+    function retiredNoRepayLiquidationTrips() public {
         lender.setMode(MockLender.Mode.NoRepay);
         _armReducesDebt();
         vm.expectRevert(bytes("CapLiquidation: debt not reduced"));
@@ -131,7 +141,7 @@ contract CapLiquidationAssertionTest is Test, CredibleTest {
         lender.liquidate(agent, usdc, 60e6, 0);
     }
 
-    function testPartialLiquidationWithHighInterestPasses() public {
+    function retiredPartialLiquidationWithHighInterestPasses() public {
         // `debt()` includes the accrued interest before the call, so repaying five units still
         // lowers the reported debt from 110 to 105.
         lender.seed(agent, usdc, 100e6, 10e6, 1_000e6);
@@ -140,20 +150,20 @@ contract CapLiquidationAssertionTest is Test, CredibleTest {
         lender.liquidate(agent, usdc, 5e6, 0);
     }
 
-    function testZeroAmountLiquidationIgnored() public {
+    function retiredZeroAmountLiquidationIgnored() public {
         _armReducesDebt();
         // No value moves; the debt-reduction check skips it rather than false-tripping.
         vm.prank(liquidator);
         lender.liquidate(agent, usdc, 0, 0);
     }
 
-    function testHonestLiquidationRetainsBacking() public {
+    function retiredHonestLiquidationRetainsBacking() public {
         _armRetainsBacking();
         vm.prank(liquidator);
         lender.liquidate(agent, usdc, 60e6, 0);
     }
 
-    function testDrainBackingTrips() public {
+    function retiredDrainBackingTrips() public {
         lender.setMode(MockLender.Mode.DrainBacking);
         _armRetainsBacking();
         vm.expectRevert(bytes("CapLiquidation: backing drained by liquidation"));
@@ -161,7 +171,7 @@ contract CapLiquidationAssertionTest is Test, CredibleTest {
         lender.liquidate(agent, usdc, 60e6, 0);
     }
 
-    function testDeploys() public {
+    function retiredDeploys() public {
         CapLiquidationAssertion assertion = new CapLiquidationAssertion();
         assertTrue(address(assertion) != address(0));
     }
