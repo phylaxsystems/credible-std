@@ -109,6 +109,15 @@ run with:
 ./examples/credible-block/test/test-script-arguments.sh
 ```
 
+Expected state values must use the exact single-line representation printed by `cast call` (apart
+from numeric magnitude annotations such as ` [1e6]`, which the runner removes). In particular, ABI
+strings include their surrounding double quotes. The live string regression covers both a spaced
+call argument and the quoted state representation:
+
+```shell
+./examples/credible-block/test/test-string-state.sh
+```
+
 ## Requirements and limitations
 
 - `anvil`, `cast`, `forge`, and `jq` must be on `PATH`.
@@ -116,8 +125,9 @@ run with:
 - The marker account must be authorized by the supplied registry configuration.
 - The guarded account must have all target-specific balances, approvals, roles, and prerequisites.
   Deployment commands are responsible for arranging them.
-- `--state-read-call` must return one stable, directly comparable `cast call` value. For complex
-  effects, deploy a read-only adapter that returns a digest or scalar assertion value.
+- `--state-read-call` must return one stable, directly comparable `cast call` value. Pass string
+  expectations with the quotes emitted by `cast` (for example `--state-after '"hello world"'`). For
+  complex effects, deploy a read-only adapter that returns a digest or scalar assertion value.
 - Each success case starts from the same post-deployment snapshot, so `--state-before` and
   `--state-after` describe one guarded call.
 - The runner validates guard wiring and behavior, not the correctness or completeness of the
