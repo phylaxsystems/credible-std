@@ -181,6 +181,8 @@ Approval resets and revocations are allowed by default when the token is configu
 
 For ERC-20 `approve(spender, amount)` the cap binds `amount` directly. For ERC-20 `increaseAllowance(spender, addedValue)` the cap binds the pre-execution allowance plus all positive grants requested for that owner/token/spender in the batch. This is intentionally stricter than checking final state: consuming or reducing an oversized transient allowance later in the transaction does not make the batch valid. The approval assertion decodes the batch once, accumulates each configured allowance by policy index, and reads each initial allowance once, so multiple grants do not trigger repeated prefix rescans. Batch policies cannot configure more than four actions; the four-grant regression executes below PCL's 300,000-gas local assertion ceiling, while the former unbounded configuration could exhaust the budget before reaching a policy decision. For CALL-based executors, the executor is the token owner; for DELEGATECALL-based executors, the Safe is the owner.
 
+A batch cannot mix ERC-20 `approve` with a positive `increaseAllowance` anywhere in the batch, even when the calls concern different tokens, owners, or spenders. This conservative restriction is stricter than Safe itself and prevents transient grants from bypassing independently configured caps.
+
 ### Material Effect
 
 - A compromised UI cannot redirect signers to an arbitrary contract with arbitrary calldata.
