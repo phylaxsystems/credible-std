@@ -113,9 +113,9 @@ jobs:
               echo "::error::No runtime assertion execution evidence found in ${report}"
               exit 1
             fi
-            evidence_report="${RUNNER_TEMP}/pcl-${PROFILE}-evidence.xml"
+            evidence_report="${RUNNER_TEMP}/pcl-${PROFILE}-evidence.log"
             RUST_MIN_STACK=16777216 FOUNDRY_PROFILE="${PROFILE}" \
-              pcl test -vv --junit "${evidence_path}" > "${evidence_report}"
+              pcl test -vv "${evidence_path}" > "${evidence_report}"
             assertion_count=$(grep -c 'Assertion gas cost:' "${evidence_report}" || true)
             if [ "${assertion_count}" -eq 0 ]; then
               echo "::error::No runtime assertion execution evidence found in ${evidence_report}"
