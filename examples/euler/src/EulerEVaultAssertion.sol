@@ -315,8 +315,8 @@ contract EulerEVaultAssertion is EulerUserStorageAccountingMixin, EulerPerCallSh
     /// @notice Registers all EVK example assertion triggers.
     /// @dev Intended for factory-scoped installs where the assertion adopter is the concrete EVault.
     function triggers() external view override {
-        _registerUserStorageAccounting();
-        _registerPerCallSharePrice();
+        // Quarantined as a bundle. The share-price compensation is not causally tied to debt
+        // socialization and exact raw-balance comparisons reject supported pre-operation hooks.
     }
 }
 
@@ -344,7 +344,7 @@ contract EulerPerCallSharePriceAssertion is EulerPerCallSharePriceMixin {
 
     /// @notice Registers EVK call-level share-price triggers.
     function triggers() external view override {
-        _registerPerCallSharePrice();
+        // Quarantined for the same hook and non-causal compensation gaps as the full bundle.
     }
 }
 

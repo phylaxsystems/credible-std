@@ -41,6 +41,7 @@ contract SymbioticVaultAssertion is
 
     /// @notice Wires the v1 call-scoped accounting checks.
     function triggers() external view override {
-        _registerVaultFlowTriggers();
+        // Quarantined until v1 identity is pinned and self-recipient/fee-on-transfer claims plus
+        // batch scaling are represented without false positives or assertion gas exhaustion.
     }
 }

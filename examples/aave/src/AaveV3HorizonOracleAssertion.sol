@@ -26,7 +26,7 @@ contract AaveV3HorizonOracleAssertion is AaveV3HorizonHelpers {
         require(pool_ != address(0), "AaveV3Horizon: pool zero");
         require(addressesProvider_ != address(0), "AaveV3Horizon: provider zero");
         require(maxReservesToScan_ != 0, "AaveV3Horizon: max reserves zero");
-        require(oracleDeviationBps_ <= BPS, "AaveV3Horizon: bad oracle tolerance");
+        require(oracleDeviationBps_ < BPS, "AaveV3Horizon: bad oracle tolerance");
 
         POOL = pool_;
         ADDRESSES_PROVIDER = addressesProvider_;

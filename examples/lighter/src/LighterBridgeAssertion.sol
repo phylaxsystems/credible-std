@@ -31,8 +31,8 @@ contract LighterBridgeAssertion is LighterBridgeHelpers {
     /// @notice Registers the rollup state-machine envelope checks and the desert-mode check.
     /// @dev All are whole-transaction properties, so they use tx-end triggers.
     function triggers() external view override {
-        _registerStateMachineTriggers();
-        registerTxEndTrigger(this.assertDesertModeIntegrity.selector);
+        // Quarantined: root changes must be bound to the executed batch transition, desert-mode
+        // activation must check request expiry, and the adapter must bind the proxy revision.
     }
 
     /// @notice The escape hatch is latching and freezes the operator while it is open.
