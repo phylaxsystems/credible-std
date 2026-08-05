@@ -256,10 +256,7 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
             string.concat("ERC4626: ", operation, " asset payment mismatch")
         );
         _requireDecrease(
-            payerBefore,
-            payerAfter,
-            amount,
-            string.concat("ERC4626: ", operation, " payer assets mismatch")
+            payerBefore, payerAfter, amount, string.concat("ERC4626: ", operation, " payer assets mismatch")
         );
     }
 
@@ -278,10 +275,7 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
             return;
         }
         _requireDecrease(
-            custodyBefore,
-            custodyAfter,
-            amount,
-            string.concat("ERC4626: ", operation, " vault assets mismatch")
+            custodyBefore, custodyAfter, amount, string.concat("ERC4626: ", operation, " vault assets mismatch")
         );
         _requireIncrease(
             _assetBalanceAt(receiver, pre),

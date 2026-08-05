@@ -125,19 +125,28 @@ contract PreviewEffectsAssertion is ERC4626PreviewAssertion {
 
 contract PreviewMetaMorphoHarness is MetaMorphoVaultAssertion {
     constructor(address vault_, address asset_) MetaMorphoVaultAssertion(vault_, asset_) {}
-    function triggers() external view override { _registerPreviewTriggers(); }
+
+    function triggers() external view override {
+        _registerPreviewTriggers();
+    }
 }
 
 contract PreviewSparkHarness is SparkVaultAssertion {
     constructor(address vault_, address asset_) SparkVaultAssertion(vault_, asset_) {}
-    function triggers() external view override { _registerPreviewTriggers(); }
+
+    function triggers() external view override {
+        _registerPreviewTriggers();
+    }
 }
 
 contract PreviewLlamaHarness is LlamaLendVaultAssertion {
     constructor(address vault_, address asset_, address controller_)
         LlamaLendVaultAssertion(vault_, asset_, controller_)
     {}
-    function triggers() external view override { _registerPreviewTriggers(); }
+
+    function triggers() external view override {
+        _registerPreviewTriggers();
+    }
 }
 
 contract ERC4626PreviewAssertionTest is Test, CredibleTest {
@@ -300,13 +309,13 @@ contract ERC4626PreviewAssertionTest is Test, CredibleTest {
     }
 
     function testMetaMorphoAdapterHonestAndIncorrectEffects() public {
-        bytes memory createData = abi.encodePacked(
-            type(PreviewMetaMorphoHarness).creationCode, abi.encode(address(vault), address(asset))
-        );
+        bytes memory createData =
+            abi.encodePacked(type(PreviewMetaMorphoHarness).creationCode, abi.encode(address(vault), address(asset)));
         cl.assertion(address(vault), createData, ERC4626PreviewAssertion.assertDepositPreview.selector);
         vault.deposit(10 ether, receiver);
 
         vault.setFaults(false, true);
+        cl.assertion(address(vault), createData, ERC4626PreviewAssertion.assertDepositPreview.selector);
         vm.expectRevert(bytes("ERC4626: deposit asset payment mismatch"));
         vault.deposit(10 ether, receiver);
     }
@@ -318,6 +327,7 @@ contract ERC4626PreviewAssertionTest is Test, CredibleTest {
         vault.mint(10 ether, receiver);
 
         vault.setFaults(true, false);
+        cl.assertion(address(vault), createData, ERC4626PreviewAssertion.assertMintPreview.selector);
         vm.expectRevert(bytes("ERC4626: mint receiver shares mismatch"));
         vault.mint(10 ether, receiver);
     }
@@ -327,14 +337,14 @@ contract ERC4626PreviewAssertionTest is Test, CredibleTest {
         vault = new PreviewEffectsVault(asset, address(controller));
         asset.approve(address(vault), type(uint256).max);
         bytes memory createData = abi.encodePacked(
-            type(PreviewLlamaHarness).creationCode,
-            abi.encode(address(vault), address(asset), address(controller))
+            type(PreviewLlamaHarness).creationCode, abi.encode(address(vault), address(asset), address(controller))
         );
         cl.assertion(address(vault), createData, ERC4626PreviewAssertion.assertDepositPreview.selector);
         vault.deposit(10 ether, receiver);
         assertEq(asset.balanceOf(address(controller)), 10 ether);
 
         vault.setFaults(false, true);
+        cl.assertion(address(vault), createData, ERC4626PreviewAssertion.assertDepositPreview.selector);
         vm.expectRevert(bytes("ERC4626: deposit asset payment mismatch"));
         vault.deposit(10 ether, receiver);
     }
