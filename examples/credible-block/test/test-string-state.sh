@@ -10,8 +10,18 @@ TARGET_DEPLOY_COMMAND='cd "$REPO_ROOT" && FOUNDRY_PROFILE=credible-block forge c
     --registry-deploy-command "$REGISTRY_DEPLOY_COMMAND" \
     --target-deploy-command "$TARGET_DEPLOY_COMMAND" \
     --guarded-call "setName(string)" \
-    --guarded-call-arg "hello world" \
+    --guarded-call-arg "hello [world]" \
     --state-read-call "name()(string)" \
     --state-before '""' \
-    --state-after '"hello world"' \
+    --state-after '"hello [world]"' \
     --rpc-port "${RPC_PORT:-18545}"
+
+"$SCRIPT" \
+    --registry-deploy-command "$REGISTRY_DEPLOY_COMMAND" \
+    --target-deploy-command "$TARGET_DEPLOY_COMMAND" \
+    --guarded-call "setName(string)" \
+    --guarded-call-arg "" \
+    --state-read-call "name()(string)" \
+    --state-before '""' \
+    --state-after '""' \
+    --rpc-port "${EMPTY_RPC_PORT:-18546}"

@@ -38,6 +38,11 @@ expect_ok "mode=target" \
     --guarded-call "setName(string)" --guarded-call-arg "hello world" \
     --state-read-call "name()(string)" \
     --state-before '"old value"' --state-after '"hello world"'
+expect_ok "mode=target" \
+    --target-address 0x1111111111111111111111111111111111111111 \
+    --registry-address 0x2222222222222222222222222222222222222222 \
+    --guarded-call "setName(string)" --guarded-call-arg "" \
+    --state-read-call "name()(string)" --state-before '"old"' --state-after '""'
 expect_fail "unknown argument: --wat" --wat
 expect_fail "target mode requires --guarded-call" \
     --target-address 0x1111111111111111111111111111111111111111 \

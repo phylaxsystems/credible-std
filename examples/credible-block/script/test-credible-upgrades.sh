@@ -78,6 +78,7 @@ EOF
 
 die() { echo "ERROR: $*" >&2; exit 2; }
 need_value() { [[ $# -ge 2 && -n "$2" ]] || die "$1 requires a value"; }
+need_operand() { [[ $# -ge 2 ]] || die "$1 requires a value"; }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -86,11 +87,11 @@ while [[ $# -gt 0 ]]; do
         --registry-address)        need_value "$@"; REGISTRY_ADDRESS="$2"; shift 2 ;;
         --registry-deploy-command) need_value "$@"; REGISTRY_DEPLOY_COMMAND="$2"; shift 2 ;;
         --guarded-call)            need_value "$@"; GUARDED_CALL="$2"; shift 2 ;;
-        --guarded-call-arg)        need_value "$@"; GUARDED_CALL_ARGS+=("$2"); shift 2 ;;
+        --guarded-call-arg)        need_operand "$@"; GUARDED_CALL_ARGS+=("$2"); shift 2 ;;
         --marker-call)             need_value "$@"; MARKER_CALL="$2"; shift 2 ;;
-        --marker-call-arg)         need_value "$@"; MARKER_CALL_ARGS+=("$2"); shift 2 ;;
+        --marker-call-arg)         need_operand "$@"; MARKER_CALL_ARGS+=("$2"); shift 2 ;;
         --state-read-call)         need_value "$@"; STATE_READ_CALL="$2"; shift 2 ;;
-        --state-read-call-arg)     need_value "$@"; STATE_READ_CALL_ARGS+=("$2"); shift 2 ;;
+        --state-read-call-arg)     need_operand "$@"; STATE_READ_CALL_ARGS+=("$2"); shift 2 ;;
         --state-before)            need_value "$@"; STATE_BEFORE="$2"; shift 2 ;;
         --state-after)             need_value "$@"; STATE_AFTER="$2"; shift 2 ;;
         --registry-read-call)      need_value "$@"; REGISTRY_READ_CALL="$2"; shift 2 ;;
@@ -174,7 +175,11 @@ receipt_status() { cast receipt --rpc-url "$RPC_URL" --async "$1" --json 2>/dev/
 receipt_block() { cast to-dec "$(cast receipt --rpc-url "$RPC_URL" --async "$1" --json | jq -r '.blockNumber')"; }
 normalize_cast_value() {
     local value="$1"
-    printf '%s' "${value%% \[*}"
+    if [[ "$value" =~ ^-?[0-9]+\ \[[^][]+\]$ ]]; then
+        printf '%s' "${value%% \[*}"
+    else
+        printf '%s' "$value"
+    fi
 }
 read_state() {
     local value
@@ -213,6 +218,12 @@ for _ in $(seq 1 50); do
 done
 cast block-number --rpc-url "$RPC_URL" >/dev/null 2>&1 ||
     die "Anvil did not become ready on $RPC_URL"
+
+if [[ -n "$TARGET_ADDRESS" ]]; then
+    TARGET_ADDRESS=$(cast to-check-sum-address "$TARGET_ADDRESS" 2>/dev/null) ||
+        die "target address is not a valid address"
+    export TARGET_ADDRESS
+fi
 
 if [[ -n "$REGISTRY_DEPLOY_COMMAND" ]]; then
     REGISTRY_ADDRESS=$(run_address_command "registry deployment/configuration" "$REGISTRY_DEPLOY_COMMAND")
