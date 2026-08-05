@@ -25,7 +25,7 @@ contract LlamaLendVaultAssertion is ERC4626PreviewAssertion, LlamaLendVaultProto
     }
 
     /// @notice Registers preview checks plus controller-side accounting and custody checks.
-    function triggers() external view override {
+    function triggers() external view virtual override {
         _registerPreviewTriggers();
         registerFnCallTrigger(this.assertDepositPreview.selector, DEPOSIT_DEFAULT);
         registerFnCallTrigger(this.assertMintPreview.selector, MINT_DEFAULT);

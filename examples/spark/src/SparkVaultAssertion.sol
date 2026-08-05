@@ -39,7 +39,7 @@ contract SparkVaultAssertion is ERC4626PreviewAssertion, SparkVaultHelpers {
     ///      state forks." The inherited `_register*Triggers()` cover the standard
     ///      ERC-4626 invariants; the `_registerSpark*Triggers()` helpers below extend
     ///      that wiring to Spark's non-standard surfaces.
-    function triggers() external view override {
+    function triggers() external view virtual override {
         _registerPreviewTriggers();
         _registerSparkReferralOverloadTriggers();
         _registerSparkRateAccumulationTriggers();

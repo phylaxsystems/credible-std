@@ -64,6 +64,7 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
         bytes memory input = ph.callinputAt(ctx.callStart);
         uint256 assets = _firstUint256Arg(input);
         address receiver = _receiver(input, ctx);
+        address payer = _triggerCaller(ctx);
 
         // Preview at pre-call state
         uint256 previewShares = _readUintAt(vault, abi.encodeCall(IERC4626.previewDeposit, (assets)), pre);
@@ -80,12 +81,7 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
             "ERC4626: deposit receiver shares mismatch"
         );
         _requireIncrease(_totalSupplyAt(pre), _totalSupplyAt(post), actualShares, "ERC4626: deposit supply mismatch");
-        _requireIncrease(
-            _assetBalanceAt(_assetCustodyAccount(), pre),
-            _assetBalanceAt(_assetCustodyAccount(), post),
-            assets,
-            "ERC4626: deposit asset payment mismatch"
-        );
+        _requirePaymentEffects(payer, _assetCustodyAccount(), assets, pre, post, "deposit");
     }
 
     // ---------------------------------------------------------------
@@ -104,6 +100,7 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
         bytes memory input = ph.callinputAt(ctx.callStart);
         uint256 shares = _firstUint256Arg(input);
         address receiver = _receiver(input, ctx);
+        address payer = _triggerCaller(ctx);
 
         uint256 previewAssets = _readUintAt(vault, abi.encodeCall(IERC4626.previewMint, (shares)), pre);
 
@@ -119,12 +116,7 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
             "ERC4626: mint receiver shares mismatch"
         );
         _requireIncrease(_totalSupplyAt(pre), _totalSupplyAt(post), shares, "ERC4626: mint supply mismatch");
-        _requireIncrease(
-            _assetBalanceAt(_assetCustodyAccount(), pre),
-            _assetBalanceAt(_assetCustodyAccount(), post),
-            actualAssets,
-            "ERC4626: mint asset payment mismatch"
-        );
+        _requirePaymentEffects(payer, _assetCustodyAccount(), actualAssets, pre, post, "mint");
     }
 
     // ---------------------------------------------------------------
@@ -160,18 +152,7 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
             "ERC4626: withdraw owner shares mismatch"
         );
         _requireDecrease(_totalSupplyAt(pre), _totalSupplyAt(post), actualShares, "ERC4626: withdraw supply mismatch");
-        _requireDecrease(
-            _assetBalanceAt(_assetCustodyAccount(), pre),
-            _assetBalanceAt(_assetCustodyAccount(), post),
-            assets,
-            "ERC4626: withdraw vault assets mismatch"
-        );
-        _requireIncrease(
-            _assetBalanceAt(receiver, pre),
-            _assetBalanceAt(receiver, post),
-            assets,
-            "ERC4626: withdraw receiver assets mismatch"
-        );
+        _requirePayoutEffects(_assetCustodyAccount(), receiver, assets, pre, post, "withdraw");
     }
 
     // ---------------------------------------------------------------
@@ -202,18 +183,7 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
             _shareBalanceAt(owner, pre), _shareBalanceAt(owner, post), shares, "ERC4626: redeem owner shares mismatch"
         );
         _requireDecrease(_totalSupplyAt(pre), _totalSupplyAt(post), shares, "ERC4626: redeem supply mismatch");
-        _requireDecrease(
-            _assetBalanceAt(_assetCustodyAccount(), pre),
-            _assetBalanceAt(_assetCustodyAccount(), post),
-            actualAssets,
-            "ERC4626: redeem vault assets mismatch"
-        );
-        _requireIncrease(
-            _assetBalanceAt(receiver, pre),
-            _assetBalanceAt(receiver, post),
-            actualAssets,
-            "ERC4626: redeem receiver assets mismatch"
-        );
+        _requirePayoutEffects(_assetCustodyAccount(), receiver, actualAssets, pre, post, "redeem");
     }
 
     // ---------------------------------------------------------------
@@ -248,17 +218,77 @@ abstract contract ERC4626PreviewAssertion is ERC4626BaseAssertion {
         view
         returns (address receiver, address owner)
     {
+        if (input.length >= 100) return (_addressArg(input, 1), _addressArg(input, 2));
         address caller = _triggerCaller(ctx);
         receiver = input.length >= 68 ? _addressArg(input, 1) : caller;
-        owner = input.length >= 100 ? _addressArg(input, 2) : caller;
+        owner = caller;
     }
 
     function _triggerCaller(PhEvm.TriggerContext memory ctx) internal view returns (address) {
-        PhEvm.CallInputs[] memory calls = ph.getAllCallInputs(vault, ctx.selector);
+        PhEvm.CallFilter memory filter = PhEvm.CallFilter({
+            callType: 0, minDepth: 0, maxDepth: type(uint32).max, topLevelOnly: false, successOnly: true
+        });
+        PhEvm.TriggerCall[] memory calls = ph.matchingCalls(vault, ctx.selector, filter, 8);
         for (uint256 i; i < calls.length; ++i) {
-            if (calls[i].id == ctx.callStart) return calls[i].caller;
+            if (calls[i].callId == ctx.callStart) return calls[i].caller;
         }
         revert("ERC4626: triggered call not found");
+    }
+
+    function _requirePaymentEffects(
+        address payer,
+        address custody,
+        uint256 amount,
+        PhEvm.ForkId memory pre,
+        PhEvm.ForkId memory post,
+        string memory operation
+    ) internal view {
+        uint256 payerBefore = _assetBalanceAt(payer, pre);
+        uint256 payerAfter = _assetBalanceAt(payer, post);
+        if (payer == custody) {
+            require(payerAfter == payerBefore, string.concat("ERC4626: ", operation, " asset payment mismatch"));
+            return;
+        }
+        _requireIncrease(
+            _assetBalanceAt(custody, pre),
+            _assetBalanceAt(custody, post),
+            amount,
+            string.concat("ERC4626: ", operation, " asset payment mismatch")
+        );
+        _requireDecrease(
+            payerBefore,
+            payerAfter,
+            amount,
+            string.concat("ERC4626: ", operation, " payer assets mismatch")
+        );
+    }
+
+    function _requirePayoutEffects(
+        address custody,
+        address receiver,
+        uint256 amount,
+        PhEvm.ForkId memory pre,
+        PhEvm.ForkId memory post,
+        string memory operation
+    ) internal view {
+        uint256 custodyBefore = _assetBalanceAt(custody, pre);
+        uint256 custodyAfter = _assetBalanceAt(custody, post);
+        if (custody == receiver) {
+            require(custodyAfter == custodyBefore, string.concat("ERC4626: ", operation, " asset payout mismatch"));
+            return;
+        }
+        _requireDecrease(
+            custodyBefore,
+            custodyAfter,
+            amount,
+            string.concat("ERC4626: ", operation, " vault assets mismatch")
+        );
+        _requireIncrease(
+            _assetBalanceAt(receiver, pre),
+            _assetBalanceAt(receiver, post),
+            amount,
+            string.concat("ERC4626: ", operation, " receiver assets mismatch")
+        );
     }
 
     function _addressArg(bytes memory input, uint256 index) internal pure returns (address value) {

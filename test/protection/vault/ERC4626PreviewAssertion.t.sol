@@ -9,6 +9,9 @@ import {CredibleTest} from "../../../src/CredibleTest.sol";
 import {AssertionSpec} from "../../../src/SpecRecorder.sol";
 import {ERC4626BaseAssertion} from "../../../src/protection/vault/ERC4626BaseAssertion.sol";
 import {ERC4626PreviewAssertion} from "../../../src/protection/vault/ERC4626PreviewAssertion.sol";
+import {MetaMorphoVaultAssertion} from "../../../src/protection/vault/examples/MetaMorphoVaultAssertion.sol";
+import {LlamaLendVaultAssertion} from "../../../examples/curve/src/LlamaLendVaultAssertion.sol";
+import {SparkVaultAssertion} from "../../../examples/spark/src/SparkVaultAssertion.sol";
 
 contract PreviewAssetCustodian {
     function release(ERC20Mock token, address receiver, uint256 amount) external {
@@ -21,6 +24,8 @@ contract PreviewEffectsVault is ERC20 {
     address public immutable custodian;
     bool public skipShares;
     bool public skipAssets;
+    address public paymentSource;
+    address public extraChargeRecipient;
 
     constructor(ERC20Mock underlying_, address custodian_) ERC20("Vault Share", "VS") {
         underlying = underlying_;
@@ -30,6 +35,11 @@ contract PreviewEffectsVault is ERC20 {
     function setFaults(bool skipShares_, bool skipAssets_) external {
         skipShares = skipShares_;
         skipAssets = skipAssets_;
+    }
+
+    function setPaymentFaults(address paymentSource_, address extraChargeRecipient_) external {
+        paymentSource = paymentSource_;
+        extraChargeRecipient = extraChargeRecipient_;
     }
 
     function asset() external view returns (address) {
@@ -57,13 +67,13 @@ contract PreviewEffectsVault is ERC20 {
     }
 
     function deposit(uint256 assets, address receiver) external returns (uint256 shares) {
-        if (!skipAssets) underlying.transferFrom(msg.sender, custodian, assets);
+        if (!skipAssets) _collect(assets);
         if (!skipShares) _mint(receiver, assets);
         return assets;
     }
 
     function mint(uint256 shares, address receiver) external returns (uint256 assets) {
-        if (!skipAssets) underlying.transferFrom(msg.sender, custodian, shares);
+        if (!skipAssets) _collect(shares);
         if (!skipShares) _mint(receiver, shares);
         return shares;
     }
@@ -83,6 +93,12 @@ contract PreviewEffectsVault is ERC20 {
     function _release(address receiver, uint256 amount) internal {
         if (custodian == address(this)) underlying.transfer(receiver, amount);
         else PreviewAssetCustodian(custodian).release(underlying, receiver, amount);
+    }
+
+    function _collect(uint256 amount) internal {
+        address payer = paymentSource == address(0) ? msg.sender : paymentSource;
+        underlying.transferFrom(payer, custodian, amount);
+        if (extraChargeRecipient != address(0)) underlying.transferFrom(payer, extraChargeRecipient, amount);
     }
 }
 
@@ -105,6 +121,23 @@ contract PreviewEffectsAssertion is ERC4626PreviewAssertion {
     function _assetCustodyAccount() internal view override returns (address) {
         return custody;
     }
+}
+
+contract PreviewMetaMorphoHarness is MetaMorphoVaultAssertion {
+    constructor(address vault_, address asset_) MetaMorphoVaultAssertion(vault_, asset_) {}
+    function triggers() external view override { _registerPreviewTriggers(); }
+}
+
+contract PreviewSparkHarness is SparkVaultAssertion {
+    constructor(address vault_, address asset_) SparkVaultAssertion(vault_, asset_) {}
+    function triggers() external view override { _registerPreviewTriggers(); }
+}
+
+contract PreviewLlamaHarness is LlamaLendVaultAssertion {
+    constructor(address vault_, address asset_, address controller_)
+        LlamaLendVaultAssertion(vault_, asset_, controller_)
+    {}
+    function triggers() external view override { _registerPreviewTriggers(); }
 }
 
 contract ERC4626PreviewAssertionTest is Test, CredibleTest {
@@ -190,6 +223,24 @@ contract ERC4626PreviewAssertionTest is Test, CredibleTest {
         vault.deposit(100 ether, receiver);
     }
 
+    function testDepositOverchargeTripsEvenWhenCustodyReceivesExpectedAmount() public {
+        vault.setPaymentFaults(address(0), makeAddr("diversion"));
+        _arm(ERC4626PreviewAssertion.assertDepositPreview.selector);
+        vm.expectRevert(bytes("ERC4626: deposit payer assets mismatch"));
+        vault.deposit(100 ether, receiver);
+    }
+
+    function testDepositWrongPayerTrips() public {
+        address wrongPayer = makeAddr("wrongPayer");
+        asset.mint(wrongPayer, 100 ether);
+        vm.prank(wrongPayer);
+        asset.approve(address(vault), type(uint256).max);
+        vault.setPaymentFaults(wrongPayer, address(0));
+        _arm(ERC4626PreviewAssertion.assertDepositPreview.selector);
+        vm.expectRevert(bytes("ERC4626: deposit payer assets mismatch"));
+        vault.deposit(100 ether, receiver);
+    }
+
     function testMintMissingShareEffectTrips() public {
         vault.setFaults(true, false);
         _arm(ERC4626PreviewAssertion.assertMintPreview.selector);
@@ -234,5 +285,57 @@ contract ERC4626PreviewAssertionTest is Test, CredibleTest {
         _arm(ERC4626PreviewAssertion.assertRedeemPreview.selector);
         vm.expectRevert(bytes("ERC4626: redeem vault assets mismatch"));
         vault.redeem(40 ether, receiver, address(this));
+    }
+
+    function testWithdrawAllowsReceiverToEqualCustody() public {
+        vault.deposit(100 ether, address(this));
+        _arm(ERC4626PreviewAssertion.assertWithdrawPreview.selector);
+        vault.withdraw(40 ether, address(vault), address(this));
+    }
+
+    function testRedeemAllowsReceiverToEqualCustody() public {
+        vault.deposit(100 ether, address(this));
+        _arm(ERC4626PreviewAssertion.assertRedeemPreview.selector);
+        vault.redeem(40 ether, address(vault), address(this));
+    }
+
+    function testMetaMorphoAdapterHonestAndIncorrectEffects() public {
+        bytes memory createData = abi.encodePacked(
+            type(PreviewMetaMorphoHarness).creationCode, abi.encode(address(vault), address(asset))
+        );
+        cl.assertion(address(vault), createData, ERC4626PreviewAssertion.assertDepositPreview.selector);
+        vault.deposit(10 ether, receiver);
+
+        vault.setFaults(false, true);
+        vm.expectRevert(bytes("ERC4626: deposit asset payment mismatch"));
+        vault.deposit(10 ether, receiver);
+    }
+
+    function testSparkAdapterHonestAndIncorrectEffects() public {
+        bytes memory createData =
+            abi.encodePacked(type(PreviewSparkHarness).creationCode, abi.encode(address(vault), address(asset)));
+        cl.assertion(address(vault), createData, ERC4626PreviewAssertion.assertMintPreview.selector);
+        vault.mint(10 ether, receiver);
+
+        vault.setFaults(true, false);
+        vm.expectRevert(bytes("ERC4626: mint receiver shares mismatch"));
+        vault.mint(10 ether, receiver);
+    }
+
+    function testLlamaAdapterUsesControllerCustodyForHonestAndIncorrectEffects() public {
+        PreviewAssetCustodian controller = new PreviewAssetCustodian();
+        vault = new PreviewEffectsVault(asset, address(controller));
+        asset.approve(address(vault), type(uint256).max);
+        bytes memory createData = abi.encodePacked(
+            type(PreviewLlamaHarness).creationCode,
+            abi.encode(address(vault), address(asset), address(controller))
+        );
+        cl.assertion(address(vault), createData, ERC4626PreviewAssertion.assertDepositPreview.selector);
+        vault.deposit(10 ether, receiver);
+        assertEq(asset.balanceOf(address(controller)), 10 ether);
+
+        vault.setFaults(false, true);
+        vm.expectRevert(bytes("ERC4626: deposit asset payment mismatch"));
+        vault.deposit(10 ether, receiver);
     }
 }
