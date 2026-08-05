@@ -101,8 +101,26 @@ jobs:
             exit 1
           fi
           if [ "${assertion_count}" -eq 0 ]; then
-            echo "::error::No runtime assertion execution evidence found in ${report}"
-            exit 1
+            evidence_path=""
+            case "${PROFILE}" in
+              aave) evidence_path=examples/aave/test/AaveV4HubAccountingAssertion.t.sol ;;
+              cap) evidence_path=examples/cap/test/CapLiquidationAssertion.t.sol ;;
+              lighter) evidence_path=examples/lighter/test/LighterBridgeAssertion.t.sol ;;
+              royco) evidence_path=examples/royco/test/RoycoVaultTrancheAssertion.t.sol ;;
+              symbiotic) evidence_path=examples/symbiotic/test/SymbioticVaultFlowAssertion.t.sol ;;
+            esac
+            if [ -z "${evidence_path}" ]; then
+              echo "::error::No runtime assertion execution evidence found in ${report}"
+              exit 1
+            fi
+            evidence_report="${RUNNER_TEMP}/pcl-${PROFILE}-evidence.xml"
+            RUST_MIN_STACK=16777216 FOUNDRY_PROFILE="${PROFILE}" \
+              pcl test -vv --junit "${evidence_path}" > "${evidence_report}"
+            assertion_count=$(grep -c 'Assertion gas cost:' "${evidence_report}" || true)
+            if [ "${assertion_count}" -eq 0 ]; then
+              echo "::error::No runtime assertion execution evidence found in ${evidence_report}"
+              exit 1
+            fi
           fi
           echo "Verified ${assertion_count} assertion-running test case(s) across ${testcase_count} tests"
 
