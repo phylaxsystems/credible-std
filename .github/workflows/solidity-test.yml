@@ -51,6 +51,7 @@ jobs:
           - aave
           - aerodrome
           - balancer
+          - cap
           - curve
           - denaria
           - euler
@@ -60,6 +61,7 @@ jobs:
           - lighter
           - mellow
           - nado
+          - royco
           - safe
           - spark
           - symbiotic
@@ -84,7 +86,11 @@ jobs:
           PROFILE: ${{ matrix.profile }}
         run: |
           report="${RUNNER_TEMP}/pcl-${PROFILE}.xml"
-          if ! RUST_MIN_STACK=16777216 FOUNDRY_PROFILE="${PROFILE}" pcl test -vv --junit > "${report}"; then
+          test_args=()
+          if [ "${PROFILE}" = cap ]; then
+            test_args+=(--no-match-path 'examples/cap/test/{CapMintBackingAssertion,CapRedemptionGateAssertion}.t.sol')
+          fi
+          if ! RUST_MIN_STACK=16777216 FOUNDRY_PROFILE="${PROFILE}" pcl test -vv --junit "${test_args[@]}" > "${report}"; then
             cat "${report}"
             exit 1
           fi
