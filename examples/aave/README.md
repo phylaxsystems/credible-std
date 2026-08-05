@@ -19,10 +19,10 @@ FOUNDRY_PROFILE=aave forge build
 - AaveV3HorizonHelpers.sol
 - AaveV3HorizonInterfaces.sol
 - AaveV3HorizonOracleAssertion.sol
-- AaveV3HorizonReserveBackingAssertion.sol
+- AaveV3HorizonReserveBackingAssertion.sol (quarantined: token-only mutations do not dispatch a Pool-adopter trigger)
 - AaveV4Helpers.sol
 - AaveV4HubAccountingAssertion.sol
-- AaveV4HubFlowRateCircuitBreaker.sol
+- AaveV4HubFlowRateCircuitBreaker.sol (quarantined: net-flow dispatch can miss directional reversals)
 - AaveV4Interfaces.sol
 - AaveV4OracleConsumptionAssertion.sol
 - AaveV4OracleConsumptionHelpers.sol
@@ -64,10 +64,12 @@ See the
 
 ## Aave v4 flow-rate calibration
 
-The ready-to-adopt Core and Prime Hub circuit breakers cover WBTC, USDG, and
+The staged Core and Prime Hub circuit breakers define policies for WBTC, USDG, and
 wstETH, the three highest-TVL Aave v4 assets in the 2026-07-30 DefiLlama
 snapshot. Their 24-hour cumulative-flow and 10-second peak-rate limits use a
-20% buffer over the maximum observed values in the preceding 30 days.
+20% buffer over the maximum observed values in the preceding 30 days. Their
+triggers remain unarmed until absolute directional or rate-native dispatch can
+cover reversals inside a net-flow window.
 
 See
 [aave-v4-flow-rate-calibration-2026-07-30.md](research/aave-v4-flow-rate-calibration-2026-07-30.md)

@@ -31,13 +31,10 @@ contract AaveV3HorizonReserveBackingAssertion is AaveV3HorizonHelpers {
         RESERVE_ASSETS = reserveAssets_;
     }
 
-    /// @notice Registers a transaction-end backing check for configured Horizon reserve assets.
-    /// @dev The trigger intentionally runs after the whole transaction, including direct reserve
-    ///      token movements outside the Pool call surface. That transaction envelope is not a place
-    ///      where Horizon can add a Pool-level require.
-    function triggers() external view override {
-        registerTxEndTrigger(this.assertReserveBacking.selector);
-    }
+    /// @notice Quarantined until token-only transactions can select the Pool adopter's assertion.
+    /// @dev A Pool-adopter TxEnd trigger is not dispatched when an external token mutates aToken
+    ///      custody without calling the Pool. `assertReserveBacking` remains available for research.
+    function triggers() external view virtual override {}
 
     /// @notice Checks all configured reserves remain backed at transaction end.
     /// @dev For each reserve, compares aToken supply plus the indexed treasury accrual with
@@ -85,7 +82,10 @@ contract AaveV3HorizonReserveBackingAssertion is AaveV3HorizonHelpers {
         uint256 deficit = _readUintAt(POOL, abi.encodeCall(IAaveV3HorizonDeficitPool.getReserveDeficit, (asset)), fork);
 
         backing.aTokenSupply = _totalSupplyAt(reserveData.aTokenAddress, fork);
-        backing.accruedTreasuryLiability = _rayMul(reserveData.accruedToTreasury, reserveData.liquidityIndex);
+        uint256 normalizedIncome = _readUintAt(
+            POOL, abi.encodeCall(IAaveV3HorizonDeficitPool.getReserveNormalizedIncome, (asset)), fork
+        );
+        backing.accruedTreasuryLiability = _rayMul(reserveData.accruedToTreasury, normalizedIncome);
         backing.backingClaims = availableLiquidity + stableDebt + variableDebt + reserveData.unbacked + deficit;
     }
 
@@ -95,7 +95,8 @@ contract AaveV3HorizonReserveBackingAssertion is AaveV3HorizonHelpers {
     }
 
     /// @dev Aave stores `accruedToTreasury` in scaled aToken units. Mirror WadRayMath.rayMul's
-    ///      half-up conversion so the liability is compared with token-denominated balances.
+    ///      half-up conversion using current normalized income rather than the possibly stale
+    ///      stored liquidity index.
     function _rayMul(uint256 scaledAmount, uint256 liquidityIndex) internal pure returns (uint256) {
         return (scaledAmount * liquidityIndex + HALF_RAY) / RAY;
     }

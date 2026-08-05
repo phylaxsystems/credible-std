@@ -24,4 +24,5 @@ interface IAaveV3HorizonToken {
 /// @notice Horizon reserve-deficit view added to the Pool's v3.6 accounting surface.
 interface IAaveV3HorizonDeficitPool {
     function getReserveDeficit(address asset) external view returns (uint256);
+    function getReserveNormalizedIncome(address asset) external view returns (uint256);
 }

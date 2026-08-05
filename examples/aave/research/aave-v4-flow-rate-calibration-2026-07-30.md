@@ -51,16 +51,25 @@ and comes from the same 10-second buckets.
 | Hub | Asset | Current balance | 30d gross in | 30d gross out | Max 24h net in | In limit | Max 24h net out | Out limit | Peak in rate | In-rate limit | Peak out rate | Out-rate limit |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Core | WBTC | 670.9402 | 129.0485 | 20.8481 | 986.44 bps | 1,184 bps | 91.41 bps | 110 bps | 39.32 bps/s | 48 bps/s | 7.22 bps/s | 9 bps/s |
-| Core | USDG | 30.6733m | 68.6104m | 61.5900m | 4,329.38 bps | 5,196 bps | 5,364.94 bps | 6,438 bps | 438.64 bps/s | 527 bps/s | 128.27 bps/s | 154 bps/s |
+| Core | USDG | 30.6733m | 68.6104m | 61.5900m | 4,329.38 bps | 5,196 bps | 4,472.00 bps | 5,367 bps | 438.64 bps/s | 527 bps/s | 128.27 bps/s | 154 bps/s |
 | Core | wstETH | 8,490.4974 | 4,365.9474 | 1,416.9640 | 1,587.63 bps | 1,906 bps | 776.51 bps | 932 bps | 47.57 bps/s | 58 bps/s | 77.62 bps/s | 94 bps/s |
-| Prime | WBTC | 136.7563 | 57.6882 | 47.4818 | 1,750.94 bps | 2,102 bps | 1,972.12 bps | 2,367 bps | 123.91 bps/s | 149 bps/s | 148.27 bps/s | 178 bps/s |
+| Prime | WBTC | 136.7563 | 57.6882 | 47.4818 | 1,750.94 bps | 2,102 bps | 2,026.00 bps | 2,432 bps | 123.91 bps/s | 149 bps/s | 148.27 bps/s | 178 bps/s |
 | Prime | wstETH | 3,840.5454 | 2,142.8947 | 1,233.7078 | 2,903.51 bps | 3,485 bps | 757.23 bps | 909 bps | 175.60 bps/s | 211 bps/s | 60.15 bps/s | 73 bps/s |
+
+The observed maxima used for these constants are checked in as
+`aave-v4-flow-rate-observed-maxima.csv`; `calculate-aave-v4-flow-limits.py`
+recomputes every limit as `ceil(observed × 1.20)`. The table and chart were
+reconciled to that artifact, notably for Core USDG and Prime WBTC outflow.
 
 ## Operational notes
 
 - The assertion uses a 1 bps cumulative dispatch floor so the custom rate check
   executes well before any calibrated limit. The policy trips if either the
   cumulative limit or peak-rate limit is exceeded.
+- The trigger is currently unarmed because net-flow dispatch can fail to select
+  the directional rate assertion after opposite-direction flow in the same
+  window. Keep this policy staged until absolute directional or rate-native
+  dispatch is available.
 - Apply the Core assertion to the Core Hub and the Prime companion assertion to
   the Prime Hub. Adopting either assertion on another address fails explicitly.
 - Recalibrate before production rollout and after material cap, asset-mix, or

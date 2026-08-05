@@ -60,7 +60,7 @@ contract AaveV3HorizonOracleAssertion is AaveV3HorizonHelpers {
         for (uint256 i; i < assetPolicies_.length; ++i) {
             AssetPolicy memory policy = assetPolicies_[i];
             require(policy.asset != address(0), "AaveV3Horizon: policy asset zero");
-            require(policy.deviationBps <= BPS, "AaveV3Horizon: bad asset tolerance");
+            require(policy.deviationBps < BPS, "AaveV3Horizon: bad asset tolerance");
 
             for (uint256 j; j < i; ++j) {
                 require(assetPolicies_[j].asset != policy.asset, "AaveV3Horizon: duplicate asset policy");

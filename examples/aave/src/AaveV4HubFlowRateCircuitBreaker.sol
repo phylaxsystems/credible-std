@@ -71,8 +71,9 @@ abstract contract AaveV4HubFlowRateCircuitBreaker is Assertion {
     }
 
     function _watchAsset(address token) internal view {
-        watchCumulativeInflow(token, DISPATCH_THRESHOLD_BPS, FLOW_WINDOW, this.assertInflowWithinRateLimits.selector);
-        watchCumulativeOutflow(token, DISPATCH_THRESHOLD_BPS, FLOW_WINDOW, this.assertOutflowWithinRateLimits.selector);
+        token;
+        // Quarantined: net cumulative dispatch can miss a directional reversal while prior
+        // opposite flow keeps the window net-positive or net-negative.
     }
 
     function _inflowTrips(address token, uint256 currentBps, uint256 peakRateBps) internal pure returns (bool) {
@@ -119,7 +120,7 @@ contract AaveV4EthereumCoreHubFlowRateCircuitBreaker is AaveV4HubFlowRateCircuit
         }
         if (token == USDG) {
             return FlowLimits({
-                inflowWindowBps: 5_196, outflowWindowBps: 6_438, inflowPeakRateBps: 527, outflowPeakRateBps: 154
+                inflowWindowBps: 5_196, outflowWindowBps: 5_367, inflowPeakRateBps: 527, outflowPeakRateBps: 154
             });
         }
         if (token == WSTETH) {
@@ -154,7 +155,7 @@ contract AaveV4EthereumPrimeHubFlowRateCircuitBreaker is AaveV4HubFlowRateCircui
     function _flowLimits(address token) internal pure override returns (FlowLimits memory limits) {
         if (token == WBTC) {
             return FlowLimits({
-                inflowWindowBps: 2_102, outflowWindowBps: 2_367, inflowPeakRateBps: 149, outflowPeakRateBps: 178
+                inflowWindowBps: 2_102, outflowWindowBps: 2_432, inflowPeakRateBps: 149, outflowPeakRateBps: 178
             });
         }
         if (token == WSTETH) {

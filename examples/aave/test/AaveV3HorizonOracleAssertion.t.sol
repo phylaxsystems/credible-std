@@ -404,6 +404,15 @@ contract AaveV3HorizonOracleAssertionTest is Test, CredibleTest {
         pool.borrow(asset0, 1, 2, 0, address(this));
     }
 
+    function testFullRangeToleranceIsRejected() public {
+        AaveV3HorizonOracleAssertion.AssetPolicy[] memory policies =
+            new AaveV3HorizonOracleAssertion.AssetPolicy[](1);
+        policies[0] = AaveV3HorizonOracleAssertion.AssetPolicy({asset: asset0, deviationBps: 10_000});
+
+        vm.expectRevert(bytes("AaveV3Horizon: bad asset tolerance"));
+        new AaveV3HorizonOracleAssertion(address(pool), address(provider), MAX_TRACE_CALLS, policies);
+    }
+
     function _arm(uint256 maxTraceCalls) internal {
         AaveV3HorizonOracleAssertion.AssetPolicy[] memory policies = new AaveV3HorizonOracleAssertion.AssetPolicy[](2);
         policies[0] = AaveV3HorizonOracleAssertion.AssetPolicy({asset: asset0, deviationBps: DEVIATION_BPS});

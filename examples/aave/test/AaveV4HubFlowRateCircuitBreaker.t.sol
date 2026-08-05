@@ -120,7 +120,7 @@ contract AaveV4HubFlowRateCircuitBreakerTest is Test, CredibleTest {
     }
 
     function testCoreUsdgTripsOnWindowOutflow() public view {
-        assertTrue(core.outflowTrips(core.USDG(), 6_439, 154));
+        assertTrue(core.outflowTrips(core.USDG(), 5_368, 154));
     }
 
     function testCoreWstethTripsOnPeakOutflowRate() public view {
@@ -128,7 +128,7 @@ contract AaveV4HubFlowRateCircuitBreakerTest is Test, CredibleTest {
     }
 
     function testPrimeWbtcAllowsExactOutflowLimits() public view {
-        assertFalse(prime.outflowTrips(prime.WBTC(), 2_367, 178));
+        assertFalse(prime.outflowTrips(prime.WBTC(), 2_432, 178));
     }
 
     function testPrimeWstethTripsOnWindowInflow() public view {

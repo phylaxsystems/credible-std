@@ -143,6 +143,7 @@ contract ResearchPool is IAaveV3LikePool {
     mapping(address => AaveV3LikeTypes.UserConfigurationMap) internal userConfig;
     mapping(address => AccountData) internal accounts;
     mapping(address => uint256) internal deficits;
+    mapping(address => uint256) internal normalizedIncome;
 
     constructor(address provider_) {
         ADDRESSES_PROVIDER = provider_;
@@ -170,6 +171,7 @@ contract ResearchPool is IAaveV3LikePool {
             unbacked: 0,
             isolationModeTotalDebt: 0
         });
+        normalizedIncome[asset] = 1e27;
     }
 
     function setAccruedToTreasury(address asset, uint128 scaledAmount) external {
@@ -186,6 +188,14 @@ contract ResearchPool is IAaveV3LikePool {
 
     function getReserveDeficit(address asset) external view returns (uint256) {
         return deficits[asset];
+    }
+
+    function setReserveNormalizedIncome(address asset, uint256 index) external {
+        normalizedIncome[asset] = index;
+    }
+
+    function getReserveNormalizedIncome(address asset) external view returns (uint256) {
+        return normalizedIncome[asset];
     }
 
     function setUserConfig(address user, uint256 data) external {
@@ -415,6 +425,17 @@ contract ResearchPool is IAaveV3LikePool {
         }
     }
 
+    /// @dev Test-only harness arms the quarantined backing logic so its accounting remains covered.
+    contract ArmedReserveBackingAssertion is AaveV3HorizonReserveBackingAssertion {
+        constructor(address pool_, address[] memory assets_, uint256 deficit_)
+            AaveV3HorizonReserveBackingAssertion(pool_, assets_, deficit_)
+        {}
+
+        function triggers() external view override {
+            registerTxEndTrigger(this.assertReserveBacking.selector);
+        }
+    }
+
     contract AaveV3AdversarialResearchTest is Test, CredibleTest {
         uint256 internal constant MAX_RESERVES = 8;
         uint256 internal constant ORACLE_TOLERANCE_BPS = 100;
@@ -483,6 +504,16 @@ contract ResearchPool is IAaveV3LikePool {
 
         function testBackingIncludesAccruedTreasuryLiability() public {
             pool.setAccruedToTreasury(address(collateralAsset), uint128(10 ether));
+
+            _armBacking();
+            vm.expectRevert(bytes("AaveV3Horizon: reserve backing deficit"));
+            pool.borrow(address(debtAsset), 1, 2, 0, alice);
+        }
+
+        function testBackingUsesCurrentNormalizedIncomeWhenStoredIndexIsStale() public {
+            collateralAsset.mint(address(collateralAToken), 15 ether);
+            pool.setAccruedToTreasury(address(collateralAsset), uint128(10 ether));
+            pool.setReserveNormalizedIncome(address(collateralAsset), 2e27);
 
             _armBacking();
             vm.expectRevert(bytes("AaveV3Horizon: reserve backing deficit"));
@@ -586,7 +617,7 @@ contract ResearchPool is IAaveV3LikePool {
 
         function _armBacking() internal {
             bytes memory createData = abi.encodePacked(
-                type(AaveV3HorizonReserveBackingAssertion).creationCode, abi.encode(address(pool), _assets(), 0)
+                type(ArmedReserveBackingAssertion).creationCode, abi.encode(address(pool), _assets(), 0)
             );
             cl.assertion(address(pool), createData, AaveV3HorizonReserveBackingAssertion.assertReserveBacking.selector);
         }
