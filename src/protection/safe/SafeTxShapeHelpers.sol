@@ -318,42 +318,46 @@ abstract contract SafeTxShapeHelpers is Assertion {
                 innerAction.operation == OPERATION_CALL && innerAction.dataLength == 68
                     && selector == INCREASE_ALLOWANCE_SELECTOR
             ) {
-                address spender = _readAbiAddress(innerAction.data, innerAction.dataOffset + 4);
-                uint256 addedValue = _readUint256(innerAction.data, innerAction.dataOffset + 36);
-                if (addedValue == 0) {
+                if (_readUint256(innerAction.data, innerAction.dataOffset + 36) == 0) {
                     _validateInnerApprovalPolicy(innerAction);
                     offset = nextOffset;
                     continue;
                 }
-
-                uint256 policyIndexPlusOne =
-                    _approvalPolicyIndexPlusOne[innerAction.target][spender][APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE];
-                if (policyIndexPlusOne == 0) {
-                    revert SafeTxShapeApprovalSpenderNotAllowed(
-                        innerAction.target, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE
-                    );
-                }
-
-                uint256 policyIndex = policyIndexPlusOne - 1;
                 if (approveSeen) revert SafeTxShapeMixedApprovalMethodsBlocked();
                 increaseAllowanceSeen = true;
-                if (!allowanceLoaded[policyIndex]) {
-                    initialAllowances[policyIndex] =
-                        _readAllowanceFromPreState(innerAction.caller, innerAction.target, spender);
-                    allowanceLoaded[policyIndex] = true;
-                }
-
-                uint256 cumulativeIncrease = cumulativeIncreases[policyIndex];
-                cumulativeIncrease = addedValue > type(uint256).max - cumulativeIncrease
-                    ? type(uint256).max
-                    : cumulativeIncrease + addedValue;
-                cumulativeIncreases[policyIndex] = cumulativeIncrease;
-                _validateAllowancePeak(innerAction.target, spender, initialAllowances[policyIndex], cumulativeIncrease);
+                _accumulateIncreaseAllowance(innerAction, cumulativeIncreases, initialAllowances, allowanceLoaded);
             } else {
                 _validateInnerApprovalPolicy(innerAction);
             }
             offset = nextOffset;
         }
+    }
+
+    function _accumulateIncreaseAllowance(
+        Action memory action,
+        uint256[] memory cumulativeIncreases,
+        uint256[] memory initialAllowances,
+        bool[] memory allowanceLoaded
+    ) internal view {
+        address spender = _readAbiAddress(action.data, action.dataOffset + 4);
+        uint256 addedValue = _readUint256(action.data, action.dataOffset + 36);
+        uint256 policyIndexPlusOne =
+            _approvalPolicyIndexPlusOne[action.target][spender][APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE];
+        if (policyIndexPlusOne == 0) {
+            revert SafeTxShapeApprovalSpenderNotAllowed(action.target, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE);
+        }
+
+        uint256 policyIndex = policyIndexPlusOne - 1;
+        if (!allowanceLoaded[policyIndex]) {
+            initialAllowances[policyIndex] = _readAllowanceFromPreState(action.caller, action.target, spender);
+            allowanceLoaded[policyIndex] = true;
+        }
+
+        uint256 cumulativeIncrease = cumulativeIncreases[policyIndex];
+        cumulativeIncrease =
+            addedValue > type(uint256).max - cumulativeIncrease ? type(uint256).max : cumulativeIncrease + addedValue;
+        cumulativeIncreases[policyIndex] = cumulativeIncrease;
+        _validateAllowancePeak(action.target, spender, initialAllowances[policyIndex], cumulativeIncrease);
     }
 
     function _multiSendTransactions(Action memory action, BatchExecutorPolicy storage batchPolicy)
