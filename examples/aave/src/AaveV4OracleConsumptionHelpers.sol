@@ -73,8 +73,26 @@ abstract contract AaveV4OracleConsumptionHelpers is AaveV4Helpers {
         return _successfulStaticCalls(source, IAaveV4PriceFeed.latestAnswer.selector, limit);
     }
 
-    function _hasMandatoryPriceOperation(address spoke) internal view returns (bool) {
+    function _hasMandatoryPriceOperation(address spoke, uint256 maxTraceCalls) internal view returns (bool) {
         return _matchingCalls(spoke, IAaveV4Spoke.borrow.selector, 1).length != 0
-            || _matchingCalls(spoke, IAaveV4Spoke.liquidationCall.selector, 1).length != 0;
+            || _matchingCalls(spoke, IAaveV4Spoke.withdraw.selector, 1).length != 0
+            || _matchingCalls(spoke, IAaveV4Spoke.liquidationCall.selector, 1).length != 0
+            || _hasCollateralDisable(spoke, maxTraceCalls)
+            || _matchingCalls(spoke, IAaveV4Spoke.updateUserRiskPremium.selector, 1).length != 0
+            || _matchingCalls(spoke, IAaveV4Spoke.updateUserDynamicConfig.selector, 1).length != 0;
+    }
+
+    function _hasCollateralDisable(address spoke, uint256 maxTraceCalls) private view returns (bool) {
+        PhEvm.TriggerCall[] memory calls =
+            _matchingCalls(spoke, IAaveV4Spoke.setUsingAsCollateral.selector, maxTraceCalls + 1);
+        require(calls.length <= maxTraceCalls, "AaveV4Oracle: trace limit exceeded");
+        for (uint256 i; i < calls.length; ++i) {
+            require(calls[i].input.length == 32 * 3, "AaveV4Oracle: malformed collateral input");
+            (, bool usingAsCollateral,) = abi.decode(calls[i].input, (uint256, bool, address));
+            if (!usingAsCollateral) {
+                return true;
+            }
+        }
+        return false;
     }
 }

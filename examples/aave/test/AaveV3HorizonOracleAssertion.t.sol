@@ -97,6 +97,7 @@ interface IOracleGuardFlashReceiver {
 contract OracleGuardPool {
     OracleGuardProvider internal immutable provider;
     address[] internal assets;
+    bool internal consumePrices = true;
 
     constructor(OracleGuardProvider provider_, address[] memory assets_) {
         provider = provider_;
@@ -105,6 +106,10 @@ contract OracleGuardPool {
 
     function addAsset(address asset) external {
         assets.push(asset);
+    }
+
+    function setConsumePrices(bool enabled) external {
+        consumePrices = enabled;
     }
 
     function getReservesList() external view returns (address[] memory) {
@@ -152,6 +157,9 @@ contract OracleGuardPool {
     }
 
     function _consumePrices() internal view {
+        if (!consumePrices) {
+            return;
+        }
         OracleGuardOracle oracle = OracleGuardOracle(provider.getPriceOracle());
         for (uint256 i; i < assets.length; ++i) {
             oracle.getAssetPrice(assets[i]);
@@ -304,6 +312,13 @@ contract AaveV3HorizonOracleAssertionTest is Test, CredibleTest {
 
     function testStableBorrowPassesBelowThreeMillionGas() public {
         _arm(MAX_TRACE_CALLS);
+        pool.borrow(asset0, 1, 2, 0, address(this));
+    }
+
+    function testBorrowWithoutProviderOrPriceReadFailsClosed() public {
+        pool.setConsumePrices(false);
+        _arm(MAX_TRACE_CALLS);
+        vm.expectRevert(bytes("AaveV3Horizon: Pool skipped oracle provider"));
         pool.borrow(asset0, 1, 2, 0, address(this));
     }
 

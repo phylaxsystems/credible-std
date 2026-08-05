@@ -98,6 +98,7 @@ contract MockV4Spoke {
     address public immutable ORACLE;
     IAaveV4Spoke.Reserve[] internal reserves;
     bool internal readUnknownReserve;
+    bool internal consumePrices = true;
 
     constructor(address oracle_) {
         ORACLE = oracle_;
@@ -119,6 +120,10 @@ contract MockV4Spoke {
 
     function setReadUnknownReserve(bool enabled) external {
         readUnknownReserve = enabled;
+    }
+
+    function setConsumePrices(bool enabled) external {
+        consumePrices = enabled;
     }
 
     function getReserveCount() external view returns (uint256) {
@@ -176,6 +181,9 @@ contract MockV4Spoke {
     }
 
     function _consumePrices() internal view {
+        if (!consumePrices) {
+            return;
+        }
         MockV4Oracle oracle = MockV4Oracle(ORACLE);
         for (uint256 i; i < reserves.length; ++i) {
             oracle.getReservePrice(i);
@@ -389,6 +397,34 @@ contract AaveV4OracleConsumptionAssertionTest is Test, CredibleTest {
         spoke.borrow(0, 1, address(this));
     }
 
+    function testBorrowWithoutPriceReadFailsClosed() public {
+        _expectMandatoryPathWithoutPriceFails(abi.encodeCall(MockV4Spoke.borrow, (0, 1, address(this))));
+    }
+
+    function testWithdrawWithoutPriceReadFailsClosed() public {
+        _expectMandatoryPathWithoutPriceFails(abi.encodeCall(MockV4Spoke.withdraw, (0, 1, address(this))));
+    }
+
+    function testLiquidationWithoutPriceReadFailsClosed() public {
+        _expectMandatoryPathWithoutPriceFails(
+            abi.encodeCall(MockV4Spoke.liquidationCall, (0, 1, address(this), 1, false))
+        );
+    }
+
+    function testCollateralDisableWithoutPriceReadFailsClosed() public {
+        _expectMandatoryPathWithoutPriceFails(
+            abi.encodeCall(MockV4Spoke.setUsingAsCollateral, (0, false, address(this)))
+        );
+    }
+
+    function testRiskPremiumRefreshWithoutPriceReadFailsClosed() public {
+        _expectMandatoryPathWithoutPriceFails(abi.encodeCall(MockV4Spoke.updateUserRiskPremium, (address(this))));
+    }
+
+    function testDynamicConfigRefreshWithoutPriceReadFailsClosed() public {
+        _expectMandatoryPathWithoutPriceFails(abi.encodeCall(MockV4Spoke.updateUserDynamicConfig, (address(this))));
+    }
+
     function testHonestWithdrawPricePath() public {
         _arm(MAX_TRACE_CALLS, DEVIATION_BPS, 2);
         spoke.withdraw(0, 1, address(this));
@@ -600,6 +636,17 @@ contract AaveV4OracleConsumptionAssertionTest is Test, CredibleTest {
         driver.priceBorrowRestore(source1, PRICE + 1, PRICE, spoke);
     }
 
+    function testFullRangeToleranceIsRejected() public {
+        AaveV4OracleConsumptionAssertion.ReservePolicy[] memory policies = _twoPolicies(10_000, address(source1));
+        AaveV4OracleConsumptionAssertion.ConfigSlotGuard[] memory configGuards =
+            new AaveV4OracleConsumptionAssertion.ConfigSlotGuard[](0);
+
+        vm.expectRevert(bytes("AaveV4Oracle: bad tolerance"));
+        new AaveV4OracleConsumptionAssertion(
+            address(spoke), address(oracle), address(0), MAX_TRACE_CALLS, policies, configGuards
+        );
+    }
+
     /// @dev Same-transaction protection cannot identify a baseline corrupted before PreTx.
     function testPreExistingManipulationIsDocumentedFalseNegative() public {
         source1.setAnswer(2 * PRICE);
@@ -684,6 +731,18 @@ contract AaveV4OracleConsumptionAssertionTest is Test, CredibleTest {
         AaveV4OracleConsumptionAssertion.ConfigSlotGuard[] memory configGuards =
             new AaveV4OracleConsumptionAssertion.ConfigSlotGuard[](0);
         _armCustom(address(spoke), address(oracle), address(0), maxTraceCalls, policies, configGuards);
+    }
+
+    function _expectMandatoryPathWithoutPriceFails(bytes memory callData) internal {
+        spoke.setConsumePrices(false);
+        _arm(MAX_TRACE_CALLS, DEVIATION_BPS, 2);
+        vm.expectRevert(bytes("AaveV4Oracle: unrecognized price path"));
+        (bool success, bytes memory result) = address(spoke).call(callData);
+        if (!success) {
+            assembly ("memory-safe") {
+                revert(add(result, 32), mload(result))
+            }
+        }
     }
 
     function _twoPolicies(uint256 deviationBps, address secondSource)

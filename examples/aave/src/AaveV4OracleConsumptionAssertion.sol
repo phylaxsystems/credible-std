@@ -78,7 +78,7 @@ contract AaveV4OracleConsumptionAssertion is AaveV4OracleConsumptionHelpers {
             require(policy.reserveId == i, "AaveV4Oracle: policies not contiguous");
             require(policy.asset != address(0), "AaveV4Oracle: policy asset zero");
             require(policy.source != address(0), "AaveV4Oracle: policy source zero");
-            require(policy.deviationBps <= BPS, "AaveV4Oracle: bad tolerance");
+            require(policy.deviationBps < BPS, "AaveV4Oracle: bad tolerance");
             for (uint256 j; j < i; ++j) {
                 require(reservePolicies_[j].source != policy.source, "AaveV4Oracle: source must map one reserve");
             }
@@ -129,7 +129,7 @@ contract AaveV4OracleConsumptionAssertion is AaveV4OracleConsumptionHelpers {
 
         bool mandatoryPriceOperation;
         if (spokePriceCallCount == 0) {
-            mandatoryPriceOperation = _hasMandatoryPriceOperation(SPOKE);
+            mandatoryPriceOperation = _hasMandatoryPriceOperation(SPOKE, MAX_TRACE_CALLS);
         }
         if (spokePriceCallCount == 0 && !mandatoryPriceOperation) {
             return;

@@ -166,15 +166,18 @@ contract AaveV3HorizonOracleAssertion is AaveV3HorizonHelpers {
             ph.getStaticCallInputs(ADDRESSES_PROVIDER, IAaveV3LikeAddressesProvider.getPriceOracle.selector);
         require(providerCalls.length <= MAX_TRACE_CALLS, "AaveV3Horizon: too many provider calls");
 
+        bool poolProviderCallSeen;
         for (uint256 i; i < providerCalls.length; ++i) {
             if (providerCalls[i].caller != POOL) {
                 continue;
             }
 
+            poolProviderCallSeen = true;
             bytes memory output = ph.callOutputAt(providerCalls[i].id);
             require(output.length == 32, "AaveV3Horizon: malformed provider output");
             require(abi.decode(output, (address)) == expectedOracle, "AaveV3Horizon: Pool consumed a different oracle");
         }
+        require(poolProviderCallSeen, "AaveV3Horizon: Pool skipped oracle provider");
     }
 
     function _assertConsumedPrices(address oracle, address[] memory sources, uint256[] memory baselinePrices)
@@ -219,11 +222,14 @@ contract AaveV3HorizonOracleAssertion is AaveV3HorizonHelpers {
             }
         }
 
+        bool poolPriceCallSeen;
         for (uint256 i; i < priceCalls.length; ++i) {
             if (priceCalls[i].caller == POOL) {
+                poolPriceCallSeen = true;
                 require(mappedPriceCalls[i], "AaveV3Horizon: unrecognized Pool oracle price path");
             }
         }
+        require(poolPriceCallSeen, "AaveV3Horizon: Pool skipped oracle prices");
     }
 
     function _priceCallAsset(bytes memory priceCallInput) internal pure returns (bool available, address asset) {
