@@ -32,6 +32,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
 
     uint256 internal constant MULTISEND_HEADER_LENGTH = 85;
     uint64 internal constant ALLOWANCE_READ_GAS = 500_000;
+    uint256 internal constant MAX_BATCH_ACTIONS = 4;
 
     struct TargetPolicy {
         address target;
@@ -129,6 +130,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
     error SafeTxShapeApprovalAmountAboveCap(
         address token, address spender, uint8 kind, uint256 amount, uint256 maxAmount
     );
+    error SafeTxShapeMixedApprovalMethodsBlocked();
     error SafeTxShapeAllowanceReadFailed(address token, address spender);
     error SafeTxShapeGasRefundBlocked(uint256 gasPrice);
 
@@ -144,6 +146,8 @@ abstract contract SafeTxShapeHelpers is Assertion {
     mapping(address token => mapping(address spender => mapping(uint8 kind => ApprovalPolicy))) internal
         _approvalPolicyByKey;
     mapping(address token => mapping(address spender => mapping(uint8 kind => bool))) internal _approvalPolicyExists;
+    mapping(address token => mapping(address spender => mapping(uint8 kind => uint256 indexPlusOne))) internal
+        _approvalPolicyIndexPlusOne;
     mapping(address token => mapping(uint8 kind => bool)) internal _tokenApprovalKindRegistered;
     mapping(address module => bool allowed) internal _allowedModule;
 
@@ -289,13 +293,71 @@ abstract contract SafeTxShapeHelpers is Assertion {
         view
     {
         (uint256 transactionsOffset, uint256 transactionsLength) = _multiSendTransactions(action, batchPolicy);
+        uint256[] memory cumulativeIncreases = new uint256[](approvalPolicies.length);
+        uint256[] memory initialAllowances = new uint256[](approvalPolicies.length);
+        bool[] memory allowanceLoaded = new bool[](approvalPolicies.length);
+        bool approveSeen;
+        bool increaseAllowanceSeen;
         uint256 offset;
+        uint256 actionCount;
         while (offset < transactionsLength) {
             (Action memory innerAction, uint256 nextOffset) =
                 _readMultiSendAction(action, transactionsOffset, transactionsLength, offset);
-            _validateInnerApprovalPolicy(innerAction);
+            ++actionCount;
+            if (actionCount > batchPolicy.maxActions) revert SafeTxShapeBatchTooManyActions(batchPolicy.maxActions);
+            bytes4 selector =
+                innerAction.dataLength >= 4 ? _selectorAt(innerAction.data, innerAction.dataOffset) : bytes4(0);
+            if (innerAction.operation == OPERATION_CALL && innerAction.dataLength == 68 && selector == APPROVE_SELECTOR)
+            {
+                _validateInnerApprovalPolicy(innerAction);
+                if (_tokenHasApprovalKind(innerAction.target, APPROVAL_KIND_ERC20_APPROVE)) {
+                    if (increaseAllowanceSeen) revert SafeTxShapeMixedApprovalMethodsBlocked();
+                    approveSeen = true;
+                }
+            } else if (
+                innerAction.operation == OPERATION_CALL && innerAction.dataLength == 68
+                    && selector == INCREASE_ALLOWANCE_SELECTOR
+            ) {
+                if (_readUint256(innerAction.data, innerAction.dataOffset + 36) == 0) {
+                    _validateInnerApprovalPolicy(innerAction);
+                    offset = nextOffset;
+                    continue;
+                }
+                if (approveSeen) revert SafeTxShapeMixedApprovalMethodsBlocked();
+                increaseAllowanceSeen = true;
+                _accumulateIncreaseAllowance(innerAction, cumulativeIncreases, initialAllowances, allowanceLoaded);
+            } else {
+                _validateInnerApprovalPolicy(innerAction);
+            }
             offset = nextOffset;
         }
+    }
+
+    function _accumulateIncreaseAllowance(
+        Action memory action,
+        uint256[] memory cumulativeIncreases,
+        uint256[] memory initialAllowances,
+        bool[] memory allowanceLoaded
+    ) internal view {
+        address spender = _readAbiAddress(action.data, action.dataOffset + 4);
+        uint256 addedValue = _readUint256(action.data, action.dataOffset + 36);
+        uint256 policyIndexPlusOne =
+            _approvalPolicyIndexPlusOne[action.target][spender][APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE];
+        if (policyIndexPlusOne == 0) {
+            revert SafeTxShapeApprovalSpenderNotAllowed(action.target, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE);
+        }
+
+        uint256 policyIndex = policyIndexPlusOne - 1;
+        if (!allowanceLoaded[policyIndex]) {
+            initialAllowances[policyIndex] = _readAllowanceFromPreState(action.caller, action.target, spender);
+            allowanceLoaded[policyIndex] = true;
+        }
+
+        uint256 cumulativeIncrease = cumulativeIncreases[policyIndex];
+        cumulativeIncrease =
+            addedValue > type(uint256).max - cumulativeIncrease ? type(uint256).max : cumulativeIncrease + addedValue;
+        cumulativeIncreases[policyIndex] = cumulativeIncrease;
+        _validateAllowancePeak(action.target, spender, initialAllowances[policyIndex], cumulativeIncrease);
     }
 
     function _multiSendTransactions(Action memory action, BatchExecutorPolicy storage batchPolicy)
@@ -430,10 +492,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
             uint256 addedValue = _readUint256(action.data, action.dataOffset + 36);
             if (addedValue == 0) return;
 
-            // `increaseAllowance(spender, addedValue)` adds to the current allowance; treating `addedValue`
-            // as the final amount would let two inner calls land above `maxAmount`. Verify the post-state
-            // allowance instead so the cap binds the actual final allowance after the transaction.
-            _validateIncreaseAllowanceFinalState(action.caller, action.target, spender);
+            _validateIncreaseAllowanceFromPreState(action.caller, action.target, spender, addedValue);
             return;
         }
 
@@ -482,33 +541,44 @@ abstract contract SafeTxShapeHelpers is Assertion {
         }
     }
 
-    function _validateIncreaseAllowanceFinalState(address owner, address token, address spender) internal view {
+    function _validateIncreaseAllowanceFromPreState(
+        address owner,
+        address token,
+        address spender,
+        uint256 cumulativeIncrease
+    ) internal view {
         if (!_approvalPolicyExists[token][spender][APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE]) {
             revert SafeTxShapeApprovalSpenderNotAllowed(token, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE);
         }
 
+        uint256 initialAllowance = _readAllowanceFromPreState(owner, token, spender);
+        _validateAllowancePeak(token, spender, initialAllowance, cumulativeIncrease);
+    }
+
+    function _readAllowanceFromPreState(address owner, address token, address spender) internal view returns (uint256) {
         PhEvm.TriggerContext memory triggerCtx = ph.context();
-        PhEvm.ForkId memory postFork = _postCall(triggerCtx.callEnd);
-
+        PhEvm.ForkId memory preFork = _preCall(triggerCtx.callStart);
         PhEvm.StaticCallResult memory result = ph.staticcallAt(
-            token, abi.encodeWithSignature("allowance(address,address)", owner, spender), ALLOWANCE_READ_GAS, postFork
+            token, abi.encodeWithSignature("allowance(address,address)", owner, spender), ALLOWANCE_READ_GAS, preFork
         );
-        if (!result.ok || result.data.length < 32) {
-            revert SafeTxShapeAllowanceReadFailed(token, spender);
-        }
+        if (!result.ok || result.data.length != 32) revert SafeTxShapeAllowanceReadFailed(token, spender);
+        return abi.decode(result.data, (uint256));
+    }
 
-        uint256 finalAllowance = abi.decode(result.data, (uint256));
+    function _validateAllowancePeak(
+        address token,
+        address spender,
+        uint256 initialAllowance,
+        uint256 cumulativeIncrease
+    ) internal view {
         ApprovalPolicy storage policy = _approvalPolicyByKey[token][spender][APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE];
-
-        if (finalAllowance == type(uint256).max) {
-            if (!policy.allowUnlimited) {
-                revert SafeTxShapeApprovalUnlimitedBlocked(token, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE);
-            }
-            return;
-        }
-        if (finalAllowance > policy.maxAmount) {
+        if (cumulativeIncrease > policy.maxAmount || initialAllowance > policy.maxAmount - cumulativeIncrease) {
+            uint256 peakAllowance = cumulativeIncrease > type(uint256).max - initialAllowance
+                ? type(uint256).max
+                : initialAllowance + cumulativeIncrease;
+            if (peakAllowance == type(uint256).max && policy.allowUnlimited) return;
             revert SafeTxShapeApprovalAmountAboveCap(
-                token, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE, finalAllowance, policy.maxAmount
+                token, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE, peakAllowance, policy.maxAmount
             );
         }
     }
@@ -754,7 +824,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
         for (uint256 i; i < policies.length; ++i) {
             if (
                 policies[i].executor == address(0) || policies[i].selector == bytes4(0) || policies[i].maxActions == 0
-                    || policies[i].allowNested
+                    || policies[i].maxActions > MAX_BATCH_ACTIONS || policies[i].allowNested
             ) {
                 revert SafeTxShapeInvalidPolicy();
             }
@@ -798,6 +868,8 @@ abstract contract SafeTxShapeHelpers is Assertion {
             approvalPolicies.push(policies[i]);
             _approvalPolicyByKey[policies[i].token][policies[i].spender][policies[i].kind] = policies[i];
             _approvalPolicyExists[policies[i].token][policies[i].spender][policies[i].kind] = true;
+            _approvalPolicyIndexPlusOne[policies[i].token][policies[i].spender][policies[i].kind] =
+            approvalPolicies.length;
             _tokenApprovalKindRegistered[policies[i].token][policies[i].kind] = true;
         }
     }

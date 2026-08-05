@@ -470,6 +470,18 @@ contract SafeTxShapeAssertionTest is Test, CredibleTest {
         _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_DELEGATECALL);
     }
 
+    function testRejectsBatchPolicyAboveMeasuredGlobalLimit() public {
+        vm.expectRevert(SafeTxShapeHelpers.SafeTxShapeInvalidPolicy.selector);
+        new SafeTxShapeAssertion(
+            _baselineTargets(),
+            _baselineSelectors(),
+            _baselineBatchPolicies(5),
+            _approvalPolicies(false),
+            false,
+            _noModules()
+        );
+    }
+
     function testBlocksErc20ApprovalToUntrustedSpender() public {
         _armBaselinePolicyFor(false, SafeTxShapeAssertion.assertSafeApprovalPolicy.selector);
 
@@ -565,11 +577,159 @@ contract SafeTxShapeAssertionTest is Test, CredibleTest {
                 address(erc20Token),
                 TRUSTED_SPENDER,
                 APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE,
-                uint256(101),
+                uint256(102),
                 uint256(100)
             )
         );
         _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_CALL);
+    }
+
+    function testBlocksTransientAllowanceAcrossMultipleBatchGrants() public {
+        _armBaselinePolicyFor(false, SafeTxShapeAssertion.assertSafeApprovalPolicy.selector);
+
+        bytes memory txs = bytes.concat(
+            _packMultiSendTx(
+                OP_CALL,
+                address(erc20Token),
+                0,
+                abi.encodeWithSelector(INCREASE_ALLOWANCE_SELECTOR, TRUSTED_SPENDER, uint256(60))
+            ),
+            _packMultiSendTx(
+                OP_CALL,
+                address(erc20Token),
+                0,
+                abi.encodeWithSelector(INCREASE_ALLOWANCE_SELECTOR, TRUSTED_SPENDER, uint256(60))
+            )
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SafeTxShapeHelpers.SafeTxShapeApprovalAmountAboveCap.selector,
+                address(erc20Token),
+                TRUSTED_SPENDER,
+                APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE,
+                uint256(120),
+                uint256(100)
+            )
+        );
+        _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_DELEGATECALL);
+    }
+
+    function testBlocksTransientAllowanceAcrossMixedBatchGrantMethods() public {
+        _armBaselinePolicyFor(false, SafeTxShapeAssertion.assertSafeApprovalPolicy.selector);
+
+        bytes memory txs = bytes.concat(
+            _packMultiSendTx(
+                OP_CALL, address(erc20Token), 0, abi.encodeCall(MockApprovalTarget.approve, (TRUSTED_SPENDER, 80))
+            ),
+            _packMultiSendTx(
+                OP_CALL,
+                address(erc20Token),
+                0,
+                abi.encodeWithSelector(INCREASE_ALLOWANCE_SELECTOR, TRUSTED_SPENDER, uint256(30))
+            )
+        );
+
+        vm.expectRevert(SafeTxShapeHelpers.SafeTxShapeMixedApprovalMethodsBlocked.selector);
+        _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_DELEGATECALL);
+    }
+
+    function testBlocksTransientAllowanceAcrossReversedMixedBatchGrantMethods() public {
+        _armBaselinePolicyFor(false, SafeTxShapeAssertion.assertSafeApprovalPolicy.selector);
+
+        bytes memory txs = bytes.concat(
+            _packMultiSendTx(
+                OP_CALL,
+                address(erc20Token),
+                0,
+                abi.encodeWithSelector(INCREASE_ALLOWANCE_SELECTOR, TRUSTED_SPENDER, uint256(30))
+            ),
+            _packMultiSendTx(
+                OP_CALL, address(erc20Token), 0, abi.encodeCall(MockApprovalTarget.approve, (TRUSTED_SPENDER, 80))
+            )
+        );
+
+        vm.expectRevert(SafeTxShapeHelpers.SafeTxShapeMixedApprovalMethodsBlocked.selector);
+        _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_DELEGATECALL);
+    }
+
+    function testManyBatchAllowanceGrantsAccumulateInOnePass() public {
+        _armPolicyFor(
+            _baselineTargets(),
+            _baselineSelectors(),
+            _baselineBatchPolicies(4),
+            _approvalPolicies(false),
+            false,
+            _noModules(),
+            SafeTxShapeAssertion.assertSafeApprovalPolicy.selector
+        );
+
+        bytes memory txs;
+        for (uint256 i; i < 4; ++i) {
+            txs = bytes.concat(
+                txs,
+                _packMultiSendTx(
+                    OP_CALL,
+                    address(erc20Token),
+                    0,
+                    abi.encodeWithSelector(INCREASE_ALLOWANCE_SELECTOR, TRUSTED_SPENDER, uint256(24))
+                )
+            );
+        }
+
+        _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_DELEGATECALL);
+    }
+
+    function testApprovalPolicyEnforcesConfiguredBatchLimitIndependently() public {
+        _armPolicyFor(
+            _baselineTargets(),
+            _baselineSelectors(),
+            _baselineBatchPolicies(1),
+            _approvalPolicies(false),
+            false,
+            _noModules(),
+            SafeTxShapeAssertion.assertSafeApprovalPolicy.selector
+        );
+
+        bytes memory txs = bytes.concat(
+            _packMultiSendTx(
+                OP_CALL,
+                address(erc20Token),
+                0,
+                abi.encodeWithSelector(INCREASE_ALLOWANCE_SELECTOR, TRUSTED_SPENDER, uint256(1))
+            ),
+            _packMultiSendTx(
+                OP_CALL,
+                address(erc20Token),
+                0,
+                abi.encodeWithSelector(INCREASE_ALLOWANCE_SELECTOR, TRUSTED_SPENDER, uint256(1))
+            )
+        );
+
+        vm.expectRevert(abi.encodeWithSelector(SafeTxShapeHelpers.SafeTxShapeBatchTooManyActions.selector, 1));
+        _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_DELEGATECALL);
+    }
+
+    function testIncreaseAllowanceCanReachUnlimitedWhenPolicyAllowsIt() public {
+        SafeTxShapeHelpers.ApprovalPolicy[] memory approvals = _approvalPolicies(false);
+        approvals[1].allowUnlimited = true;
+
+        _armPolicyFor(
+            _baselineTargets(),
+            _baselineSelectors(),
+            _baselineBatchPolicies(4),
+            approvals,
+            false,
+            _noModules(),
+            SafeTxShapeAssertion.assertSafeApprovalPolicy.selector
+        );
+
+        _execOwner(
+            address(erc20Token),
+            0,
+            abi.encodeWithSelector(INCREASE_ALLOWANCE_SELECTOR, TRUSTED_SPENDER, type(uint256).max),
+            OP_CALL
+        );
     }
 
     function testBlocksDuplicatePolicyEntries() public {

@@ -34,6 +34,24 @@ contract NonCanonicalBoolRegistry {
     }
 }
 
+contract SlowRegistry {
+    function isCredibleBlock(uint256) external pure returns (bool) {
+        uint256 value;
+        while (true) value++;
+        return value == 0;
+    }
+}
+
+contract OversizedRegistryResponse {
+    fallback() external {
+        assembly {
+            mstore(0x00, 0)
+            mstore(0x20, 0)
+            return(0x00, 0x40)
+        }
+    }
+}
+
 contract CredibleSafeGuardScriptsTest is Test {
     bytes32 internal constant GUARD_STORAGE_SLOT = 0x4a204f620c8c5ccdca3fd54d003badd85ba500436a431f0cbda4f558c93c34c8;
     bytes32 internal constant REFERENCE_CHECKSUM = 0x8994ee462d748c24ecd7804083007dd231e36ff84da4b272921c30d1ae7f0df0;
@@ -121,6 +139,39 @@ contract CredibleSafeGuardScriptsTest is Test {
             )
         );
         deployer.validateRegistry(address(badRegistry));
+    }
+
+    function test_validateRegistry_rejectsSlowRegistryWithinRuntimeGasBound() public {
+        SlowRegistry slowRegistry = new SlowRegistry();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                DeployCredibleSafeGuard.RegistryReadFailed.selector, address(slowRegistry), "isCredibleBlock"
+            )
+        );
+        deployer.validateRegistry(address(slowRegistry));
+    }
+
+    function test_validateRegistry_rejectsOversizedReturnData() public {
+        OversizedRegistryResponse oversized = new OversizedRegistryResponse();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                DeployCredibleSafeGuard.RegistryReadFailed.selector, address(oversized), "isCredibleBlock"
+            )
+        );
+        deployer.validateRegistry(address(oversized));
+    }
+
+    function test_validateRegistry_rejectsFutureLastCredibleBlock() public {
+        registry.setLastCredibleBlock(block.number + 1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                DeployCredibleSafeGuard.RegistryLastCredibleBlockInFuture.selector,
+                address(registry),
+                block.number + 1,
+                block.number
+            )
+        );
+        deployer.validateRegistry(address(registry));
     }
 
     function test_installBatch_matchesSafeTransactionBuilderSchema() public {
