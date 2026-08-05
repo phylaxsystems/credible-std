@@ -130,6 +130,7 @@ abstract contract SafeTxShapeHelpers is Assertion {
     error SafeTxShapeApprovalAmountAboveCap(
         address token, address spender, uint8 kind, uint256 amount, uint256 maxAmount
     );
+    error SafeTxShapeMixedApprovalMethodsBlocked();
     error SafeTxShapeAllowanceReadFailed(address token, address spender);
     error SafeTxShapeGasRefundBlocked(uint256 gasPrice);
 
@@ -295,6 +296,8 @@ abstract contract SafeTxShapeHelpers is Assertion {
         uint256[] memory cumulativeIncreases = new uint256[](approvalPolicies.length);
         uint256[] memory initialAllowances = new uint256[](approvalPolicies.length);
         bool[] memory allowanceLoaded = new bool[](approvalPolicies.length);
+        bool approveSeen;
+        bool increaseAllowanceSeen;
         uint256 offset;
         uint256 actionCount;
         while (offset < transactionsLength) {
@@ -302,9 +305,18 @@ abstract contract SafeTxShapeHelpers is Assertion {
                 _readMultiSendAction(action, transactionsOffset, transactionsLength, offset);
             ++actionCount;
             if (actionCount > batchPolicy.maxActions) revert SafeTxShapeBatchTooManyActions(batchPolicy.maxActions);
-            if (
+            bytes4 selector =
+                innerAction.dataLength >= 4 ? _selectorAt(innerAction.data, innerAction.dataOffset) : bytes4(0);
+            if (innerAction.operation == OPERATION_CALL && innerAction.dataLength == 68 && selector == APPROVE_SELECTOR)
+            {
+                _validateInnerApprovalPolicy(innerAction);
+                if (_tokenHasApprovalKind(innerAction.target, APPROVAL_KIND_ERC20_APPROVE)) {
+                    if (increaseAllowanceSeen) revert SafeTxShapeMixedApprovalMethodsBlocked();
+                    approveSeen = true;
+                }
+            } else if (
                 innerAction.operation == OPERATION_CALL && innerAction.dataLength == 68
-                    && _selectorAt(innerAction.data, innerAction.dataOffset) == INCREASE_ALLOWANCE_SELECTOR
+                    && selector == INCREASE_ALLOWANCE_SELECTOR
             ) {
                 address spender = _readAbiAddress(innerAction.data, innerAction.dataOffset + 4);
                 uint256 addedValue = _readUint256(innerAction.data, innerAction.dataOffset + 36);
@@ -323,6 +335,8 @@ abstract contract SafeTxShapeHelpers is Assertion {
                 }
 
                 uint256 policyIndex = policyIndexPlusOne - 1;
+                if (approveSeen) revert SafeTxShapeMixedApprovalMethodsBlocked();
+                increaseAllowanceSeen = true;
                 if (!allowanceLoaded[policyIndex]) {
                     initialAllowances[policyIndex] =
                         _readAllowanceFromPreState(innerAction.caller, innerAction.target, spender);

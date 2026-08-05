@@ -615,6 +615,44 @@ contract SafeTxShapeAssertionTest is Test, CredibleTest {
         _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_DELEGATECALL);
     }
 
+    function testBlocksTransientAllowanceAcrossMixedBatchGrantMethods() public {
+        _armBaselinePolicyFor(false, SafeTxShapeAssertion.assertSafeApprovalPolicy.selector);
+
+        bytes memory txs = bytes.concat(
+            _packMultiSendTx(
+                OP_CALL, address(erc20Token), 0, abi.encodeCall(MockApprovalTarget.approve, (TRUSTED_SPENDER, 80))
+            ),
+            _packMultiSendTx(
+                OP_CALL,
+                address(erc20Token),
+                0,
+                abi.encodeWithSelector(INCREASE_ALLOWANCE_SELECTOR, TRUSTED_SPENDER, uint256(30))
+            )
+        );
+
+        vm.expectRevert(SafeTxShapeHelpers.SafeTxShapeMixedApprovalMethodsBlocked.selector);
+        _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_DELEGATECALL);
+    }
+
+    function testBlocksTransientAllowanceAcrossReversedMixedBatchGrantMethods() public {
+        _armBaselinePolicyFor(false, SafeTxShapeAssertion.assertSafeApprovalPolicy.selector);
+
+        bytes memory txs = bytes.concat(
+            _packMultiSendTx(
+                OP_CALL,
+                address(erc20Token),
+                0,
+                abi.encodeWithSelector(INCREASE_ALLOWANCE_SELECTOR, TRUSTED_SPENDER, uint256(30))
+            ),
+            _packMultiSendTx(
+                OP_CALL, address(erc20Token), 0, abi.encodeCall(MockApprovalTarget.approve, (TRUSTED_SPENDER, 80))
+            )
+        );
+
+        vm.expectRevert(SafeTxShapeHelpers.SafeTxShapeMixedApprovalMethodsBlocked.selector);
+        _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_DELEGATECALL);
+    }
+
     function testManyBatchAllowanceGrantsAccumulateInOnePass() public {
         _armPolicyFor(
             _baselineTargets(),
