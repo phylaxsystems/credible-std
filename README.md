@@ -44,7 +44,7 @@ live in `examples/micro-patterns`.
 Install the latest stable release:
 
 ```bash
-forge install phylaxsystems/credible-std@0.4.0
+forge install phylaxsystems/credible-std@0.7.0
 ```
 
 Or install from master (latest development version):
