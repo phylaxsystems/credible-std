@@ -29,7 +29,6 @@ FOUNDRY_PROFILE=<protocol> forge build
 | `nado/` | `ink/assertions` | Nado perpetual clearinghouse |
 | `royco/` | `royco-dawn` | Royco kernel accounting and version-neutral tranche state effects |
 | `safe/` | `safe-protection-suite` | Safe config lock + tx-shape assertions |
-| `safe-guard/` | `safe-guard` | Deployment and Safe Transaction Builder tooling for `CredibleSafeGuard` |
 | `spark/` | `spark` | Spark Vault previews/take accounting and risk-increasing SparkLend oracle guard |
 | `symbiotic/` | `symbiotic` | Symbiotic V1 deposit/withdraw/claim/slash accounting; relay and noncausal circuit policy quarantined |
 | `tydro/` | `ink/assertions` | Tydro Aave-v3-like operation safety on Ink |
