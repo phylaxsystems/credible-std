@@ -1,239 +1,34 @@
-# Safe Protections
+# Safe Assertions
 
-This package contains Safe-native protections. They cover different surfaces and run in different places:
-
-- `SafeConfigLockAssertion` (Credible Layer assertion) checks the Safe configuration envelope after a transaction.
-- `SafeTxShapeAssertion` (Credible Layer assertion) checks the direct actions a Safe is about to execute through owner or module entrypoints.
-- `CredibleSafeGuard` (Safe transaction guard) allows owner/multisig Safe transactions only while the current block is credible, and fails open when the credible builder set is offline. It gates the owner-path `execTransaction` only; module executions bypass transaction guards (see [Scope](#scope)).
-
-The two `*Assertion` contracts run inside the PhEvm. `CredibleSafeGuard` is a plain on-chain Gnosis Safe transaction guard installed on the Safe via `setGuard`.
-
-## Credible Safe Guard
-
-`CredibleSafeGuard` is a Gnosis Safe transaction guard that gates every owner-path Safe execution on block credibility, as reported by the on-chain [Credible Registry](https://github.com/phylaxsystems/credible-registry).
-
-Install it through an owner-authorized Safe self-transaction whose calldata is `setGuard(address(guard))`; a direct owner call is not authorized. Safe then calls `checkTransaction` before each `execTransaction`, and the guard reverts to block the execution. The scripts and Safe Transaction Builder import workflow are documented in [`examples/safe-guard/README.md`](../../../examples/safe-guard/README.md).
-
-### Safe compatibility
-
-The integration suite runs against every guard-capable Safe contract release from 1.3.0 through
-1.5.0:
-
-| Safe release | Pinned revision | Singleton / proxy factory | Guard installation validation |
-| --- | --- | --- | --- |
-| 1.3.0 | `186a21a` | `GnosisSafe` / `GnosisSafeProxyFactory` | Transaction guards supported; no ERC-165 check |
-| 1.4.0 | `e870f51` | `Safe` / `SafeProxyFactory` | `GS300` ERC-165 interface check |
-| 1.4.1 | `21dc824` (`v1.4.1-3`) | `Safe` / `SafeProxyFactory` | `GS300` ERC-165 interface check |
-| 1.5.0 | `dc437e8` | `Safe` / `SafeProxyFactory` | `GS300` ERC-165 interface check |
-
-Safe 1.2.0 is not included because it does not implement transaction guards. The 1.4.1
-dependency uses the `v1.4.1-3` source release, whose singleton reports contract version `1.4.1`.
-The matrix follows the
-[official Safe contract releases](https://github.com/safe-global/safe-smart-account/releases).
-
-Safe 1.3.0 supports installing and running a transaction guard, but its `setGuard` implementation
-accepts the address without validating ERC-165 support. Safe 1.4.0 and later reject a nonzero guard
-unless it advertises the transaction-guard interface, reverting with `GS300`.
-`CredibleSafeGuard` implements that interface and installs successfully on all four versions.
-
-The shared lifecycle suite covers:
-
-- Guard installation through an owner-signed `execTransaction` → `setGuard`, including the real
-  `GS300` check on Safe 1.4.0 and later.
-- Signed transactions executing in credible blocks and reverting with `NonCredibleBlock` in
-  non-credible blocks while the builder set is live.
-- Regular transactions and guard removal remaining blocked at exactly `failOpenBlockThreshold`,
-  without changing the guard slot or consuming the Safe nonce.
-- Guard removal succeeding at `failOpenBlockThreshold + 1`, and before expiry in a credible block.
-- Fail-open after builder silence and when registry responses revert or are malformed, including
-  recovery removal of the guard.
-- An end-to-end builder stall-then-recover sequence.
-
-The expiry comparison is strict: fail-open activates only when the gap from the latest credible
-block is greater than `failOpenBlockThreshold`. Expiry is only needed for a healthy,
-non-credible block; a credible block or an unavailable/malformed registry permits earlier
-recovery, preserving the guard's existing policy.
-
-The compatibility and operational tests are under
-[`test/protection/safe/integration`](../../../test/protection/safe/integration) and use the
-dedicated `safe-guard` Foundry profile because the pinned Safe contracts require the legacy
-compiler pipeline (`optimizer = true`, no `via_ir`).
-
-### What It Checks
-
-On every Safe transaction the guard reads the Credible Registry and decides:
-
-1. If a required registry read reverts, exceeds its gas budget, or returns malformed data, the registry is treated as unavailable, so the guard fails open and allows the transaction. This prevents a broken registry from locking the Safe.
-2. If the current block is credible, the transaction is allowed.
-3. Otherwise, if the most recent credible block lags the current block by more than `failOpenBlockThreshold` blocks, the credible builder set is treated as offline, so the guard fails open and allows the transaction. This keeps a stalled builder set from locking the Safe.
-4. Otherwise the builder set is live and the current block is not credible, so the transaction reverts with `NonCredibleBlock`.
-
-Registry probes are limited to 50,000 gas and copy exactly one 32-byte return word. A non-canonical boolean, short or oversized response, codeless registry address, or failed call activates fail-open instead of bubbling a failure through the Safe guard hook. This also preserves the owner path for replacing or removing the guard if the registry breaks.
-
-### Config Options
-
-Both values are immutable constructor arguments:
-
-- `credibleRegistry`: address of the on-chain Credible Registry to query (`ICredibleRegistry`). Configurable per deployment; re-pointing means deploying a new guard and calling `setGuard` again.
-- `failOpenBlockThreshold`: number of blocks of builder silence tolerated before failing open.
-
-#### Choosing the fail-open threshold
-
-The target is to fail open after roughly 15 minutes with no credible blocks. The Credible Registry records credibility by block number and does not expose timestamps, so the window is expressed as the number of blocks the builder set produces in about 15 minutes on the target chain:
-
-| Block time | ~15 minutes |
-| ---------- | ----------- |
-| ~12s (Ethereum mainnet) | 75 blocks |
-| ~2s (typical L2) | 450 blocks |
-| ~1s | 900 blocks |
-
-### Material Effect
-
-- While the credible builder set is live, a Safe transaction cannot land in a non-credible block, such as one built by a builder that does not enforce assertions.
-- If the credible builder set goes offline for longer than the configured window, or the registry becomes unreadable, the Safe keeps working.
-- The guard gates only on block credibility and does not inspect the transaction target, value, calldata, or signatures. Pair it with `SafeConfigLockAssertion`, `SafeTxShapeAssertion`, or other assertions to constrain what the Safe may do within a credible block.
-
-### Scope
-
-`CredibleSafeGuard` is a Safe *transaction* guard, so it gates only the owner/multisig `execTransaction` path. Module executions (`execTransactionFromModule` / `execTransactionFromModuleReturnData`) bypass transaction guards entirely, so an enabled module can still execute while the current block is not credible. To gate module executions, install a separate Safe module guard (the v1.5.0 `checkModuleTransaction` hook) or protect that path with a Credible Layer assertion such as `SafeTxShapeAssertion`.
+This package contains Credible Layer assertions for Safe deployments. They run
+inside the PhEvm.
 
 ## Safe Tx Shape Assertion
 
-`SafeTxShapeAssertion` blocks protected Safe executions whose direct action shape is outside policy, even when the Safe signers or a module authorize the transaction.
+`SafeTxShapeAssertion` checks the direct actions a Safe is about to execute
+through owner or module entrypoints. It watches `execTransaction`,
+`execTransactionFromModule`, and `execTransactionFromModuleReturnData`.
 
-It watches:
+The assertion can enforce policies for:
 
-- `execTransaction`
-- `execTransactionFromModule`
-- `execTransactionFromModuleReturnData`
+- allowed targets and selectors;
+- native value, delegatecall, and fallback-calldata use;
+- Safe `MultiSend` and `MultiSendCallOnly` batches;
+- module callers; and
+- ERC-20, ERC-721, and ERC-1155 approval grants.
 
-The pack exposes one assertion function per enforced policy: `assertSafeModulePolicy`, `assertSafeDelegateCallPolicy`, `assertSafeTargetSelectorPolicy`, `assertSafeBatchPolicy`, and `assertSafeApprovalPolicy`.
-
-Every watched execution is normalized into one or more actions. A normal owner or module transaction is one action. An approved `MultiSend` or `MultiSendCallOnly` transaction is expanded into its packed inner actions, and every inner action is checked with the same rules.
-
-### What It Protects
-
-- Unknown contract targets are blocked.
-- Known targets must use an explicitly allowed selector unless the target is configured with the advanced `allowAnySelector` escape hatch.
-- Empty calldata (zero bytes) is blocked unless the target sets `allowEmptyCalldata`.
-- Sub-selector calldata (one to three bytes, routed to the fallback) is blocked unless the target sets `allowFallbackCalldata`.
-- Native value attached to a selector is blocked unless that selector or target allows nonzero value.
-- Owner transactions with nonzero signed `gasPrice` are blocked because Safe's refund payment has a separate token and receiver that this action policy does not model.
-- Direct Safe `DELEGATECALL` and module `DELEGATECALL` are blocked.
-- The only delegatecall exception is a configured batch executor such as Safe `MultiSend`.
-- Configured CALL-based batch executors such as `MultiSendCallOnly` are expanded as well.
-- Batch payloads are parsed strictly using Safe's packed format: operation byte, target address, value, data length, and data bytes.
-- Malformed, truncated, overlong, nested, or delegatecall-containing batches are blocked.
-- ERC-20 `approve`, ERC-20 `increaseAllowance`, ERC-721 `approve`, ERC-721 `setApprovalForAll`, and ERC-1155 `setApprovalForAll` receive a separate approval-policy check.
-
-### What It Does Not Protect
-
-This is not an outflow circuit breaker and not a Safe configuration lock. It does not measure final asset movement, price impact, solvency, owner changes, threshold changes, guard changes, or module set changes.
-
-This assertion validates the shape of actions the Safe directly executes. It does not fully model arbitrary downstream behavior inside trusted routers. If a trusted router internally moves funds or calls unknown contracts, that must be handled by separate effect-based assertions or by making the router-specific policy narrower.
-
-### How It Differs From SafeConfigLockAssertion
-
-`SafeConfigLockAssertion` runs at transaction end and checks the Safe's final owner, module, threshold, guard, module guard, and fallback-handler state.
-
-`SafeTxShapeAssertion` runs on each Safe execution call and checks the requested action tuple: target, value, calldata, operation, module caller, batch contents, and approval spender/operator. It can block a dangerous action even when the transaction would leave the Safe configuration unchanged.
-
-### Policy Model
-
-The MVP uses constructor-driven policy arrays.
-
-Known target policy:
-
-- `target`: contract address the Safe may call.
-- `allowAnySelector`: permits any selector for that target. This should be rare.
-- `allowEmptyCalldata`: permits empty calldata calls.
-- `allowFallbackCalldata`: permits calldata shorter than four bytes.
-- `allowNonzeroValue`: permits native value for target-level empty, fallback, or any-selector calls.
-
-Selector policy:
-
-- exact `(target, selector)` pairs;
-- per-selector native value permission.
-
-Batch executor policy:
-
-- approved executor address;
-- approved batch selector, normally `multiSend(bytes)`;
-- whether top-level delegatecall to that executor is allowed;
-- maximum inner action count, capped globally at four based on the PCL assertion-gas regression;
-- nested batching flag, reserved for future support and rejected in this MVP.
-
-Module policy:
-
-- module execution can be disabled entirely;
-- when enabled, the module caller must be allowlisted;
-- allowlisted modules still must pass the same target, selector, delegatecall, batch, and approval checks.
-
-Approval policy:
-
-- token address;
-- spender or operator address;
-- approval kind;
-- numeric cap for ERC-20 approval-style calls;
-- explicit unlimited-approval permission.
-
-Approval resets and revocations are allowed by default when the token is configured for that approval kind: ERC-20 `approve(spender, 0)`, ERC-721 `approve(address(0), tokenId)`, and `setApprovalForAll(operator, false)` reduce approval risk. Risk-increasing approvals to untrusted spenders/operators, ERC-20 unlimited approvals without explicit permission, and ERC-20 amounts above cap are blocked.
-
-For ERC-20 `approve(spender, amount)` the cap binds `amount` directly. For ERC-20 `increaseAllowance(spender, addedValue)` the cap binds the pre-execution allowance plus all positive grants requested for that owner/token/spender in the batch. This is intentionally stricter than checking final state: consuming or reducing an oversized transient allowance later in the transaction does not make the batch valid. The approval assertion decodes the batch once, accumulates each configured allowance by policy index, and reads each initial allowance once, so multiple grants do not trigger repeated prefix rescans. Batch policies cannot configure more than four actions; the four-grant regression executes below PCL's 300,000-gas local assertion ceiling, while the former unbounded configuration could exhaust the budget before reaching a policy decision. For CALL-based executors, the executor is the token owner; for DELEGATECALL-based executors, the Safe is the owner.
-
-A batch cannot mix ERC-20 `approve` with a positive `increaseAllowance` anywhere in the batch, even when the calls concern different tokens, owners, or spenders. This conservative restriction is stricter than Safe itself and prevents transient grants from bypassing independently configured caps.
-
-### Material Effect
-
-- A compromised UI cannot redirect signers to an arbitrary contract with arbitrary calldata.
-- A broad target allowlist is not enough to approve token approvals; spender/operator and amount policy still applies.
-- A module cannot bypass owner-path policy unless module execution is enabled and the module caller is allowlisted.
-- Safe `MultiSend` cannot hide an unknown target, unknown selector, approval grant, nested batch, malformed packed entry, or inner delegatecall.
-
-Conceptual examples:
-
-- Treasury Safe: allow only known token `transfer` selectors, known vesting contract claim selectors, and zero approval resets.
-- Operations Safe: allow an audited bridge adapter selector with no native value and a capped ERC-20 approval only to that adapter.
-- NFT custody Safe: allow marketplace listing functions but block `setApprovalForAll(true)` except to a time-bounded, trusted operator enforced by a separate deployment policy.
+It normalizes owner and module executions into actions, expands configured Safe
+batch executors, and rejects malformed, nested, or delegatecall-containing
+batches. It validates the action shape, not arbitrary downstream behavior in a
+trusted router; pair it with effect-based assertions when that is required.
 
 ## Safe Config Lock Assertion
 
-`SafeConfigLockAssertion` keeps a Safe multisig inside an approved configuration envelope after every protected transaction.
+`SafeConfigLockAssertion` checks the Safe's final configuration after each
+protected transaction. Its constructor policy can require a minimum threshold
+and owner count, approved owner/module sets, and expected transaction guard,
+module guard, and fallback-handler addresses.
 
-It is meant for teams that know what their Safe configuration should look like and want Credible to block transactions that leave the Safe in a weaker or unexpected state.
-
-## What It Checks
-
-- The Safe threshold is at least `minThreshold`.
-- The Safe owner count is at least `minOwners`.
-- The full owner set matches one of `approvedOwnerSetHashes`.
-- The full module set matches one of `approvedModuleSetHashes`.
-- The transaction guard equals `expectedGuard`.
-- The module guard equals `expectedModuleGuard`.
-- The fallback handler equals `expectedFallbackHandler`.
-
-## Config Options
-
-- `minThreshold`: minimum number of owners required to approve normal Safe transactions.
-- `minOwners`: minimum number of owners that must remain on the Safe.
-- `approvedOwnerSetHashes`: hashes of owner sets the Safe is allowed to have.
-- `approvedModuleSetHashes`: hashes of module sets the Safe is allowed to have.
-- `expectedGuard`: required transaction guard address. Use `address(0)` to require no transaction guard.
-- `expectedModuleGuard`: required module guard address. Use `address(0)` to require no module guard.
-- `expectedFallbackHandler`: required fallback handler address. Use `address(0)` to require no fallback handler.
-
-Owner and module set hashes are computed by sorting addresses ascending and hashing `abi.encode(sortedAddresses)`.
-
-For modules, `bytes32(0)` in `approvedModuleSetHashes` means modules must be disabled. This is useful when the safest policy is that only owner-approved Safe transactions may execute.
-
-Module-set checks paginate Safe modules in pages of 256. The complete set is always read and hashed; very large sets can exceed the assertion execution budget, so deployments should benchmark their configured set size and prefer a smaller operational module surface. The regression suite covers a 32-module set within the current assertion gas limit; this is a tested bound, not a protocol-enforced maximum.
-
-## Material Effect
-
-- A transaction cannot reduce the Safe below the configured threshold or owner count.
-- A transaction cannot quietly swap, add, or remove owners unless the resulting owner set is pre-approved.
-- A transaction cannot enable an unexpected module, or any module at all when modules are disabled by policy.
-- A transaction cannot change the transaction guard, module guard, or fallback handler away from the configured addresses.
-- The check runs at transaction end, so it cares about the final Safe configuration rather than the specific function path used to get there.
-
-This does not decide who should be an owner, which modules are safe, or what guard logic is correct. Those choices are encoded by the hashes and expected addresses passed when the assertion is deployed.
+`expectedGuard` may be `address(0)` when no transaction guard is allowed. Owner
+and module set hashes are computed from ascending-sorted addresses using
+`keccak256(abi.encode(sortedAddresses))`.

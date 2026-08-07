@@ -8,9 +8,6 @@ out/
 # Forge broadcast logs at repo root
 /broadcast/
 
-# Generated Safe Transaction Builder batches
-/safe-guard-output/
-
 # Docs
 docs/
 

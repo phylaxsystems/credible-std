@@ -5,7 +5,6 @@ out = "out"
 libs = ["lib"]
 remappings = ["credible-std/=src/"]
 via_ir = true
-skip = ["CredibleSafeGuardSafeIntegration", "CredibleSafeGuardScripts"]
 
 [profile.ci]
 src = "src"
@@ -15,7 +14,6 @@ libs = ["lib"]
 remappings = ["credible-std/=src/"]
 via_ir = true
 optimizer = true
-skip = ["CredibleSafeGuardSafeIntegration", "CredibleSafeGuardScripts"]
 
 [profile.backtesting]
 src = "src"
@@ -181,33 +179,6 @@ cache_path = "examples/safe/cache"
 libs = ["lib"]
 remappings = ["credible-std/=src/"]
 optimizer = true
-
-# Real Gnosis Safe compatibility and operational tests for CredibleSafeGuard.
-# The suite lives with the protection tests but needs a separate profile because
-# the Safe contracts compile with the legacy pipeline (optimizer, no via_ir).
-[profile.safe-guard]
-src = "src/protection/safe"
-test = "test/protection/safe/integration"
-script = "examples/safe-guard/script"
-out = "examples/safe-guard/out"
-cache_path = "examples/safe-guard/cache"
-libs = ["lib"]
-remappings = ["credible-std/=src/"]
-fs_permissions = [{ access = "read-write", path = "./safe-guard-output" }]
-optimizer = true
-via_ir = false
-# Compile the integration files skipped by the root via-IR profiles.
-skip = []
-
-[profile.credible-block]
-src = "examples/credible-block/src"
-test = "examples/credible-block/test"
-out = "examples/credible-block/out"
-cache_path = "examples/credible-block/cache"
-libs = ["lib"]
-remappings = ["credible-std/=src/"]
-optimizer = true
-via_ir = false
 
 [profile.spark]
 src = "examples/spark/src"
