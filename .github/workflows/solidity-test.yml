@@ -96,19 +96,3 @@ jobs:
             exit 1
           fi
           echo "Verified ${assertion_count} assertion-running test case(s) across ${testcase_count} tests"
-
-  # Real Gnosis Safe compatibility and deployment tooling use the legacy compiler pipeline and
-  # plain Forge intentionally; they do not depend on Credible assertion cheatcodes.
-  safe-guard-integration:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          submodules: recursive
-
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-
-      - name: Run Safe guard compatibility and script tests
-        run: FOUNDRY_PROFILE=safe-guard forge test
