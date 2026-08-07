@@ -60,8 +60,21 @@ contract BalancerV3VaultAssertion is BalancerV3VaultHelpers {
     ///      on the watched pool's own accounting deltas and the custody check compares per-token
     ///      deficits across the transaction — both bounded by the pool's token count.
     function triggers() external view override {
-        // Quarantined: hook classification must be read from the Vault and the supported rate
-        // policy must be derived from the registered token configuration, not deployment flags.
+        registerFnCallTrigger(this.assertSwapPreservesPoolInvariant.selector, IBalancerV3VaultLike.swap.selector);
+        registerFnCallTrigger(
+            this.assertOperationRatesWithinBaseline.selector, IBalancerV3VaultLike.addLiquidity.selector
+        );
+        registerFnCallTrigger(
+            this.assertOperationRatesWithinBaseline.selector, IBalancerV3VaultLike.removeLiquidity.selector
+        );
+        registerFnCallTrigger(
+            this.assertOperationRatesWithinBaseline.selector, IBalancerV3VaultLike.initialize.selector
+        );
+        registerFnCallTrigger(
+            this.assertOperationRatesWithinBaseline.selector, IBalancerV3VaultLike.disableRecoveryMode.selector
+        );
+        registerTxEndTrigger(this.assertPoolAccountingWithinVaultCustody.selector);
+        registerTxEndTrigger(this.assertTokenRatesWithinDriftBound.selector);
     }
 
     /// @notice A swap on a hookless pool must grow (or at worst preserve) the pool invariant,
