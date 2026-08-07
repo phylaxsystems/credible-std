@@ -6,6 +6,19 @@ on:
   pull_request:
 
 jobs:
+  interface-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Test released-interface synchronization
+        run: scripts/test-sync-credible-interfaces.sh
+
+      - name: Check pinned SDK interfaces
+        if: ${{ hashFiles('credible-sdk-interfaces.lock') != '' }}
+        run: scripts/sync-credible-interfaces.sh --check
+
   solidity-base:
     uses: phylaxsystems/actions/.github/workflows/solidity-base.yaml@main
     with:

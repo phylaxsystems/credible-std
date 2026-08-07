@@ -6,7 +6,22 @@ on:
       - "*.*.*"
 
 jobs:
+  interfaces-in-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Require a released SDK interface lock
+        run: |
+          test -f credible-sdk-interfaces.lock || {
+            echo "credible-sdk-interfaces.lock is missing; sync a released credible-sdk first" >&2
+            exit 1
+          }
+          scripts/sync-credible-interfaces.sh --check
+
   release-github:
+    needs: interfaces-in-sync
     permissions:
       contents: write
     uses: phylaxsystems/actions/.github/workflows/release-github.yaml@main

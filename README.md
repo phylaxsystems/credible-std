@@ -6,6 +6,21 @@ Standard library for implementing assertions in the Phylax Credible Layer (PCL).
 
 Full API documentation is available at: https://phylaxsystems.github.io/credible-std
 
+## SDK interface compatibility
+
+`IAssertion.sol`, `PhEvm.sol`, `TriggerRecorder.sol`, and `SpecRecorder.sol` are
+published by `credible-sdk` releases and vendored here so Foundry users do not
+need network access while compiling. To update them after an SDK release:
+
+```bash
+scripts/sync-credible-interfaces.sh <sdk-version>
+```
+
+The command verifies the release checksum, updates all four interfaces, and
+writes `credible-sdk-interfaces.lock`. CI compares the vendored files with that
+exact released archive, and the release workflow refuses to publish
+`credible-std` without a valid lock.
+
 ## Examples
 
 Assertion Book examples live in `examples/assertions-book`; micro-pattern examples
