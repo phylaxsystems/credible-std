@@ -180,6 +180,7 @@ out = "examples/safe/out"
 cache_path = "examples/safe/cache"
 libs = ["lib"]
 remappings = ["credible-std/=src/"]
+optimizer = true
 
 # Real Gnosis Safe compatibility and operational tests for CredibleSafeGuard.
 # The suite lives with the protection tests but needs a separate profile because
