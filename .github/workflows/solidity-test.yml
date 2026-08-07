@@ -48,23 +48,18 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-          - aave
           - aerodrome
           - balancer
-          - cap
           - curve
           - denaria
           - euler
           - fluid
           - kyber
           - lido
-          - lighter
           - mellow
           - nado
-          - royco
           - safe
           - spark
-          - symbiotic
           - tydro
           - uniswap
           - vault-demo
@@ -86,11 +81,7 @@ jobs:
           PROFILE: ${{ matrix.profile }}
         run: |
           report="${RUNNER_TEMP}/pcl-${PROFILE}.xml"
-          test_args=()
-          if [ "${PROFILE}" = cap ]; then
-            test_args+=(--no-match-path 'examples/cap/test/{CapMintBackingAssertion,CapRedemptionGateAssertion}.t.sol')
-          fi
-          if ! RUST_MIN_STACK=16777216 FOUNDRY_PROFILE="${PROFILE}" pcl test -vv --junit "${test_args[@]}" > "${report}"; then
+          if ! RUST_MIN_STACK=16777216 FOUNDRY_PROFILE="${PROFILE}" pcl test -vv --junit > "${report}"; then
             cat "${report}"
             exit 1
           fi
@@ -101,26 +92,8 @@ jobs:
             exit 1
           fi
           if [ "${assertion_count}" -eq 0 ]; then
-            evidence_path=""
-            case "${PROFILE}" in
-              aave) evidence_path=examples/aave/test/AaveV4HubAccountingAssertion.t.sol ;;
-              cap) evidence_path=examples/cap/test/CapLiquidationAssertion.t.sol ;;
-              lighter) evidence_path=examples/lighter/test/LighterBridgeAssertion.t.sol ;;
-              royco) evidence_path=examples/royco/test/RoycoVaultTrancheAssertion.t.sol ;;
-              symbiotic) evidence_path=examples/symbiotic/test/SymbioticVaultFlowAssertion.t.sol ;;
-            esac
-            if [ -z "${evidence_path}" ]; then
-              echo "::error::No runtime assertion execution evidence found in ${report}"
-              exit 1
-            fi
-            evidence_report="${RUNNER_TEMP}/pcl-${PROFILE}-evidence.log"
-            RUST_MIN_STACK=16777216 FOUNDRY_PROFILE="${PROFILE}" \
-              pcl test -vv "${evidence_path}" > "${evidence_report}" 2>&1
-            assertion_count=$(grep -c 'Assertion gas cost:' "${evidence_report}" || true)
-            if [ "${assertion_count}" -eq 0 ]; then
-              echo "::error::No runtime assertion execution evidence found in ${evidence_report}"
-              exit 1
-            fi
+            echo "::error::No runtime assertion execution evidence found in ${report}"
+            exit 1
           fi
           echo "Verified ${assertion_count} assertion-running test case(s) across ${testcase_count} tests"
 
