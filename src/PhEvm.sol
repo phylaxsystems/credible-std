@@ -350,28 +350,6 @@ interface PhEvm {
     function getLogsForCall(LogQuery calldata query, uint256 callId) external view returns (Log[] memory logs);
 
     // ---------------------------------------------------------------
-    //  V2: Persistent assertion storage
-    // ---------------------------------------------------------------
-
-    /// @notice Write a bytes32 value to persistent assertion storage.
-    /// @param key The storage key.
-    /// @param value The value to store.
-    function store(bytes32 key, bytes32 value) external;
-
-    /// @notice Read a bytes32 value from persistent assertion storage.
-    /// @param key The storage key.
-    /// @return value The stored value.
-    function load(bytes32 key) external view returns (bytes32 value);
-
-    /// @notice Check if a key exists in persistent assertion storage.
-    /// @param key The storage key.
-    /// @return doesExist True if the key has been written to.
-    function exists(bytes32 key) external view returns (bool doesExist);
-
-    /// @notice Returns remaining storage slots available to this assertion.
-    function values_left() external view returns (uint256 remaining);
-
-    // ---------------------------------------------------------------
     //  V2: Mapping tracing
     // ---------------------------------------------------------------
 
