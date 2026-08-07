@@ -5,7 +5,11 @@ import {Assertion} from "credible-std/Assertion.sol";
 import {PhEvm} from "credible-std/PhEvm.sol";
 import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 
-import {AaveV3LikeTypes, IAaveV3LikeAddressesProvider, IAaveV3LikePool} from "credible-std/protection/lending/examples/AaveV3LikeInterfaces.sol";
+import {
+    AaveV3LikeTypes,
+    IAaveV3LikeAddressesProvider,
+    IAaveV3LikePool
+} from "credible-std/protection/lending/examples/AaveV3LikeInterfaces.sol";
 import {IAaveV3HorizonOracle} from "./AaveV3HorizonInterfaces.sol";
 
 /// @title AaveV3HorizonHelpers
@@ -62,22 +66,6 @@ abstract contract AaveV3HorizonHelpers is Assertion {
 
     function _sourceOfAssetAt(address oracle, address asset, PhEvm.ForkId memory fork) internal view returns (address) {
         return _readAddressAt(oracle, abi.encodeCall(IAaveV3HorizonOracle.getSourceOfAsset, (asset)), fork);
-    }
-
-    function _assertPriceBounded(
-        address oracle,
-        address asset,
-        PhEvm.ForkId memory pre,
-        PhEvm.ForkId memory post,
-        uint256 deviationBps
-    ) internal view {
-        uint256 prePrice = _assetPriceAt(oracle, asset, pre);
-        uint256 postPrice = _assetPriceAt(oracle, asset, post);
-        require(prePrice > 0 && postPrice > 0, "AaveV3Horizon: reserve oracle price invalid");
-        require(
-            ph.ratioGe(postPrice, 1, prePrice, 1, deviationBps) && ph.ratioGe(prePrice, 1, postPrice, 1, deviationBps),
-            "AaveV3Horizon: reserve oracle price drift"
-        );
     }
 
     function _requireAdopter(address expected, string memory message) internal view {

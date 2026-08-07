@@ -15,6 +15,9 @@ import {AaveV3HorizonHelpers} from "./AaveV3HorizonHelpers.sol";
 ///      admin action, rebasing, hooks, or other cross-protocol side effects. This assertion checks
 ///      transaction-end reserve backing from external token balances and debt-token supply.
 contract AaveV3HorizonReserveBackingAssertion is AaveV3HorizonHelpers {
+    uint256 internal constant RAY = 1e27;
+    uint256 internal constant HALF_RAY = RAY / 2;
+
     address internal immutable POOL;
     uint256 internal immutable MAX_BACKING_DEFICIT;
     address[] internal RESERVE_ASSETS;
@@ -28,19 +31,16 @@ contract AaveV3HorizonReserveBackingAssertion is AaveV3HorizonHelpers {
         RESERVE_ASSETS = reserveAssets_;
     }
 
-    /// @notice Registers a transaction-end backing check for configured Horizon reserve assets.
-    /// @dev The trigger intentionally runs after the whole transaction, including direct reserve
-    ///      token movements outside the Pool call surface. That transaction envelope is not a place
-    ///      where Horizon can add a Pool-level require.
-    function triggers() external view override {
-        registerTxEndTrigger(this.assertReserveBacking.selector);
-    }
+    /// @notice Quarantined until token-only transactions can select the Pool adopter's assertion.
+    /// @dev A Pool-adopter TxEnd trigger is not dispatched when an external token mutates aToken
+    ///      custody without calling the Pool. `assertReserveBacking` remains available for research.
+    function triggers() external view virtual override {}
 
     /// @notice Checks all configured reserves remain backed at transaction end.
-    /// @dev For each reserve, compares aToken supply with underlying held by the aToken plus
-    ///      stable debt, variable debt, unbacked bridge debt, and Horizon's first-class reserve
-    ///      deficit. A liquidation may legitimately convert debt into deficit, so excluding that
-    ///      field rejects official recovery accounting.
+    /// @dev For each reserve, compares aToken supply plus the indexed treasury accrual with
+    ///      underlying held by the aToken plus stable debt, variable debt, unbacked bridge debt,
+    ///      and Horizon's first-class reserve deficit. A liquidation may legitimately convert debt
+    ///      into deficit, so excluding that field rejects official recovery accounting.
     function assertReserveBacking() external view {
         require(ph.getAssertionAdopter() == POOL, "AaveV3Horizon: configured pool is not adopter");
         PhEvm.ForkId memory post = _postTx();
@@ -64,6 +64,7 @@ contract AaveV3HorizonReserveBackingAssertion is AaveV3HorizonHelpers {
 
     struct ReserveBacking {
         uint256 aTokenSupply;
+        uint256 accruedTreasuryLiability;
         uint256 backingClaims;
     }
 
@@ -81,11 +82,23 @@ contract AaveV3HorizonReserveBackingAssertion is AaveV3HorizonHelpers {
         uint256 deficit = _readUintAt(POOL, abi.encodeCall(IAaveV3HorizonDeficitPool.getReserveDeficit, (asset)), fork);
 
         backing.aTokenSupply = _totalSupplyAt(reserveData.aTokenAddress, fork);
+        uint256 normalizedIncome = _readUintAt(
+            POOL, abi.encodeCall(IAaveV3HorizonDeficitPool.getReserveNormalizedIncome, (asset)), fork
+        );
+        backing.accruedTreasuryLiability = _rayMul(reserveData.accruedToTreasury, normalizedIncome);
         backing.backingClaims = availableLiquidity + stableDebt + variableDebt + reserveData.unbacked + deficit;
     }
 
     function _isBacked(ReserveBacking memory backing) internal view returns (bool) {
-        return backing.aTokenSupply <= backing.backingClaims + MAX_BACKING_DEFICIT;
+        return backing.aTokenSupply + backing.accruedTreasuryLiability
+            <= backing.backingClaims + MAX_BACKING_DEFICIT;
+    }
+
+    /// @dev Aave stores `accruedToTreasury` in scaled aToken units. Mirror WadRayMath.rayMul's
+    ///      half-up conversion using current normalized income rather than the possibly stale
+    ///      stored liquidity index.
+    function _rayMul(uint256 scaledAmount, uint256 liquidityIndex) internal pure returns (uint256) {
+        return (scaledAmount * liquidityIndex + HALF_RAY) / RAY;
     }
 
     function _optionalTotalSupplyAt(address token, PhEvm.ForkId memory fork) internal view returns (uint256) {

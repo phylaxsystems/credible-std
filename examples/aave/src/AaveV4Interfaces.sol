@@ -171,5 +171,16 @@ interface IAaveV4Spoke {
 
 /// @notice Minimal reserve-price oracle surface used by Aave v4 Spokes.
 interface IAaveV4Oracle {
+    function spoke() external view returns (address);
+    function decimals() external view returns (uint8);
     function getReservePrice(uint256 reserveId) external view returns (uint256);
+    function getReservesPrices(uint256[] calldata reserveIds) external view returns (uint256[] memory);
+    function getReserveSource(uint256 reserveId) external view returns (address);
+    function setReserveSource(uint256 reserveId, address source) external;
+}
+
+/// @notice Exact price-feed surface called by the pinned Aave v4 AaveOracle.
+/// @dev Aave v4 release v0.5.11 calls `latestAnswer()` and accepts only positive answers.
+interface IAaveV4PriceFeed {
+    function latestAnswer() external view returns (int256);
 }

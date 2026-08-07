@@ -22,7 +22,7 @@ contract AaveV4HubAccountingAssertion is AaveV4Helpers {
     constructor(address hub_, uint256 assetId_, uint256 maxSpokesToScan_, uint256 sharePriceToleranceBps_) {
         require(hub_ != address(0), "AaveV4Hub: hub zero");
         require(maxSpokesToScan_ > 0, "AaveV4Hub: max spokes zero");
-        require(sharePriceToleranceBps_ < BPS, "AaveV4Hub: bad tolerance");
+        require(sharePriceToleranceBps_ <= BPS, "AaveV4Hub: bad tolerance");
 
         HUB = hub_;
         ASSET_ID = assetId_;
@@ -34,8 +34,22 @@ contract AaveV4HubAccountingAssertion is AaveV4Helpers {
     /// @dev The assertion is configured for one `assetId`; calls for other assets no-op after
     ///      decoding the first calldata argument.
     function triggers() external view override {
-        // Quarantined: immutable scan bounds become governance liveness caps because addSpoke has
-        // no matching protocol limit. Re-enable only with a bounded incremental accounting model.
+        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.add.selector);
+        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.remove.selector);
+        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.draw.selector);
+        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.restore.selector);
+        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.reportDeficit.selector);
+        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.refreshPremium.selector);
+        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.payFeeShares.selector);
+        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.transferShares.selector);
+        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.mintFeeShares.selector);
+        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.eliminateDeficit.selector);
+        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.sweep.selector);
+        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.reclaim.selector);
+        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.updateAssetConfig.selector);
+        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.addSpoke.selector);
+        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.updateSpokeConfig.selector);
+        registerFnCallTrigger(this.assertHubAssetAccounting.selector, IAaveV4Hub.setInterestRateData.selector);
     }
 
     /// @notice Checks one Hub asset remains backed and internally coherent after a Hub mutation.
