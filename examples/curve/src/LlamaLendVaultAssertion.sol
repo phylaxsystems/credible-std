@@ -25,7 +25,7 @@ contract LlamaLendVaultAssertion is ERC4626PreviewAssertion, LlamaLendVaultProto
     }
 
     /// @notice Registers preview checks plus controller-side accounting and custody checks.
-    function triggers() external view override {
+    function triggers() external view virtual override {
         _registerPreviewTriggers();
         registerFnCallTrigger(this.assertDepositPreview.selector, DEPOSIT_DEFAULT);
         registerFnCallTrigger(this.assertMintPreview.selector, MINT_DEFAULT);
@@ -35,6 +35,17 @@ contract LlamaLendVaultAssertion is ERC4626PreviewAssertion, LlamaLendVaultProto
         registerFnCallTrigger(this.assertRedeemPreview.selector, REDEEM_RECEIVER);
         registerTxEndTrigger(this.assertTotalAssetsMatchesControllerAccounting.selector);
         registerTxEndTrigger(this.assertControllerCustodyCoversAvailableBalance.selector);
+    }
+
+    /// @dev Pinned LlamaLend vault operations return the pre-state previewed amount exactly.
+    function _maxPreviewDeviation() internal pure override returns (uint256) {
+        return 0;
+    }
+
+    /// @dev LlamaLend vault operations transfer the borrowed token directly through the
+    ///      controller; the vault contract itself never holds the ERC-4626 payment inventory.
+    function _assetCustodyAccount() internal view override returns (address) {
+        return controller;
     }
 
     /// @notice Checks `totalAssets()` equals controller available balance plus debt minus admin fees.

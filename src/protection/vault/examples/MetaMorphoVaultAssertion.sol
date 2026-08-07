@@ -24,7 +24,12 @@ contract MetaMorphoVaultAssertion is ERC4626PreviewAssertion {
 
     /// @notice Registers the ERC-4626 selectors against the MetaMorpho-safe assertion set.
     /// @dev MetaMorpho-specific managed-asset and loss accounting must be installed separately.
-    function triggers() external view override {
+    function triggers() external view virtual override {
         _registerPreviewTriggers();
+    }
+
+    /// @dev Pinned MetaMorpho operations return the same pre-state previewed amount.
+    function _maxPreviewDeviation() internal pure override returns (uint256) {
+        return 0;
     }
 }
