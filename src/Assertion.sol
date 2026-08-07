@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {PhEvm} from "./PhEvm.sol";
+import {IAssertion} from "./IAssertion.sol";
 import {TriggerRecorder} from "./TriggerRecorder.sol";
 import {SpecRecorder, AssertionSpec} from "./SpecRecorder.sol";
 import {StateChanges} from "./StateChanges.sol";
@@ -27,7 +28,7 @@ import {ForkUtils} from "./utils/ForkUtils.sol";
 ///     }
 /// }
 /// ```
-abstract contract Assertion is ForkUtils, StateChanges {
+abstract contract Assertion is IAssertion, ForkUtils, StateChanges {
     /// @notice The trigger recorder precompile for registering assertion triggers
     /// @dev Address is derived from a deterministic hash for consistency
     TriggerRecorder constant triggerRecorder = TriggerRecorder(address(uint160(uint256(keccak256("TriggerRecorder")))));
@@ -37,7 +38,7 @@ abstract contract Assertion is ForkUtils, StateChanges {
     SpecRecorder constant specRecorder = SpecRecorder(address(uint160(uint256(keccak256("SpecRecorder")))));
 
     /// @notice Used to record fn selectors and their triggers.
-    function triggers() external view virtual;
+    function triggers() external view virtual override;
 
     // ---------------------------------------------------------------
     //  Legacy trigger registration
