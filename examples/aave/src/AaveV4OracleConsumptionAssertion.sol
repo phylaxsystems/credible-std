@@ -127,16 +127,16 @@ contract AaveV4OracleConsumptionAssertion is AaveV4OracleConsumptionHelpers {
             }
         }
 
+        PhEvm.ForkId memory preTx = _preTx();
+        PhEvm.ForkId memory postTx = _postTx();
         bool mandatoryPriceOperation;
         if (spokePriceCallCount == 0) {
-            mandatoryPriceOperation = _hasMandatoryPriceOperation(SPOKE, MAX_TRACE_CALLS);
+            mandatoryPriceOperation = _hasMandatoryPriceOperation(SPOKE, MAX_TRACE_CALLS, preTx, postTx);
         }
         if (spokePriceCallCount == 0 && !mandatoryPriceOperation) {
             return;
         }
 
-        PhEvm.ForkId memory preTx = _preTx();
-        PhEvm.ForkId memory postTx = _postTx();
         _assertSpokeAndOracleIdentity(preTx, postTx);
         _assertRoutingConfigurationUnchanged();
         require(spokePriceCallCount != 0, "AaveV4Oracle: unrecognized price path");

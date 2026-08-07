@@ -73,13 +73,41 @@ abstract contract AaveV4OracleConsumptionHelpers is AaveV4Helpers {
         return _successfulStaticCalls(source, IAaveV4PriceFeed.latestAnswer.selector, limit);
     }
 
-    function _hasMandatoryPriceOperation(address spoke, uint256 maxTraceCalls) internal view returns (bool) {
+    function _hasMandatoryPriceOperation(
+        address spoke,
+        uint256 maxTraceCalls,
+        PhEvm.ForkId memory preTx,
+        PhEvm.ForkId memory postTx
+    ) internal view returns (bool) {
         return _matchingCalls(spoke, IAaveV4Spoke.borrow.selector, 1).length != 0
-            || _matchingCalls(spoke, IAaveV4Spoke.withdraw.selector, 1).length != 0
+            || _hasCollateralWithdraw(spoke, maxTraceCalls, preTx, postTx)
             || _matchingCalls(spoke, IAaveV4Spoke.liquidationCall.selector, 1).length != 0
             || _hasCollateralDisable(spoke, maxTraceCalls)
             || _matchingCalls(spoke, IAaveV4Spoke.updateUserRiskPremium.selector, 1).length != 0
             || _matchingCalls(spoke, IAaveV4Spoke.updateUserDynamicConfig.selector, 1).length != 0;
+    }
+
+    /// @dev Aave v4 refreshes account data on withdrawal only when the withdrawn reserve is
+    ///      collateral. Check both transaction boundaries so collateral toggles in a multicall
+    ///      cannot turn a risk-sensitive withdrawal into an unrecognized non-price path.
+    function _hasCollateralWithdraw(
+        address spoke,
+        uint256 maxTraceCalls,
+        PhEvm.ForkId memory preTx,
+        PhEvm.ForkId memory postTx
+    ) private view returns (bool) {
+        PhEvm.TriggerCall[] memory calls = _matchingCalls(spoke, IAaveV4Spoke.withdraw.selector, maxTraceCalls + 1);
+        require(calls.length <= maxTraceCalls, "AaveV4Oracle: trace limit exceeded");
+        for (uint256 i; i < calls.length; ++i) {
+            require(calls[i].input.length == 32 * 3, "AaveV4Oracle: malformed withdraw input");
+            (uint256 reserveId,, address onBehalfOf) = abi.decode(calls[i].input, (uint256, uint256, address));
+            (bool preCollateral,) = _spokeUserReserveStatusAt(spoke, reserveId, onBehalfOf, preTx);
+            (bool postCollateral,) = _spokeUserReserveStatusAt(spoke, reserveId, onBehalfOf, postTx);
+            if (preCollateral || postCollateral) {
+                return true;
+            }
+        }
+        return false;
     }
 
     function _hasCollateralDisable(address spoke, uint256 maxTraceCalls) private view returns (bool) {

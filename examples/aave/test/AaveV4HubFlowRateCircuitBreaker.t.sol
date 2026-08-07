@@ -108,31 +108,31 @@ contract AaveV4HubFlowRateCircuitBreakerTest is Test, CredibleTest {
     // --- production threshold tables -------------------------------------
 
     function testCoreWbtcAllowsExactInflowLimits() public view {
-        assertFalse(core.inflowTrips(core.WBTC(), 1_184, 48));
+        assertFalse(core.inflowTrips(core.WBTC(), 5_000, 7_500));
     }
 
     function testCoreWbtcTripsOnWindowInflow() public view {
-        assertTrue(core.inflowTrips(core.WBTC(), 1_185, 48));
+        assertTrue(core.inflowTrips(core.WBTC(), 5_001, 7_500));
     }
 
     function testCoreWbtcTripsOnPeakInflowRate() public view {
-        assertTrue(core.inflowTrips(core.WBTC(), 1_184, 49));
+        assertTrue(core.inflowTrips(core.WBTC(), 5_000, 7_501));
     }
 
     function testCoreUsdgTripsOnWindowOutflow() public view {
-        assertTrue(core.outflowTrips(core.USDG(), 5_368, 154));
+        assertTrue(core.outflowTrips(core.USDG(), 5_001, 7_500));
     }
 
     function testCoreWstethTripsOnPeakOutflowRate() public view {
-        assertTrue(core.outflowTrips(core.WSTETH(), 932, 95));
+        assertTrue(core.outflowTrips(core.WSTETH(), 5_000, 7_501));
     }
 
     function testPrimeWbtcAllowsExactOutflowLimits() public view {
-        assertFalse(prime.outflowTrips(prime.WBTC(), 2_432, 178));
+        assertFalse(prime.outflowTrips(prime.WBTC(), 5_000, 7_500));
     }
 
     function testPrimeWstethTripsOnWindowInflow() public view {
-        assertTrue(prime.inflowTrips(prime.WSTETH(), 3_486, 211));
+        assertTrue(prime.inflowTrips(prime.WSTETH(), 5_001, 7_500));
     }
 
     function testCoreRejectsUnsupportedAsset() public {

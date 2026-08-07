@@ -99,6 +99,7 @@ contract MockV4Spoke {
     IAaveV4Spoke.Reserve[] internal reserves;
     bool internal readUnknownReserve;
     bool internal consumePrices = true;
+    mapping(uint256 reserveId => mapping(address user => bool collateral)) internal collateralStatus;
 
     constructor(address oracle_) {
         ORACLE = oracle_;
@@ -126,12 +127,20 @@ contract MockV4Spoke {
         consumePrices = enabled;
     }
 
+    function setCollateralStatus(uint256 reserveId, address user, bool collateral) external {
+        collateralStatus[reserveId][user] = collateral;
+    }
+
     function getReserveCount() external view returns (uint256) {
         return reserves.length;
     }
 
     function getReserve(uint256 reserveId) external view returns (IAaveV4Spoke.Reserve memory) {
         return reserves[reserveId];
+    }
+
+    function getUserReserveStatus(uint256 reserveId, address user) external view returns (bool, bool) {
+        return (collateralStatus[reserveId][user], false);
     }
 
     function supply(uint256, uint256, address) external pure returns (uint256, uint256) {
@@ -401,8 +410,15 @@ contract AaveV4OracleConsumptionAssertionTest is Test, CredibleTest {
         _expectMandatoryPathWithoutPriceFails(abi.encodeCall(MockV4Spoke.borrow, (0, 1, address(this))));
     }
 
-    function testWithdrawWithoutPriceReadFailsClosed() public {
+    function testCollateralWithdrawWithoutPriceReadFailsClosed() public {
+        spoke.setCollateralStatus(0, address(this), true);
         _expectMandatoryPathWithoutPriceFails(abi.encodeCall(MockV4Spoke.withdraw, (0, 1, address(this))));
+    }
+
+    function testNonCollateralWithdrawWithoutPriceReadReturnsCleanly() public {
+        spoke.setConsumePrices(false);
+        _arm(MAX_TRACE_CALLS, DEVIATION_BPS, 2);
+        spoke.withdraw(0, 1, address(this));
     }
 
     function testLiquidationWithoutPriceReadFailsClosed() public {

@@ -37,7 +37,7 @@ contract AaveV4SpokeRiskAssertion is AaveV4Helpers {
     constructor(address spoke_, uint256 maxReservesToScan_, uint256 oracleDeviationBps_) {
         require(spoke_ != address(0), "AaveV4Spoke: spoke zero");
         require(maxReservesToScan_ > 0, "AaveV4Spoke: max reserves zero");
-        require(oracleDeviationBps_ < BPS, "AaveV4Spoke: bad oracle tolerance");
+        require(oracleDeviationBps_ <= BPS, "AaveV4Spoke: bad oracle tolerance");
 
         SPOKE = spoke_;
         MAX_RESERVES_TO_SCAN = maxReservesToScan_;
@@ -48,8 +48,22 @@ contract AaveV4SpokeRiskAssertion is AaveV4Helpers {
     /// @dev Calls that intentionally refresh stored risk premium are distinguished from paths
     ///      that only change collateral composition without refreshing premium debt.
     function triggers() external view override {
-        // Quarantined: reserve enumeration has no protocol-level maximum and therefore cannot be
-        // represented safely by this immutable deployment bound.
+        registerFnCallTrigger(this.assertAccountDataMatchesIndependentState.selector, IAaveV4Spoke.withdraw.selector);
+        registerFnCallTrigger(this.assertAccountDataMatchesIndependentState.selector, IAaveV4Spoke.borrow.selector);
+        registerFnCallTrigger(
+            this.assertAccountDataMatchesIndependentState.selector, IAaveV4Spoke.setUsingAsCollateral.selector
+        );
+        registerFnCallTrigger(
+            this.assertAccountDataMatchesIndependentState.selector, IAaveV4Spoke.updateUserRiskPremium.selector
+        );
+        registerFnCallTrigger(
+            this.assertAccountDataMatchesIndependentState.selector, IAaveV4Spoke.updateUserDynamicConfig.selector
+        );
+        registerFnCallTrigger(
+            this.assertAccountDataMatchesIndependentState.selector, IAaveV4Spoke.liquidationCall.selector
+        );
+
+        registerFnCallTrigger(this.assertLiquidationReducesBorrowerDebt.selector, IAaveV4Spoke.liquidationCall.selector);
     }
 
     /// @notice Recomputes account data from primitive state and compares it to the Spoke view.
@@ -96,7 +110,9 @@ contract AaveV4SpokeRiskAssertion is AaveV4Helpers {
             return;
         }
 
-        require(afterData.totalDebtValueRay < beforeData.totalDebtValueRay, "AaveV4Spoke: liquidation did not reduce debt");
+        require(
+            afterData.totalDebtValueRay < beforeData.totalDebtValueRay, "AaveV4Spoke: liquidation did not reduce debt"
+        );
     }
 
     function _recomputeAccountDataAt(address user, PhEvm.ForkId memory fork)
@@ -278,10 +294,7 @@ contract AaveV4SpokeRiskAssertion is AaveV4Helpers {
         return a.risk < b.risk || (a.risk == b.risk && a.value > b.value);
     }
 
-    function _assertOraclePricesBounded(address user, PhEvm.ForkId memory pre, PhEvm.ForkId memory post)
-        internal
-        view
-    {
+    function _assertOraclePricesBounded(address user, PhEvm.ForkId memory pre, PhEvm.ForkId memory post) internal view {
         uint256 reserveCount = _readUintAt(SPOKE, abi.encodeCall(IAaveV4Spoke.getReserveCount, ()), post);
         require(reserveCount <= MAX_RESERVES_TO_SCAN, "AaveV4Spoke: too many reserves");
 

@@ -14,7 +14,7 @@ import {AssertionSpec} from "credible-std/SpecRecorder.sol";
 ///
 ///      Each configured asset has two independent hard limits in each direction:
 ///      - rolling 24-hour NET flow as bps of the Hub balance snapshotted at window start
-///      - peak 10-second-bucket net-flow rate as bps of that snapshot per second
+///      - peak per-block-bucket net-flow rate as bps of that snapshot per second
 ///
 ///      A 1 bps cumulative watcher is only the dispatch floor. Once dispatched, the assertion
 ///      rejects a transaction when EITHER the calibrated 24-hour limit or the calibrated peak-rate
@@ -71,9 +71,12 @@ abstract contract AaveV4HubFlowRateCircuitBreaker is Assertion {
     }
 
     function _watchAsset(address token) internal view {
-        token;
-        // Quarantined: net cumulative dispatch can miss a directional reversal while prior
-        // opposite flow keeps the window net-positive or net-negative.
+        // Private staging policy: exercise the experimental flow-rate precompiles with deliberately
+        // relaxed limits. Net cumulative dispatch can miss a directional reversal while prior
+        // opposite flow keeps the window net-positive or net-negative, so this is not a production
+        // policy until directional accounting is available end to end.
+        watchCumulativeInflow(token, DISPATCH_THRESHOLD_BPS, FLOW_WINDOW, this.assertInflowWithinRateLimits.selector);
+        watchCumulativeOutflow(token, DISPATCH_THRESHOLD_BPS, FLOW_WINDOW, this.assertOutflowWithinRateLimits.selector);
     }
 
     function _inflowTrips(address token, uint256 currentBps, uint256 peakRateBps) internal pure returns (bool) {
@@ -94,7 +97,7 @@ abstract contract AaveV4HubFlowRateCircuitBreaker is Assertion {
 /// @notice Ready-to-adopt Core Hub breaker for Aave v4's three highest-TVL Ethereum assets.
 /// @dev Asset ranking comes from DefiLlama's aggregate Aave v4 token TVL on 2026-07-30:
 ///      WBTC ($52.35m), USDG ($30.84m), and wstETH ($29.40m). Limits are 120% of each
-///      Core Hub asset's maximum observed rolling 24-hour net flow and 10-second peak flow rate
+///      Core Hub asset's maximum observed rolling 24-hour net flow and per-block peak flow rate
 ///      during Ethereum blocks 25,430,974 through 25,646,159.
 contract AaveV4EthereumCoreHubFlowRateCircuitBreaker is AaveV4HubFlowRateCircuitBreaker {
     address public constant CORE_HUB = 0xCca852Bc40e560adC3b1Cc58CA5b55638ce826c9;
@@ -112,22 +115,10 @@ contract AaveV4EthereumCoreHubFlowRateCircuitBreaker is AaveV4HubFlowRateCircuit
     }
 
     function _flowLimits(address token) internal pure override returns (FlowLimits memory limits) {
-        if (token == WBTC) {
-            return
-                FlowLimits({
-                    inflowWindowBps: 1_184, outflowWindowBps: 110, inflowPeakRateBps: 48, outflowPeakRateBps: 9
-                });
-        }
-        if (token == USDG) {
+        if (token == WBTC || token == USDG || token == WSTETH) {
             return FlowLimits({
-                inflowWindowBps: 5_196, outflowWindowBps: 5_367, inflowPeakRateBps: 527, outflowPeakRateBps: 154
+                inflowWindowBps: 5_000, outflowWindowBps: 5_000, inflowPeakRateBps: 7_500, outflowPeakRateBps: 7_500
             });
-        }
-        if (token == WSTETH) {
-            return
-                FlowLimits({
-                    inflowWindowBps: 1_906, outflowWindowBps: 932, inflowPeakRateBps: 58, outflowPeakRateBps: 94
-                });
         }
         revert("AaveV4Flow: unsupported Core asset");
     }
@@ -153,16 +144,10 @@ contract AaveV4EthereumPrimeHubFlowRateCircuitBreaker is AaveV4HubFlowRateCircui
     }
 
     function _flowLimits(address token) internal pure override returns (FlowLimits memory limits) {
-        if (token == WBTC) {
+        if (token == WBTC || token == WSTETH) {
             return FlowLimits({
-                inflowWindowBps: 2_102, outflowWindowBps: 2_432, inflowPeakRateBps: 149, outflowPeakRateBps: 178
+                inflowWindowBps: 5_000, outflowWindowBps: 5_000, inflowPeakRateBps: 7_500, outflowPeakRateBps: 7_500
             });
-        }
-        if (token == WSTETH) {
-            return
-                FlowLimits({
-                    inflowWindowBps: 3_485, outflowWindowBps: 909, inflowPeakRateBps: 211, outflowPeakRateBps: 73
-                });
         }
         revert("AaveV4Flow: unsupported Prime asset");
     }

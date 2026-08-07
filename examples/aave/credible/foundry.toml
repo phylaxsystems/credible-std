@@ -1,0 +1,17 @@
+# Standalone config for pcl (`pcl deploy` / `pcl apply` build this folder as an
+# independent project rooted here). Repo-level builds/tests use
+# [profile.aave] in the root foundry.toml instead.
+[profile.default]
+# The platform DA verifier compiles in docker.io/ethereum/solc containers;
+# 0.8.36 has no published image yet, so pin one that does.
+solc_version = "0.8.30"
+src = "assertions/src"
+test = "test"
+libs = ["lib"]
+remappings = [
+    "credible-std/=lib/credible-std/src/",
+    "forge-std/=lib/credible-std/lib/forge-std/src/",
+    "aave/=lib/aave/",
+]
+allow_paths = ["../../.."]
+via_ir = true
