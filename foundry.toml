@@ -178,6 +178,7 @@ out = "examples/safe/out"
 cache_path = "examples/safe/cache"
 libs = ["lib"]
 remappings = ["credible-std/=src/"]
+optimizer = true
 
 [profile.spark]
 src = "examples/spark/src"

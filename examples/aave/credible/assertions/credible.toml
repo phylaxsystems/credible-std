@@ -1,0 +1,64 @@
+# Credible Layer deployment manifest for the Aave v4 assertion suite on
+# Ethereum mainnet (chain 1), staging platform.
+#
+# Deploy from the repo root:
+#   PCL_API_URL=https://ethereum.phylax.systems \
+#     pcl deploy --root examples/aave/credible --chain-id 1 --yes --json
+#
+# All constructor parameters are pinned in
+# assertions/src/AaveV4StagingAssertions.sol; see that file for the on-chain
+# verification notes and the staging tolerance policy.
+
+environment = "staging"
+project_name = "AAVE V4 Assertions - Staging V4"
+project_id = "1c9de3fe-ab4d-42c6-ae08-f3590e096696"
+
+# ---------------------------------------------------------------------------
+# Core Hub: flow-rate circuit breaker (WBTC/USDG/wstETH) + per-asset
+# cross-spoke accounting.
+# ---------------------------------------------------------------------------
+[contracts.core_hub]
+address = "0xCca852Bc40e560adC3b1Cc58CA5b55638ce826c9"
+name = "Aave V4 Core Hub"
+
+[[contracts.core_hub.assertions]]
+file = "assertions/src/AaveV4StagingAssertions.sol:AaveV4CoreHubFlowBreakerStaging"
+
+[[contracts.core_hub.assertions]]
+file = "assertions/src/AaveV4StagingAssertions.sol:AaveV4CoreHubWstEthAccountingStaging"
+
+[[contracts.core_hub.assertions]]
+file = "assertions/src/AaveV4StagingAssertions.sol:AaveV4CoreHubUsdgAccountingStaging"
+
+[[contracts.core_hub.assertions]]
+file = "assertions/src/AaveV4StagingAssertions.sol:AaveV4CoreHubWbtcAccountingStaging"
+
+# ---------------------------------------------------------------------------
+# Prime Hub: flow-rate circuit breaker (WBTC/wstETH) + per-asset accounting.
+# ---------------------------------------------------------------------------
+[contracts.prime_hub]
+address = "0x943827DCA022D0F354a8a8c332dA1e5Eb9f9F931"
+name = "Aave V4 Prime Hub"
+
+[[contracts.prime_hub.assertions]]
+file = "assertions/src/AaveV4StagingAssertions.sol:AaveV4PrimeHubFlowBreakerStaging"
+
+[[contracts.prime_hub.assertions]]
+file = "assertions/src/AaveV4StagingAssertions.sol:AaveV4PrimeHubWbtcAccountingStaging"
+
+[[contracts.prime_hub.assertions]]
+file = "assertions/src/AaveV4StagingAssertions.sol:AaveV4PrimeHubWstEthAccountingStaging"
+
+# ---------------------------------------------------------------------------
+# Main Spoke: consumed-oracle-price integrity + independent account-risk
+# recomputation.
+# ---------------------------------------------------------------------------
+[contracts.main_spoke]
+address = "0x94e7A5dCbE816e498b89aB752661904E2F56c485"
+name = "Aave V4 Main Spoke"
+
+[[contracts.main_spoke.assertions]]
+file = "assertions/src/AaveV4StagingAssertions.sol:AaveV4MainSpokeOracleAssertionStaging"
+
+[[contracts.main_spoke.assertions]]
+file = "assertions/src/AaveV4StagingAssertions.sol:AaveV4MainSpokeRiskAssertionStaging"

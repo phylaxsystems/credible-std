@@ -1,4 +1,30 @@
-# credible-std
+<div align="center">
+
+<img src="https://phylax.systems/apple-touch-icon.png" alt="Phylax" width="76" height="76" />
+
+<h1>credible-std</h1>
+
+<p><b>Solidity standard library for writing Credible Layer assertions.</b></p>
+
+<p><sub>THE POLICY ENGINE FOR PROGRAMMABLE CAPITAL</sub></p>
+
+<p>
+  <img src="https://img.shields.io/badge/Credible_Layer-stdlib-0092FF?style=for-the-badge&labelColor=160F0C" alt="Credible Layer stdlib" />
+  <img src="https://img.shields.io/github/v/release/phylaxsystems/credible-std?style=for-the-badge&label=release&labelColor=160F0C&color=0092FF" alt="Latest release" />
+  <img src="https://img.shields.io/badge/Solidity-%5E0.8.13-160F0C?style=for-the-badge&logo=solidity&logoColor=white" alt="Solidity ^0.8.13" />
+  <img src="https://img.shields.io/badge/license-MIT-160F0C?style=for-the-badge" alt="License: MIT" />
+</p>
+
+<p>
+  <a href="https://docs.phylax.systems/credible/credible-introduction"><b>Docs</b></a> &nbsp;·&nbsp;
+  <a href="https://phylaxsystems.github.io/credible-std"><b>API Reference</b></a> &nbsp;·&nbsp;
+  <a href="https://phylax.systems"><b>Website</b></a> &nbsp;·&nbsp;
+  <a href="https://x.com/phylaxsystems"><b>X</b></a>
+</p>
+
+</div>
+
+---
 
 Standard library for implementing assertions in the Phylax Credible Layer (PCL). Provides the core contracts and interfaces needed to create, test, and validate assertions for smart contract security monitoring.
 
@@ -18,7 +44,7 @@ live in `examples/micro-patterns`.
 Install the latest stable release:
 
 ```bash
-forge install phylaxsystems/credible-std@0.4.0
+forge install phylaxsystems/credible-std@0.7.0
 ```
 
 Or install from master (latest development version):
@@ -332,3 +358,9 @@ uint256[] memory fieldChanges = getStateChangesUint(target, structSlot, key, fie
 ## License
 
 MIT
+
+---
+
+<div align="center">
+<sub><b>Phylax Systems</b> &nbsp;·&nbsp; <a href="https://docs.phylax.systems">Credible Layer docs</a> &nbsp;·&nbsp; <a href="https://phylax.systems">phylax.systems</a></sub>
+</div>
