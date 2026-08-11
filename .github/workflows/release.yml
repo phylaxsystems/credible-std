@@ -5,8 +5,34 @@ on:
     tags:
       - "*.*.*"
 
+env:
+  ABI_ARTIFACT_NAME: credible-std-abis
+
 jobs:
+  create-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Create ABI artifacts
+        run: ./shell/create_artifacts.sh
+
+      - name: Upload ABI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ABI_ARTIFACT_NAME }}
+          path: artifacts/
+
   release-npm:
+    needs: create-artifacts
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -30,12 +56,26 @@ jobs:
       - name: Verify package version matches tag
         run: test "$(node --print "require('./package.json').version")" = "${GITHUB_REF_NAME}"
 
+      - name: Download ABI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ABI_ARTIFACT_NAME }}
+          path: artifacts/
+
+      - name: Verify ABI package contents
+        run: |
+          jq --exit-status 'type == "array" and length > 0' artifacts/PhEvm.json >/dev/null
+          npm pack --dry-run --ignore-scripts
+
       - name: Publish to npm
         run: npm publish --access public --ignore-scripts=true
 
   release-github:
+    needs: create-artifacts
     permissions:
       contents: write
     uses: phylaxsystems/actions/.github/workflows/release-github.yaml@main
     secrets:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+    with:
+      artifact_name: credible-std-abis

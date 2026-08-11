@@ -2,6 +2,9 @@
 cache/
 out/
 
+# Generated ABI package and release assets
+/artifacts/
+
 # pcl-generated assertions cache at repo root
 /assertions/
 
