@@ -6,6 +6,30 @@ on:
   pull_request:
 
 jobs:
+  npm-package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build and verify npm package
+        run: |
+          ./shell/create_artifacts.sh
+          jq --exit-status 'type == "array" and length > 0' artifacts/PhEvm.json >/dev/null
+          npm pack --dry-run --ignore-scripts
+
   solidity-base:
     uses: phylaxsystems/actions/.github/workflows/solidity-base.yaml@main
     with:

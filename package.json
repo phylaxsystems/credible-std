@@ -1,13 +1,14 @@
 {
   "name": "@phylax-systems/credible-std",
   "description": "Solidity standard library for writing Credible Layer assertions",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "license": "MIT",
   "author": {
     "name": "Phylax Systems",
     "url": "https://phylax.systems"
   },
   "files": [
+    "artifacts",
     "lib/forge-std/src",
     "lib/openzeppelin-contracts/contracts",
     "scripts/backtesting/transaction_fetcher.sh",

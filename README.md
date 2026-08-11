@@ -55,12 +55,31 @@ forge-std/=node_modules/@phylax-systems/credible-std/lib/forge-std/src/
 @openzeppelin/=node_modules/@phylax-systems/credible-std/lib/openzeppelin-contracts/
 ```
 
+### ABI artifacts
+
+The npm package includes generated ABI arrays for every ABI-bearing contract and
+interface defined under `src/`. Import them directly from `artifacts/`:
+
+```ts
+import phEvmAbi from "@phylax-systems/credible-std/artifacts/PhEvm.json";
+import triggerRecorderAbi from "@phylax-systems/credible-std/artifacts/TriggerRecorder.json";
+import safeTxShapeAssertionAbi from "@phylax-systems/credible-std/artifacts/protection/safe/SafeTxShapeAssertion.json";
+```
+
+An artifact whose contract name matches its Solidity filename mirrors the source
+path without the `.sol` suffix. Additional contracts or interfaces declared in
+the same source use `<Source>.<Contract>.json`, for example:
+`artifacts/protection/lending/examples/AaveV3Interfaces.IAaveV3PoolLike.json`.
+
+Each JSON file contains the raw ABI array, matching the artifact format published
+by `@phylax-systems/credible-layer-contracts`.
+
 ### Using Foundry (Recommended)
 
 Install the latest stable release:
 
 ```bash
-forge install phylaxsystems/credible-std@0.7.0
+forge install phylaxsystems/credible-std@0.8.1
 ```
 
 Or install from master (latest development version):
