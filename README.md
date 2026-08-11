@@ -39,6 +39,22 @@ live in `examples/micro-patterns`.
 
 ## Installation
 
+### Using npm
+
+Install the package:
+
+```bash
+npm install @phylax-systems/credible-std
+```
+
+Add these remappings to your `remappings.txt`:
+
+```
+credible-std/=node_modules/@phylax-systems/credible-std/src/
+forge-std/=node_modules/@phylax-systems/credible-std/lib/forge-std/src/
+@openzeppelin/=node_modules/@phylax-systems/credible-std/lib/openzeppelin-contracts/
+```
+
 ### Using Foundry (Recommended)
 
 Install the latest stable release:

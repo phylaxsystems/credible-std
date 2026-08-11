@@ -1,0 +1,36 @@
+{
+  "name": "@phylax-systems/credible-std",
+  "description": "Solidity standard library for writing Credible Layer assertions",
+  "version": "0.8.0",
+  "license": "MIT",
+  "author": {
+    "name": "Phylax Systems",
+    "url": "https://phylax.systems"
+  },
+  "files": [
+    "lib/forge-std/src",
+    "lib/openzeppelin-contracts/contracts",
+    "scripts/backtesting/transaction_fetcher.sh",
+    "src",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/phylaxsystems/credible-std.git"
+  },
+  "keywords": [
+    "solidity",
+    "ethereum",
+    "smart-contracts",
+    "credible-layer",
+    "assertions"
+  ],
+  "bugs": {
+    "url": "https://github.com/phylaxsystems/credible-std/issues"
+  },
+  "homepage": "https://github.com/phylaxsystems/credible-std#readme",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
