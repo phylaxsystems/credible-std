@@ -6,6 +6,33 @@ on:
       - "*.*.*"
 
 jobs:
+  release-npm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # npm >= 11.5.1 is required for OIDC trusted publishing.
+      - name: Update npm
+        run: npm install -g npm@latest
+
+      - name: Verify package version matches tag
+        run: test "$(node --print "require('./package.json').version")" = "${GITHUB_REF_NAME}"
+
+      - name: Publish to npm
+        run: npm publish --access public --ignore-scripts=true
+
   release-github:
     permissions:
       contents: write
