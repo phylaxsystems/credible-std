@@ -541,6 +541,24 @@ interface PhEvm {
     function inflowRate() external view returns (FlowRateContext memory ctx);
 
     // ---------------------------------------------------------------
+    //  Experimental: gnark BN254 PLONK verification
+    // ---------------------------------------------------------------
+
+    /// @notice Verifies a registry-backed gnark BN254 PLONK proof.
+    /// @dev EXPERIMENTAL: requires registerAssertionSpec(AssertionSpec.Experimental).
+    ///      The executor accepts only compiled-in verifier-key identifiers; callers
+    ///      cannot provide verifier-key bytes. This currently supports the demonstrated
+    ///      one-public-input gnark BN254 PLONK layout.
+    /// @param proof The Solidity-encoded gnark proof.
+    /// @param commitment The sole public input before BN254 scalar reduction.
+    /// @param verifierKeyId The immutable registry identifier for the verifier key.
+    /// @return valid False when the proof is well-formed but algebraically invalid.
+    function verifyGnarkPlonkProof(bytes calldata proof, bytes32 commitment, bytes32 verifierKeyId)
+        external
+        view
+        returns (bool valid);
+
+    // ---------------------------------------------------------------
     //  V2: Anomaly detection
     // ---------------------------------------------------------------
 

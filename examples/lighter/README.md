@@ -37,6 +37,10 @@ The funds-custody outflow rate limit is a separate, independently deployable ass
   drain past a rolling-window TVL fraction during normal operation; the breaker stands down in desert
   mode so it never blocks the mass exits the escape hatch exists to enable. Deploy one instance per
   watched ERC-20 token.
+- **Experimental batch-proof verification** (`LighterBatchProofAssertion`) — re-verifies the
+  one-public-input gnark BN254 PLONK proof attached to each `verifyBatch` call using the executor's
+  compiled-in VK registry. It is bound to the configured Lighter proxy and fails closed on malformed
+  calldata, an unknown VK, or a rejected proof.
 
 ## Files
 
@@ -46,6 +50,7 @@ The funds-custody outflow rate limit is a separate, independently deployable ass
 - `src/LighterBridgeHelpers.sol` — fork-aware reads.
 - `src/LighterBridgeAssertion.sol` — state-machine + desert-mode bundle (trigger wiring + invariants).
 - `src/LighterOutflowCircuitBreaker.sol` — standalone rolling-window collateral outflow breaker.
+- `src/LighterBatchProofAssertion.sol` — Experimental registry-backed gnark PLONK batch-proof guard.
 - `test/LighterBridgeAssertion.t.sol` — honest + malicious behavior per state-machine invariant.
 - `test/LighterOutflowCircuitBreaker.t.sol` — breaker decision logic + constructor guards.
 
