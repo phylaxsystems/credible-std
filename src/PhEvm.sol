@@ -540,6 +540,18 @@ interface PhEvm {
     /// @return ctx The inflow rate-of-change context for the current invocation.
     function inflowRate() external view returns (FlowRateContext memory ctx);
 
+    /// @notice Verifies an experimental registry-backed gnark BN254 PLONK proof.
+    /// @dev EXPERIMENTAL: requires registerAssertionSpec(AssertionSpec.Experimental).
+    ///      Only compiled-in verifier keys are accepted.
+    /// @param proof The gnark-encoded PLONK proof.
+    /// @param commitment The public commitment verified by the proof.
+    /// @param verifierKeyId The identifier of a compiled-in verifier key.
+    /// @return valid Whether the proof is valid for the commitment.
+    function verifyGnarkPlonkProof(bytes calldata proof, bytes32 commitment, bytes32 verifierKeyId)
+        external
+        view
+        returns (bool valid);
+
     // ---------------------------------------------------------------
     //  V2: Anomaly detection
     // ---------------------------------------------------------------
