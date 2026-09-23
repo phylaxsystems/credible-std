@@ -32,6 +32,19 @@ Standard library for implementing assertions in the Phylax Credible Layer (PCL).
 
 Full API documentation is available at: https://phylaxsystems.github.io/credible-std
 
+To build the API site locally, use Foundry v1.8.3 and Node.js 24:
+
+```bash
+forge doc
+npm ci --prefix docs
+npm run build --prefix docs
+```
+
+Vocs writes the static site to `docs/dist/public`. Run `npm run preview --prefix docs`
+to preview it at `/credible-std/`. Generated pages and the sidebar are ignored by Git;
+the Vocs configuration and locked dependencies are committed in `docs/`. Keep fenced
+NatSpec examples contiguous: Foundry treats empty `///` lines as separate descriptions.
+
 ## Examples
 
 Assertion Book examples live in `examples/assertions-book`; micro-pattern examples
