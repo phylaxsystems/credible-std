@@ -48,11 +48,9 @@ interface IERC20 {
 ///         AnomalyGatedBaseAssertion(pool, Sensitivity.RECOMMENDED)
 ///         AnomalyGatedOutflowAssertion(pool, reserveToken, 250) // drain >= 2.5% of the reserve
 ///     {}
-///
 ///     function triggers() external view override {
 ///         _registerOutflowTrigger();
 ///     }
-///
 /// }
 /// ```
 abstract contract AnomalyGatedBaseAssertion is Assertion {

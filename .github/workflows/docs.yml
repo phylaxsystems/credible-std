@@ -25,14 +25,25 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          # Foundry 1.8 replaced mdBook with Vocs and removed `forge doc --build`.
-          # Keep the existing docs/book publishing contract until that migration.
-          version: v1.7.1
+          version: v1.8.3
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
 
       - name: Generate Documentation
         run: |
-          forge doc --build
-          test -s docs/book/index.html
+          forge doc
+
+      - name: Build Vocs site
+        run: |
+          npm ci --prefix docs --no-audit --no-fund
+          npm run build --prefix docs
+          test -s docs/dist/public/index.html
+          test -s docs/dist/public/src/interface.PhEvm/index.html
 
       - name: Setup Pages
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
@@ -42,7 +53,7 @@ jobs:
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './docs/book'
+          path: './docs/dist/public'
 
   deploy:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'

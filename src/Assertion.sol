@@ -20,7 +20,6 @@ import {ForkUtils} from "./utils/ForkUtils.sol";
 ///     function triggers() external view override {
 ///         registerCallTrigger(this.checkInvariant.selector, ITarget.deposit.selector);
 ///     }
-///
 ///     function checkInvariant() external {
 ///         ph.forkPostTx();
 ///         // Check invariants...
