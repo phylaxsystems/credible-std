@@ -230,6 +230,7 @@ libs = ["lib"]
 remappings = ["credible-std/=src/"]
 
 [doc]
+homepage = "docs/index.md"
 title = "Credible Standard Library"
 repository = "https://github.com/phylaxsystems/credible-std"
 ignore = ["test/**", "lib/**", "examples/**"]

@@ -1,0 +1,19 @@
+{
+  "name": "credible-std-docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vocs dev",
+    "build": "vocs build",
+    "preview": "vocs preview"
+  },
+  "dependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "vocs": "2.10.0",
+    "waku": "1.0.0-rc.1"
+  },
+  "devDependencies": {
+    "vite": "^8.0.0"
+  }
+}
