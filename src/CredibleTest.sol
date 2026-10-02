@@ -12,6 +12,14 @@ interface VmEx is Vm {
     /// @param createData The creation bytecode of the assertion contract
     /// @param fnSelector The function selector of the assertion function to test
     function assertion(address adopter, bytes calldata createData, bytes4 fnSelector) external;
+
+    /// @notice Stage the anomaly verdict returned for `target` on the next `assertion` call
+    /// @dev A `watchAnomaly` trigger registered at level `L` fires iff `firesAt != 0 && L >= firesAt`.
+    ///      Targets that are not staged are not scored, so their anomaly triggers never fire.
+    ///      Call once per target to stage several before `assertion`.
+    /// @param target The contract the verdict is for (the `watchAnomaly` target)
+    /// @param firesAt The strictest sensitivity level (1..=10) the score clears; 0 clears none
+    function setAnomalyLevel(address target, uint8 firesAt) external;
 }
 
 /// @title CredibleTest
