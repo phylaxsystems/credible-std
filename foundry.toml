@@ -235,3 +235,14 @@ repository = "https://github.com/phylaxsystems/credible-std"
 ignore = ["test/**", "lib/**", "examples/**"]
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
+
+[profile.policy-library]
+src = "policy-catalog/bundles"
+test = "policy-catalog/test"
+out = "policy-catalog/out"
+cache_path = "policy-catalog/cache"
+solc = "0.8.28"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+via_ir = true
