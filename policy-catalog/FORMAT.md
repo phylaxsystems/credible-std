@@ -1,54 +1,46 @@
 # Policy metadata v1
 
-The consumer config chooses a GitHub `repository`, `ref` (branch, tag, or commit),
-and `indexFile`. Resolve the ref once per synchronization, then read all files
-at that resolved commit. Never fetch individual files from a moving branch.
+source-of-truth.json identifies the public GitHub repository, branch/ref and
+indexFile. The dApp resolves the ref once per synchronization, then reads every
+listed path at that commit. It never executes remote code or reads a moving branch
+file-by-file.
 
-`index.json` contains `schemaVersion: 1` and a nonempty, unique `manifests` array
-of repository-relative JSON paths. Only listed manifests belong to the catalog.
+index.json contains schemaVersion: 1 and a unique, nonempty manifests array.
 Each manifest contains:
 
-| Field | Consumer behavior |
+- template: stable slug, display name, summary, category, compatible target types
+  and owner team.
+- version.parameterSchema: ordered UI inputs. Every input has a stable key,
+  label, description, type, required flag, editability and type-specific limits.
+- version.applicabilityRules, dependency/conflict rules, coverage, residual risks
+  and required integration mode.
+- version.sourceRepository, exact sourceCommit, sourceBundleKey and pinned
+  credibleStdCommit.
+- version.compilerMetadata and testEvidence, including an explicit
+  productionQualified: false until a reviewed publication gate is complete.
+- bindings[]: one or more assertion deployments. Each binding declares the
+  contract, source paths, constructor ABI/signature, positional argument bindings,
+  expected assertion functions, expected trigger families, compiled bytecode,
+  compiler settings and supported profiles.
+
+argumentBindings connect constructor arguments to policy_parameter values,
+target bindings, reviewed relationships, integration values or constants. Their
+solidityType must match the constructor ABI at the same position. Composite
+ABI values use JSON in the UI; integer values use decimal strings to avoid
+JavaScript precision loss. Type limits are UI constraints, not substitutes for
+constructor simulation or protocol-specific review.
+
+The current source-derived policies expose these constructor inputs:
+
+| Policy | Inputs |
 | --- | --- |
-| `schemaVersion` | Reject unsupported versions. Currently `1`. |
-| `template` | Stable `slug`, display `name`, `summary`, `category`, compatible `targetTypes`, `ownerTeam`. |
-| `version.semanticVersion` | Immutable version identifier once published. |
-| `version.parameterSchema` | Ordered input definitions: stable `key`, `label`, `description`, `type`, `required`, `customerEditable`, optional defaults/recommendations and type-specific constraints. |
-| `version.applicabilityRules` | Supported profiles, required relationships and disallowed integration modes. |
-| `version.dependencyRules`, `version.conflictRules` | Desired-state requirements; these are not Solidity guarantees. |
-| `version.coverageStatement`, `version.residualRisks` | Explain intended protection and its limits. |
-| `version.requiredIntegration` | Integration modes required before activation. |
-| `version.sourceRepository`, `version.sourceCommit` | Exact repository and commit containing the source artifacts. |
-| `version.credibleStdCommit` | Pinned standard-library revision used to flatten the sources. |
-| `version.compilerMetadata`, `version.testEvidence` | Reproducible compiler settings and explicitly scoped test results. |
-| `version.publicationStatus` | Authored entries are `draft`; repository sync does not publish. |
-| `bindings[]` | One entry per assertion deployment; a policy can deploy multiple assertions, each with multiple assertion functions. |
+| Token Outflow Circuit Breaker | token, threshold bps, rolling window, optional minimum outflow floor, per-transaction cap (zero = hard stop) |
+| Upgrade Governance Slot Lock | protected EIP-1967 proxy |
+| Safe Configuration Policy | owners, threshold, singleton, fallback handler, transaction guard |
+| Safe Action Policy | batch executors, internal address set, call rules, calldata pins, approval caps, maximum native value |
+| Safe Outflow Circuit Breaker | token, rolling window, absolute outflow limit |
 
-Each binding declares `contractName`, `sourcePath`, flattened `sourceFile`,
-`flattenedSourceKey`, constructor ABI/signature, `argumentBindings`,
-`expectedAssertionSpec.assertionFunctions`, `expectedTriggers`, compiler settings,
-compiled `baseBytecode`, `targetBindingRole`, and `supportedTargetProfiles`.
-
-`argumentBindings` are positional, in constructor order. Each has an
-`argumentName`, canonical `solidityType`, `source`, and `transform`. Sources are
-`policy_parameter` (by key), `target_address`, `target_snapshot`,
-`relationship_address`, `integration_value`, or a reviewed `constant`.
-Target-derived sources identify a `targetBindingRole`. Never guess a missing
-secondary target. Reject unresolved values and constructor type/count mismatches.
-
-Parameter types include `address`, `address_list`, `uint`, `percentage_bps`,
-`duration_seconds`, `duration_blocks`, `asset_amount`, `boolean`, `enum`, `bytes`,
-`selector_set`, target/role references, and structured rule types. `abi` provides
-an escape hatch for explicitly declared Solidity types (including tuples and
-arrays): scalar inputs use text and composite inputs use JSON. Solidity integer
-values are decimal strings to avoid JavaScript precision loss. UI min/max values
-do not express every constructor invariant: compilation/constructor simulation
-must also enforce cross-field constraints such as soft threshold < hard threshold.
-
-The initial templates' trigger labels describe registration families:
-`cumulativeOutflow`, `functionCall`, `storageChange`, and `txEnd`. They are not
-execution receipts. Function lists are checked against the compiled ABI.
-
-The dApp's catalog validator is the strict consumer contract. Unknown or malformed
-input must fail before any database publication or deployment. Never execute
-scripts supplied by a remote catalog during synchronization.
+The metadata names the public Derive/Lighter commits used as upstream design
+provenance. It does not claim either project approved these generalized templates.
+Publication and activation require source review, negative/boundary/fork evidence,
+integration checks, and explicit authority.

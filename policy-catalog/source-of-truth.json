@@ -22,18 +22,20 @@
       "repository": "https://github.com/phylaxsystemssolutions/derive",
       "commit": "f8250d0472ff564b256d8127c5fffa7d5bede000",
       "scope": [
-        "rolling outflow breaker",
-        "Safe configuration lock",
-        "settlement pin"
+        "DeriveOutflowBreaker",
+        "DeriveGovernancePinAssertion",
+        "DeriveSafeConfigLock",
+        "DeriveSafeActionPolicy",
+        "DeriveSafeOutflowBreaker"
       ]
     },
     {
       "repository": "https://github.com/phylaxsystemssolutions/lighter",
       "commit": "9b52b15603187e26f2c2cc474ea9e7421555d591",
       "scope": [
-        "tiered outflow circuit breaker",
-        "constructor-driven Safe policy",
-        "upgrade gate state lock"
+        "LighterOutflowCircuitBreaker",
+        "LighterUpgradeGovernanceAssertion",
+        "LighterSafePolicyHelpers"
       ]
     }
   ],

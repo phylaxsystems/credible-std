@@ -1,0 +1,200 @@
+{
+  "schemaVersion": 1,
+  "template": {
+    "slug": "safe-outflow-circuit-breaker",
+    "name": "Safe Outflow Circuit Breaker",
+    "summary": "Stop a Safe from sending a configured token beyond its rolling-window limit.",
+    "category": "Flow Controls",
+    "targetTypes": [
+      "safe"
+    ],
+    "ownerTeam": "Phylax Policy Engineering"
+  },
+  "version": {
+    "semanticVersion": "1.0.0",
+    "publicationStatus": "draft",
+    "businessDescription": "Stop a Safe from sending a configured token beyond its rolling-window limit.",
+    "parameterSchema": [
+      {
+        "key": "token",
+        "label": "Protected token",
+        "description": "ERC-20 token held by the Safe.",
+        "required": true,
+        "customerEditable": true,
+        "changeEffect": "new_assertion",
+        "type": "address",
+        "allowZeroAddress": false
+      },
+      {
+        "key": "window_seconds",
+        "label": "Rolling window",
+        "description": "Window used to calculate cumulative Safe outflow.",
+        "required": true,
+        "customerEditable": true,
+        "changeEffect": "new_assertion",
+        "type": "duration_seconds",
+        "minimum": "10",
+        "maximum": "31536000"
+      },
+      {
+        "key": "limit",
+        "label": "Outflow limit",
+        "description": "Net token outflow at which the Safe stops sending the token.",
+        "required": true,
+        "customerEditable": true,
+        "changeEffect": "new_assertion",
+        "type": "asset_amount",
+        "assetParameterKey": "token",
+        "decimals": 18,
+        "minimum": "1",
+        "maximum": "1000000000000000000000000000000"
+      }
+    ],
+    "applicabilityRules": {
+      "supportedProfileKeys": [
+        "generic-bridge",
+        "generic-vault",
+        "generic-erc4626",
+        "custom-reviewed-contract"
+      ],
+      "requiredRelationshipTypes": [],
+      "disallowedIntegrationModes": [
+        "none"
+      ]
+    },
+    "dependencyRules": {
+      "allOf": []
+    },
+    "conflictRules": {
+      "noneOf": []
+    },
+    "coverageStatement": "Stop a Safe from sending a configured token beyond its rolling-window limit.",
+    "residualRisks": [
+      "Draft source and constructor tests are not production qualification."
+    ],
+    "requiredIntegration": [
+      "safe_transaction_guard"
+    ],
+    "sourceRepository": "https://github.com/phylaxsystems/credible-std",
+    "sourceCommit": "340a28896e17cfb90ddaac21d5eed109b292a7ce",
+    "sourceBundleKey": "policy-catalog/bundles/policy-assertions.sol",
+    "credibleStdCommit": "1dc8c68e38a3892bdedd007fffe48702b9ee199c",
+    "compilerMetadata": {
+      "solcVersion": "0.8.28",
+      "fullVersion": "v0.8.28+commit.7893614a",
+      "settings": {
+        "remappings": [
+          "credible-std/=src/",
+          "forge-std/=lib/forge-std/src/"
+        ],
+        "optimizer": {
+          "enabled": true,
+          "runs": 200
+        },
+        "metadata": {
+          "bytecodeHash": "ipfs"
+        },
+        "evmVersion": "cancun",
+        "libraries": {},
+        "viaIR": true
+      }
+    },
+    "testEvidence": {
+      "unit": "FOUNDRY_PROFILE=policy-library forge test: 8 constructor tests passed",
+      "boundary": "constructor validation only",
+      "runtime": "not_run",
+      "fork": "not_run",
+      "productionQualified": false,
+      "scope": "constructor tests and compilation only",
+      "warning": "Draft. Runtime negative/boundary and integration qualification required before publication."
+    }
+  },
+  "bindings": [
+    {
+      "bindingKey": "safe-outflow-circuit-breaker",
+      "targetBindingRole": "primary",
+      "sourcePath": "policy-catalog/bundles/policy-assertions.sol",
+      "contractName": "SafeOutflowCircuitBreakerAssertion",
+      "foundryProfile": "policy-library",
+      "constructorAbi": [
+        {
+          "type": "constructor",
+          "inputs": [
+            {
+              "name": "token",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "window",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "limit",
+              "type": "uint256",
+              "internalType": "uint256"
+            }
+          ],
+          "stateMutability": "nonpayable"
+        }
+      ],
+      "constructorSignature": "constructor(address,uint256,uint256)",
+      "argumentBindings": [
+        {
+          "argumentName": "token",
+          "solidityType": "address",
+          "source": {
+            "kind": "policy_parameter",
+            "key": "token"
+          },
+          "transform": "address"
+        },
+        {
+          "argumentName": "window_seconds",
+          "solidityType": "uint256",
+          "source": {
+            "kind": "policy_parameter",
+            "key": "window_seconds"
+          },
+          "transform": "uint_decimal_string"
+        },
+        {
+          "argumentName": "limit",
+          "solidityType": "uint256",
+          "source": {
+            "kind": "policy_parameter",
+            "key": "limit"
+          },
+          "transform": "uint_decimal_string"
+        }
+      ],
+      "expectedAssertionSpec": {
+        "adopterRole": "primary",
+        "name": "assertionOutflowWithinLimit",
+        "readOnly": true,
+        "assertionFunctions": [
+          "assertionOutflowWithinLimit"
+        ]
+      },
+      "expectedTriggers": [
+        "cumulativeOutflow"
+      ],
+      "file": "policy-catalog/bundles/policy-assertions.sol",
+      "sourceFile": "policy-catalog/bundles/policy-assertions.sol",
+      "flattenedSourceKey": "policy-catalog/bundles/policy-assertions.sol",
+      "baseBytecode": "0x60e0806040523461027a5760608161094e803803809161001f828561027e565b83398101031261027a5780516001600160a01b038116919082810361027a5760406020830151920151921561023557600a82101580610224575b156101df57821561019a5760805260a05260c0525f8060405160208101906320fbe2d760e21b8252600160248201526024815261009760448261027e565b519082733cf4a3c0a0af502eef5907cc92584b70f01d686d5af13d15610195573d6001600160401b03811161018157604051906100de601f8201601f19166020018361027e565b81525f60203d92013e5b15610130576040516106ac90816102a2823960805181818160df015281816101490152610374015260a05181818160a6015261017f015260c051818181606801526102dc0152f35b60405162461bcd60e51b815260206004820152602360248201527f417373657274696f6e3a207370656320726567697374726174696f6e206661696044820152621b195960ea1b6064820152608490fd5b634e487b7160e01b5f52604160045260245ffd5b6100e8565b60405162461bcd60e51b815260206004820152601860248201527f5361666520627265616b65723a206c696d6974207a65726f00000000000000006044820152606490fd5b60405162461bcd60e51b815260206004820152601c60248201527f5361666520627265616b65723a20696e76616c69642077696e646f77000000006044820152606490fd5b506001600160401b03821115610059565b60405162461bcd60e51b815260206004820152601860248201527f5361666520627265616b65723a20746f6b656e207a65726f00000000000000006044820152606490fd5b5f80fd5b601f909101601f19168101906001600160401b038211908210176101815760405256fe60806040526004361015610011575f80fd5b5f5f3560e01c8063561db40c146101f75780637bbb19dc1461010e57806382bfefc8146100c9578063a53e54121461008e5763af8214ef14610051575f80fd5b3461008b578060031936011261008b5760206040517f00000000000000000000000000000000000000000000000000000000000000008152f35b80fd5b503461008b578060031936011261008b5760206040517f00000000000000000000000000000000000000000000000000000000000000008152f35b503461008b578060031936011261008b576040517f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03168152602090f35b50346101f3575f3660031901126101f3577355bb9ad8dc1ee06d47279fc2b23cd755b7f2d3263b156101f357604051632e7294e560e11b81527f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03166004820152600160248201527f000000000000000000000000000000000000000000000000000000000000000060448201526315876d0360e21b60648201525f816084817355bb9ad8dc1ee06d47279fc2b23cd755b7f2d3265afa80156101e8576101da575080f35b6101e691505f9061023f565b005b6040513d5f823e3d90fd5b5f80fd5b346101f3575f3660031901126101f3576101e661029d565b6040810190811067ffffffffffffffff82111761022b57604052565b634e487b7160e01b5f52604160045260245ffd5b90601f8019910116810190811067ffffffffffffffff82111761022b57604052565b51906001600160a01b03821682036101f357565b80518210156102895760209160051b010190565b634e487b7160e01b5f52603260045260245ffd5b604051633c6ef81b60e11b815260e081600481734461812e00718ff8d80929e3bf595aeaaa7b881e5afa80156101e8575f906105e2575b6020915001517f0000000000000000000000000000000000000000000000000000000000000000116105e057604051637857e89960e11b8152602081600481734461812e00718ff8d80929e3bf595aeaaa7b881e5afa9081156101e8575f916105a6575b505f60206040516103488161020f565b82815201526040516103598161020f565b600181525f6020820181815260405163486bf45f60e11b81527f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03166004820152925160ff16602484015251604483015281606481734461812e00718ff8d80929e3bf595aeaaa7b881e5afa9081156101e8575f916104a8575b505f5b81518110156104a3576001600160a01b0360206103fa8385610275565b5101516001600160a01b038516911681149081610481575b508061046a575b610425576001016103dd565b60405162461bcd60e51b815260206004820152601b60248201527f536166653a206f7574666c6f77206c696d6974207265616368656400000000006044820152606490fd5b5060606104778284610275565b5101511515610419565b90506001600160a01b0360406104978486610275565b5101511614155f610412565b505050565b90503d805f833e6104b9818361023f565b8101906020818303126101f35780519067ffffffffffffffff82116101f3570181601f820112156101f35780519067ffffffffffffffff821161022b576040519261050a60208460051b018561023f565b82845260208085019360071b830101918183116101f357602001925b82841061053757505050505f6103da565b6080848303126101f35760405190608082019082821067ffffffffffffffff83111761022b5760809260209260405261056f87610261565b815261057c838801610261565b8382015261058c60408801610261565b604082015260608701516060820152815201930192610526565b90506020813d6020116105d8575b816105c16020938361023f565b810103126101f3576105d290610261565b5f610338565b3d91506105b4565b565b5060e0813d60e01161066e575b816105fc60e0938361023f565b810103126101f35760405160e0810181811067ffffffffffffffff82111761022b5760209260c09160405261063081610261565b8352838101518484015260408101516040840152606081015160608401526080810151608084015260a081015160a0840152015160c08201526102d4565b3d91506105ef56fea26469706673582212202eefb17a63c61abbf2eb5d226ed7e5e71afa02595f9ec1bfaf33232ec5f826b764736f6c634300081c0033",
+      "compilerVersion": "v0.8.28+commit.7893614a",
+      "evmVersion": "cancun",
+      "optimizerRuns": 200,
+      "libraries": {},
+      "supportedTargetProfiles": [
+        "generic-bridge",
+        "generic-vault",
+        "generic-erc4626",
+        "custom-reviewed-contract"
+      ],
+      "sortOrder": 0
+    }
+  ]
+}
