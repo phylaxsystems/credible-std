@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "manifests": [
+    "policy-catalog/templates/rolling-outflow-circuit-breaker/1.0.0.json",
+    "policy-catalog/templates/safe-action-policy/1.0.0.json",
+    "policy-catalog/templates/safe-configuration-lock/1.0.0.json",
+    "policy-catalog/templates/settlement-integrity-pin/1.0.0.json",
+    "policy-catalog/templates/tiered-outflow-circuit-breaker/1.0.0.json",
+    "policy-catalog/templates/upgrade-gate-state-lock/1.0.0.json"
+  ]
+}

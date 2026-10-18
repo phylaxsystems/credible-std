@@ -1,0 +1,23 @@
+name: Policy catalog
+on:
+  pull_request:
+    paths: ['policy-catalog/**', 'scripts/policy-catalog-artifacts.py', 'src/**', 'foundry.toml', '.github/workflows/policy-catalog.yml']
+  push:
+    branches: [master, codex/policy-library]
+    paths: ['policy-catalog/**', 'scripts/policy-catalog-artifacts.py', 'src/**', 'foundry.toml', '.github/workflows/policy-catalog.yml']
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - run: FOUNDRY_PROFILE=policy-library forge test
+      - run: python3 scripts/policy-catalog-artifacts.py --check
+      - name: Verify flattened source
+        run: |
+          forge flatten policy-catalog/sources/policy-assertions.sol -o /tmp/policy-assertions.sol
+          cmp policy-catalog/bundles/policy-assertions.sol /tmp/policy-assertions.sol
