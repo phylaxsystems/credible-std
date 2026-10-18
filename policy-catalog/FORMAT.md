@@ -5,7 +5,7 @@ indexFile. The dApp resolves the ref once per synchronization, then reads every
 listed path at that commit. It never executes remote code or reads a moving branch
 file-by-file.
 
-index.json contains schemaVersion: 1 and a unique, nonempty manifests array.
+index.json contains schemaVersion: 1 and a unique, nonempty metadataFiles array. Each entry points to `policy-catalog/policies/<slug>/metadata.json`.
 Each manifest contains:
 
 - template: stable slug, display name, summary, category, compatible target types

@@ -3,8 +3,8 @@
   "repository": "https://github.com/phylaxsystems/credible-std",
   "ref": "codex/policy-library",
   "catalogRoot": "policy-catalog",
-  "manifestRoot": "policy-catalog/templates",
-  "sourceRoot": "policy-catalog/sources",
+  "manifestRoot": "policy-catalog/policies",
+  "sourceRoot": "policy-catalog/policies",
   "publication": {
     "policy": "Manifests are authored and reviewed in credible-std, then explicitly synchronized and imported into the database catalog.",
     "requiredEvidence": [
@@ -39,5 +39,8 @@
       ]
     }
   ],
-  "indexFile": "policy-catalog/index.json"
+  "indexFile": "policy-catalog/index.json",
+  "policyDirectory": "policy-catalog/policies",
+  "metadataFileName": "metadata.json",
+  "sourceFileName": "policy.sol"
 }

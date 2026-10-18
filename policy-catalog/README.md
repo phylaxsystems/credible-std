@@ -26,12 +26,11 @@ available to the dApp.
 
 ## Author and verify
 
-1. Edit sources/policy-assertions.sol and policy-catalog/test.
-2. Regenerate the self-contained source bundle:
-   forge flatten policy-catalog/sources/policy-assertions.sol -o policy-catalog/bundles/policy-assertions.sol.
+1. Edit one `policy-catalog/policies/<slug>/policy.sol` and its colocated `metadata.json`, plus `policy-catalog/test` when behavior changes.
+2. Keep `policy-catalog/index.json` pointed at every `metadata.json`; the dApp reads the constructor ABI and parameter metadata from these files.
 3. Run FOUNDRY_PROFILE=policy-library forge test.
-4. Add or update templates/<slug>/<version>.json and list it in index.json.
-   Each manifest defines display fields, typed inputs, constructor bindings,
+4. Regenerate the derived bundles under `policy-catalog/bundles/` when source changes.
+   Each metadata file defines display fields, typed inputs, constructor bindings,
    assertion functions, trigger families, compatibility, risks and evidence.
 5. Run python3 scripts/policy-catalog-artifacts.py after compilation, then
    python3 scripts/policy-catalog-artifacts.py --check.
@@ -39,7 +38,7 @@ available to the dApp.
    credibleStdCommit to the credible-std revision used to compile it.
 
 The dApp points at this repository and branch, resolves the branch once, reads
-policy-catalog/index.json, then validates all listed metadata and source files.
+policy-catalog/index.json, then validates all listed metadata and source files. Every policy directory contains exactly one Solidity assertion source and one metadata file; bundles are derived compatibility artifacts.
 pnpm policy:sync records the resolved commit in a lock file. Synchronization
 does not publish database rows or activate a release.
 

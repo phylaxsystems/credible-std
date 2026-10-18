@@ -9,10 +9,18 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--check', action='store_true')
 args = parser.parse_args()
 
-for path in sorted((ROOT / 'policy-catalog/templates').glob('*/*.json')):
+for path in sorted((ROOT / 'policy-catalog/policies').glob('*/metadata.json')):
     manifest = json.loads(path.read_text())
     for binding in manifest['bindings']:
-        artifact = json.loads((ROOT / 'policy-catalog/out/policy-assertions.sol' / (binding['contractName'] + '.json')).read_text())
+        candidates = []
+        for candidate in (ROOT / 'policy-catalog/out').rglob(binding['contractName'] + '.json'):
+            artifact = json.loads(candidate.read_text())
+            target = artifact.get('metadata', {}).get('settings', {}).get('compilationTarget', {})
+            if binding['sourceFile'] in target:
+                candidates.append((candidate, artifact))
+        if len(candidates) != 1:
+            raise AssertionError(f'{path}: expected one artifact for {binding["contractName"]}, found {len(candidates)}')
+        _, artifact = candidates[0]
         expected = {
             'constructorAbi': [entry for entry in artifact['abi'] if entry['type'] == 'constructor'],
             'baseBytecode': artifact['bytecode']['object'],

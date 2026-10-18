@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "manifests": [
-    "policy-catalog/templates/token-outflow-circuit-breaker/1.0.0.json",
-    "policy-catalog/templates/upgrade-governance/1.0.0.json",
-    "policy-catalog/templates/safe-configuration-policy/1.0.0.json",
-    "policy-catalog/templates/safe-action-policy/1.0.0.json",
-    "policy-catalog/templates/safe-outflow-circuit-breaker/1.0.0.json"
+  "metadataFiles": [
+    "policy-catalog/policies/token-outflow-circuit-breaker/metadata.json",
+    "policy-catalog/policies/upgrade-governance/metadata.json",
+    "policy-catalog/policies/safe-configuration-policy/metadata.json",
+    "policy-catalog/policies/safe-outflow-circuit-breaker/metadata.json",
+    "policy-catalog/policies/safe-action-policy/metadata.json"
   ]
 }

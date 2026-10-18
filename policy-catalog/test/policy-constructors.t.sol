@@ -2,13 +2,11 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {
-    TokenOutflowCircuitBreakerAssertion,
-    UpgradeGovernancePolicyAssertion,
-    SafeConfigurationPolicyAssertion,
-    SafeOutflowCircuitBreakerAssertion,
-    SafeActionPolicyAssertion
-} from "../bundles/policy-assertions.sol";
+import {TokenOutflowCircuitBreakerAssertion} from "../policies/token-outflow-circuit-breaker/policy.sol";
+import {UpgradeGovernancePolicyAssertion} from "../policies/upgrade-governance/policy.sol";
+import {SafeConfigurationPolicyAssertion} from "../policies/safe-configuration-policy/policy.sol";
+import {SafeOutflowCircuitBreakerAssertion} from "../policies/safe-outflow-circuit-breaker/policy.sol";
+import {SafeActionPolicyAssertion} from "../policies/safe-action-policy/policy.sol";
 
 contract PolicyConstructorsTest is Test {
     function testBreakerRetainsConfiguration() public {
