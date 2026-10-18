@@ -1291,6 +1291,41 @@ abstract contract Assertion is ForkUtils, StateChanges {
     }
 }
 
+// src/protection/access_control/AccessControlBaseAssertion.sol
+
+/// @title AccessControlBaseAssertion
+/// @author Phylax Systems
+/// @notice Base contract for access-control assertions (V2 syntax).
+/// @dev Provides the protected target address and shared helpers for the access-control suite.
+///      Inherit from this (and one or more invariant contracts), then implement `triggers()`.
+///      Each inherited mixin must have its `_register*Triggers()` helper called explicitly;
+///      forgetting one disables that mixin's check without a runtime warning.
+///
+/// Example -- combine slot protection and balance conservation:
+/// ```solidity
+/// contract MyProtocolGuard is SlotProtectionAssertion, BalanceConservationAssertion {
+///     constructor(address _target)
+///         AccessControlBaseAssertion(_target)
+///     {}
+///
+///     function _protectedSlots() internal pure override returns (bytes32[] memory) { ... }
+///     function _conservedBalances() internal view override returns (ConservedBalance[] memory) { ... }
+///
+///     function triggers() external view override {
+///         _registerSlotProtectionTriggers();
+///         _registerBalanceConservationTriggers();
+///     }
+/// }
+/// ```
+abstract contract AccessControlBaseAssertion is Assertion {
+    /// @notice The contract whose access control is being protected (assertion adopter).
+    address internal immutable target;
+
+    constructor(address _target) {
+        target = _target;
+    }
+}
+
 // src/protection/safe/SafeConfigLockHelpers.sol
 
 interface ISafeConfigLockTarget {
@@ -1445,1418 +1480,666 @@ abstract contract SafeConfigLockHelpers is Assertion {
     }
 }
 
-// src/protection/safe/SafeTxShapeHelpers.sol
+// src/protection/access_control/SlotProtectionAssertion.sol
 
-/// @title SafeTxShapeHelpers
+/// @title SlotProtectionAssertion
 /// @author Phylax Systems
-/// @notice Shared decoding and policy helpers for Safe transaction-shape assertions.
-abstract contract SafeTxShapeHelpers is Assertion {
-    uint8 internal constant OPERATION_CALL = 0;
-    uint8 internal constant OPERATION_DELEGATECALL = 1;
+/// @notice Asserts that critical storage slots on the assertion adopter are not modified
+///         during the transaction.
+///
+/// Invariants covered:
+///   - **Ownership immutability**: proxy admin, owner, sentinel, and implementation slots
+///     cannot be changed outside expected governance choreography.
+///   - **Timelock integrity**: delay values, proposer/executor/canceller role slots are
+///     frozen so an attacker cannot shorten a delay before exploiting a governance path.
+///   - **Role stability**: admin roles, operator roles, manager roles remain unchanged
+///     unless an authorized governance action modifies them.
+///   - **Configuration guards**: fee parameters, oracle addresses, whitelist/blocklist
+///     settings, and other safety-critical configuration slots.
+///
+/// @dev Uses the V2 `forbidChangeForSlots` precompile which checks the transaction journal
+///      for any SSTORE to the specified slots. A write is flagged even if it sets the same
+///      value (conservative -- a write is suspicious regardless of whether the value changed).
+///      Writes inside reverted internal calls are rolled back in the journal and do not
+///      trigger a violation.
+///
+///      Implementers must override `_protectedSlots()` to declare which slots to protect.
+///      For mapping entries (e.g., `roles[account]`), compute the slot off-chain via
+///      `keccak256(abi.encode(key, mappingSlot))`.
+///
+///      The policy enforced is: **fail by default** on any watched-slot mutation. Protocols
+///      that need conditional slot changes should use per-function triggers instead and
+///      verify the change follows the expected governance path.
+abstract contract SlotProtectionAssertion is AccessControlBaseAssertion {
+    error ProtectedSlotChanged(bytes32[] slots);
 
-    uint8 public constant APPROVAL_KIND_ERC20_APPROVE = 1;
-    uint8 public constant APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE = 2;
-    uint8 public constant APPROVAL_KIND_ERC721_APPROVE = 3;
-    uint8 public constant APPROVAL_KIND_ERC721_SET_APPROVAL_FOR_ALL = 4;
-    uint8 public constant APPROVAL_KIND_ERC1155_SET_APPROVAL_FOR_ALL = 5;
+    /// @notice Returns the storage slots that must not be modified during the transaction.
+    /// @dev Override to declare the protocol-specific critical slots. Common examples:
+    ///      - EIP-1967 admin slot: `0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103`
+    ///      - EIP-1967 implementation slot: `0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc`
+    ///      - Gnosis Safe owner sentinel (slot 2), threshold (slot 4), singleton (slot 0)
+    ///      - Timelock delay parameters, proposer/executor/canceller roles
+    ///      - Protocol-specific admin, fee, oracle, and permission level slots
+    /// @return slots Array of storage slot identifiers to protect.
+    function _protectedSlots() internal pure virtual returns (bytes32[] memory slots);
 
-    bytes4 public constant EXEC_TRANSACTION_SELECTOR =
-        bytes4(keccak256("execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)"));
-    bytes4 public constant EXEC_TRANSACTION_FROM_MODULE_SELECTOR =
-        bytes4(keccak256("execTransactionFromModule(address,uint256,bytes,uint8)"));
-    bytes4 public constant EXEC_TRANSACTION_FROM_MODULE_RETURN_DATA_SELECTOR =
-        bytes4(keccak256("execTransactionFromModuleReturnData(address,uint256,bytes,uint8)"));
-
-    bytes4 public constant MULTISEND_SELECTOR = bytes4(keccak256("multiSend(bytes)"));
-    bytes4 public constant APPROVE_SELECTOR = bytes4(keccak256("approve(address,uint256)"));
-    bytes4 public constant INCREASE_ALLOWANCE_SELECTOR = bytes4(keccak256("increaseAllowance(address,uint256)"));
-    bytes4 public constant SET_APPROVAL_FOR_ALL_SELECTOR = bytes4(keccak256("setApprovalForAll(address,bool)"));
-
-    uint256 internal constant MULTISEND_HEADER_LENGTH = 85;
-    uint64 internal constant ALLOWANCE_READ_GAS = 500_000;
-    uint256 internal constant MAX_BATCH_ACTIONS = 4;
-
-    struct TargetPolicy {
-        address target;
-        bool allowAnySelector;
-        bool allowEmptyCalldata;
-        bool allowFallbackCalldata;
-        bool allowNonzeroValue;
-    }
-
-    struct SelectorPolicy {
-        address target;
-        bytes4 selector;
-        bool allowNonzeroValue;
-    }
-
-    struct BatchExecutorPolicy {
-        address executor;
-        bytes4 selector;
-        bool allowDelegateCall;
-        uint256 maxActions;
-        bool allowNested;
-    }
-
-    struct ApprovalPolicy {
-        address token;
-        address spender;
-        uint8 kind;
-        uint256 maxAmount;
-        bool allowUnlimited;
-    }
-
-    struct TriggeredSafeCall {
-        bytes4 selector;
-        address caller;
-        bytes input;
-        uint256 callStart;
-        uint256 callEnd;
-    }
-
-    struct OwnerTx {
-        address to;
-        uint256 value;
-        bytes data;
-        uint8 operation;
-    }
-
-    struct ModuleTx {
-        address to;
-        uint256 value;
-        bytes data;
-        uint8 operation;
-    }
-
-    struct Action {
-        address safe;
-        address caller;
-        address module;
-        address target;
-        uint256 value;
-        bytes data;
-        uint256 dataOffset;
-        uint256 dataLength;
-        uint8 operation;
-        bool fromModule;
-        bool fromBatch;
-    }
-
-    error SafeTxShapeDuplicateTarget(address target);
-    error SafeTxShapeDuplicateSelector(address target, bytes4 selector);
-    error SafeTxShapeDuplicateBatchExecutor(address executor, bytes4 selector);
-    error SafeTxShapeDuplicateApprovalPolicy(address token, address spender, uint8 kind);
-    error SafeTxShapeDuplicateModule(address module);
-    error SafeTxShapeInvalidPolicy();
-    error SafeTxShapeTriggeredCallNotFound(bytes4 selector, uint256 callStart);
-    error SafeTxShapeUnsupportedEntrypoint(bytes4 selector);
-    error SafeTxShapeModuleExecutionDisabled(address module);
-    error SafeTxShapeModuleNotAllowed(address module);
-    error SafeTxShapeUnknownOperation(uint8 operation);
-    error SafeTxShapeDelegateCallBlocked(address target);
-    error SafeTxShapeInnerDelegateCallBlocked(address target);
-    error SafeTxShapeUnknownTarget(address target);
-    error SafeTxShapeSelectorNotAllowed(address target, bytes4 selector);
-    error SafeTxShapeCalldataTooShort(address target, uint256 length);
-    error SafeTxShapeEmptyCalldataBlocked(address target);
-    error SafeTxShapeFallbackCalldataBlocked(address target, uint256 length);
-    error SafeTxShapeNativeValueBlocked(address target, bytes4 selector, uint256 value);
-    error SafeTxShapeBatchDelegateCallNotAllowed(address executor);
-    error SafeTxShapeBatchPayloadMalformed();
-    error SafeTxShapeBatchTooManyActions(uint256 maxActions);
-    error SafeTxShapeNestedBatchBlocked(address executor);
-    error SafeTxShapeApprovalMalformed(address token, bytes4 selector);
-    error SafeTxShapeApprovalTokenUnconfigured(address token, bytes4 selector);
-    error SafeTxShapeApprovalSpenderNotAllowed(address token, address spender, uint8 kind);
-    error SafeTxShapeApprovalUnlimitedBlocked(address token, address spender, uint8 kind);
-    error SafeTxShapeApprovalAmountAboveCap(
-        address token, address spender, uint8 kind, uint256 amount, uint256 maxAmount
-    );
-    error SafeTxShapeMixedApprovalMethodsBlocked();
-    error SafeTxShapeAllowanceReadFailed(address token, address spender);
-    error SafeTxShapeGasRefundBlocked(uint256 gasPrice);
-
-    TargetPolicy[] public targetPolicies;
-    SelectorPolicy[] public selectorPolicies;
-    BatchExecutorPolicy[] public batchExecutorPolicies;
-    ApprovalPolicy[] public approvalPolicies;
-    address[] public allowedModules;
-
-    mapping(address target => uint256 indexPlusOne) internal _targetPolicyIndexPlusOne;
-    mapping(address target => mapping(bytes4 selector => uint256 indexPlusOne)) internal _selectorPolicyIndexPlusOne;
-    mapping(address executor => mapping(bytes4 selector => uint256 indexPlusOne)) internal _batchPolicyIndexPlusOne;
-    mapping(address token => mapping(address spender => mapping(uint8 kind => ApprovalPolicy))) internal
-        _approvalPolicyByKey;
-    mapping(address token => mapping(address spender => mapping(uint8 kind => bool))) internal _approvalPolicyExists;
-    mapping(address token => mapping(address spender => mapping(uint8 kind => uint256 indexPlusOne))) internal
-        _approvalPolicyIndexPlusOne;
-    mapping(address token => mapping(uint8 kind => bool)) internal _tokenApprovalKindRegistered;
-    mapping(address module => bool allowed) internal _allowedModule;
-
-    bool public immutable moduleExecutionEnabled;
-
-    constructor(
-        TargetPolicy[] memory targetPolicies_,
-        SelectorPolicy[] memory selectorPolicies_,
-        BatchExecutorPolicy[] memory batchExecutorPolicies_,
-        ApprovalPolicy[] memory approvalPolicies_,
-        bool moduleExecutionEnabled_,
-        address[] memory allowedModules_
-    ) {
-        if (targetPolicies_.length == 0) revert SafeTxShapeInvalidPolicy();
-        if (moduleExecutionEnabled_ && allowedModules_.length == 0) revert SafeTxShapeInvalidPolicy();
-
-        moduleExecutionEnabled = moduleExecutionEnabled_;
-
-        _storeTargetPolicies(targetPolicies_);
-        _storeSelectorPolicies(selectorPolicies_);
-        _storeBatchExecutorPolicies(batchExecutorPolicies_);
-        _storeApprovalPolicies(approvalPolicies_);
-        _storeAllowedModules(allowedModules_);
-
-        _registerReshiramSpec();
-    }
-
-    function targetPolicyCount() external view returns (uint256) {
-        return targetPolicies.length;
-    }
-
-    function selectorPolicyCount() external view returns (uint256) {
-        return selectorPolicies.length;
-    }
-
-    function batchExecutorPolicyCount() external view returns (uint256) {
-        return batchExecutorPolicies.length;
-    }
-
-    function approvalPolicyCount() external view returns (uint256) {
-        return approvalPolicies.length;
-    }
-
-    function allowedModuleCount() external view returns (uint256) {
-        return allowedModules.length;
-    }
-
-    function _triggeredAction() internal view returns (Action memory action) {
-        TriggeredSafeCall memory triggered = _resolveTriggeredSafeCall();
-        address safe = ph.getAssertionAdopter();
-
-        if (triggered.selector == EXEC_TRANSACTION_SELECTOR) {
-            return _decodeOwnerAction(safe, triggered.input);
-        }
-
-        if (
-            triggered.selector == EXEC_TRANSACTION_FROM_MODULE_SELECTOR
-                || triggered.selector == EXEC_TRANSACTION_FROM_MODULE_RETURN_DATA_SELECTOR
-        ) {
-            return _decodeModuleAction(safe, triggered.caller, triggered.input);
-        }
-
-        revert SafeTxShapeUnsupportedEntrypoint(triggered.selector);
-    }
-
-    function _validateInnerDelegateCallPolicy(Action memory action) internal pure {
-        if (action.operation > OPERATION_DELEGATECALL) revert SafeTxShapeUnknownOperation(action.operation);
-        if (action.operation == OPERATION_DELEGATECALL) revert SafeTxShapeInnerDelegateCallBlocked(action.target);
-    }
-
-    function _validateInnerTargetSelectorPolicy(Action memory action) internal view {
-        if (action.operation > OPERATION_DELEGATECALL) revert SafeTxShapeUnknownOperation(action.operation);
-        if (action.operation == OPERATION_DELEGATECALL) return;
-
-        _validateTargetAndSelector(action);
-    }
-
-    function _validateInnerApprovalPolicy(Action memory action) internal view {
-        if (action.operation > OPERATION_DELEGATECALL) revert SafeTxShapeUnknownOperation(action.operation);
-        if (action.operation == OPERATION_DELEGATECALL) return;
-
-        if (action.dataLength < 4) return;
-        _validateApproval(action, _selectorAt(action.data, action.dataOffset));
-    }
-
-    function _validateMultiSendDelegateCallPolicy(Action memory action, BatchExecutorPolicy storage batchPolicy)
-        internal
-        view
-    {
-        (uint256 transactionsOffset, uint256 transactionsLength) = _multiSendTransactions(action, batchPolicy);
-        uint256 offset;
-        while (offset < transactionsLength) {
-            (Action memory innerAction, uint256 nextOffset) =
-                _readMultiSendAction(action, transactionsOffset, transactionsLength, offset);
-            _validateInnerDelegateCallPolicy(innerAction);
-            offset = nextOffset;
+    /// @notice Register the default trigger set for slot protection.
+    /// @dev Registers one storage-change trigger per protected slot, so the check runs only when a
+    ///      watched slot is actually written during the transaction instead of on every adopter
+    ///      transaction. This narrows execution to the exact risk surface without weakening the
+    ///      invariant: `assertSlotProtection` still inspects the whole journal via
+    ///      `forbidChangeForSlots`, which flags any SSTORE to a protected slot. A storage-change
+    ///      trigger fires off that same journal, so same-value writes (which `forbidChangeForSlots`
+    ///      treats as suspicious) still arm the assertion. Call this inside your `triggers()`.
+    function _registerSlotProtectionTriggers() internal view {
+        bytes32[] memory slots = _protectedSlots();
+        for (uint256 i; i < slots.length; ++i) {
+            registerStorageChangeTrigger(this.assertSlotProtection.selector, slots[i]);
         }
     }
 
-    function _validateMultiSendTargetSelectorPolicy(Action memory action, BatchExecutorPolicy storage batchPolicy)
-        internal
-        view
-    {
-        (uint256 transactionsOffset, uint256 transactionsLength) = _multiSendTransactions(action, batchPolicy);
-        uint256 offset;
-        while (offset < transactionsLength) {
-            (Action memory innerAction, uint256 nextOffset) =
-                _readMultiSendAction(action, transactionsOffset, transactionsLength, offset);
-            _validateInnerTargetSelectorPolicy(innerAction);
-            offset = nextOffset;
-        }
-    }
-
-    function _validateMultiSendBatchPolicy(Action memory action, BatchExecutorPolicy storage batchPolicy)
-        internal
-        view
-    {
-        (uint256 transactionsOffset, uint256 transactionsLength) = _multiSendTransactions(action, batchPolicy);
-        uint256 offset;
-        uint256 actionCount;
-
-        while (offset < transactionsLength) {
-            (Action memory innerAction, uint256 nextOffset) =
-                _readMultiSendAction(action, transactionsOffset, transactionsLength, offset);
-
-            ++actionCount;
-            if (actionCount > batchPolicy.maxActions) revert SafeTxShapeBatchTooManyActions(batchPolicy.maxActions);
-            if (innerAction.operation == OPERATION_DELEGATECALL) {
-                revert SafeTxShapeInnerDelegateCallBlocked(innerAction.target);
-            }
-            if (_isConfiguredBatchCall(
-                    innerAction.target, innerAction.data, innerAction.dataOffset, innerAction.dataLength
-                )) {
-                revert SafeTxShapeNestedBatchBlocked(innerAction.target);
-            }
-
-            offset = nextOffset;
-        }
-    }
-
-    function _validateMultiSendApprovalPolicy(Action memory action, BatchExecutorPolicy storage batchPolicy)
-        internal
-        view
-    {
-        (uint256 transactionsOffset, uint256 transactionsLength) = _multiSendTransactions(action, batchPolicy);
-        uint256[] memory cumulativeIncreases = new uint256[](approvalPolicies.length);
-        uint256[] memory initialAllowances = new uint256[](approvalPolicies.length);
-        bool[] memory allowanceLoaded = new bool[](approvalPolicies.length);
-        bool approveSeen;
-        bool increaseAllowanceSeen;
-        uint256 offset;
-        uint256 actionCount;
-        while (offset < transactionsLength) {
-            (Action memory innerAction, uint256 nextOffset) =
-                _readMultiSendAction(action, transactionsOffset, transactionsLength, offset);
-            ++actionCount;
-            if (actionCount > batchPolicy.maxActions) revert SafeTxShapeBatchTooManyActions(batchPolicy.maxActions);
-            bytes4 selector =
-                innerAction.dataLength >= 4 ? _selectorAt(innerAction.data, innerAction.dataOffset) : bytes4(0);
-            if (innerAction.operation == OPERATION_CALL && innerAction.dataLength == 68 && selector == APPROVE_SELECTOR)
-            {
-                _validateInnerApprovalPolicy(innerAction);
-                if (_tokenHasApprovalKind(innerAction.target, APPROVAL_KIND_ERC20_APPROVE)) {
-                    if (increaseAllowanceSeen) revert SafeTxShapeMixedApprovalMethodsBlocked();
-                    approveSeen = true;
-                }
-            } else if (
-                innerAction.operation == OPERATION_CALL && innerAction.dataLength == 68
-                    && selector == INCREASE_ALLOWANCE_SELECTOR
-            ) {
-                if (_readUint256(innerAction.data, innerAction.dataOffset + 36) == 0) {
-                    _validateInnerApprovalPolicy(innerAction);
-                    offset = nextOffset;
-                    continue;
-                }
-                if (approveSeen) revert SafeTxShapeMixedApprovalMethodsBlocked();
-                increaseAllowanceSeen = true;
-                _accumulateIncreaseAllowance(innerAction, cumulativeIncreases, initialAllowances, allowanceLoaded);
-            } else {
-                _validateInnerApprovalPolicy(innerAction);
-            }
-            offset = nextOffset;
-        }
-    }
-
-    function _accumulateIncreaseAllowance(
-        Action memory action,
-        uint256[] memory cumulativeIncreases,
-        uint256[] memory initialAllowances,
-        bool[] memory allowanceLoaded
-    ) internal view {
-        address spender = _readAbiAddress(action.data, action.dataOffset + 4);
-        uint256 addedValue = _readUint256(action.data, action.dataOffset + 36);
-        uint256 policyIndexPlusOne =
-            _approvalPolicyIndexPlusOne[action.target][spender][APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE];
-        if (policyIndexPlusOne == 0) {
-            revert SafeTxShapeApprovalSpenderNotAllowed(action.target, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE);
-        }
-
-        uint256 policyIndex = policyIndexPlusOne - 1;
-        if (!allowanceLoaded[policyIndex]) {
-            initialAllowances[policyIndex] = _readAllowanceFromPreState(action.caller, action.target, spender);
-            allowanceLoaded[policyIndex] = true;
-        }
-
-        uint256 cumulativeIncrease = cumulativeIncreases[policyIndex];
-        cumulativeIncrease =
-            addedValue > type(uint256).max - cumulativeIncrease ? type(uint256).max : cumulativeIncrease + addedValue;
-        cumulativeIncreases[policyIndex] = cumulativeIncrease;
-        _validateAllowancePeak(action.target, spender, initialAllowances[policyIndex], cumulativeIncrease);
-    }
-
-    function _multiSendTransactions(Action memory action, BatchExecutorPolicy storage batchPolicy)
-        internal
-        view
-        returns (uint256 transactionsOffset, uint256 transactionsLength)
-    {
-        if (action.operation == OPERATION_CALL && action.value != 0) {
-            revert SafeTxShapeNativeValueBlocked(action.target, batchPolicy.selector, action.value);
-        }
-        if (action.operation == OPERATION_DELEGATECALL && !batchPolicy.allowDelegateCall) {
-            revert SafeTxShapeBatchDelegateCallNotAllowed(action.target);
-        }
-
-        return _decodeSingleBytesArgument(action.data, action.dataOffset, action.dataLength, batchPolicy.selector);
-    }
-
-    function _readMultiSendAction(
-        Action memory parent,
-        uint256 transactionsOffset,
-        uint256 transactionsLength,
-        uint256 offset
-    ) internal pure returns (Action memory innerAction, uint256 nextOffset) {
-        if (offset > transactionsLength || transactionsLength - offset < MULTISEND_HEADER_LENGTH) {
-            revert SafeTxShapeBatchPayloadMalformed();
-        }
-
-        uint256 entryOffset = transactionsOffset + offset;
-        uint8 operation = uint8(parent.data[entryOffset]);
-        if (operation > OPERATION_DELEGATECALL) revert SafeTxShapeUnknownOperation(operation);
-
-        address target = _readPackedAddress(parent.data, entryOffset + 1);
-
-        uint256 value = _readUint256(parent.data, entryOffset + 21);
-        uint256 dataLength = _readUint256(parent.data, entryOffset + 53);
-        uint256 dataOffset = entryOffset + MULTISEND_HEADER_LENGTH;
-        uint256 transactionsEnd = transactionsOffset + transactionsLength;
-        if (dataOffset > transactionsEnd || dataLength > transactionsEnd - dataOffset) {
-            revert SafeTxShapeBatchPayloadMalformed();
-        }
-
-        innerAction = Action({
-            safe: parent.safe,
-            caller: parent.operation == OPERATION_CALL ? parent.target : parent.caller,
-            module: parent.module,
-            target: target,
-            value: value,
-            data: parent.data,
-            dataOffset: dataOffset,
-            dataLength: dataLength,
-            operation: operation,
-            fromModule: parent.fromModule,
-            fromBatch: true
-        });
-        nextOffset = offset + MULTISEND_HEADER_LENGTH + dataLength;
-    }
-
-    function _validateTargetAndSelector(Action memory action) internal view returns (bytes4 selector) {
-        if (action.target == address(0)) revert SafeTxShapeUnknownTarget(action.target);
-
-        (bool knownTarget, uint256 targetIndex) = _targetPolicyIndex(action.target);
-        if (!knownTarget) revert SafeTxShapeUnknownTarget(action.target);
-
-        TargetPolicy storage targetPolicy = targetPolicies[targetIndex];
-
-        if (action.dataLength == 0) {
-            if (!targetPolicy.allowEmptyCalldata) revert SafeTxShapeEmptyCalldataBlocked(action.target);
-            if (action.value != 0 && !targetPolicy.allowNonzeroValue) {
-                revert SafeTxShapeNativeValueBlocked(action.target, bytes4(0), action.value);
-            }
-            return bytes4(0);
-        }
-
-        if (action.dataLength < 4) {
-            if (!targetPolicy.allowFallbackCalldata) {
-                revert SafeTxShapeFallbackCalldataBlocked(action.target, action.dataLength);
-            }
-            if (action.value != 0 && !targetPolicy.allowNonzeroValue) {
-                revert SafeTxShapeNativeValueBlocked(action.target, bytes4(0), action.value);
-            }
-            return bytes4(0);
-        }
-
-        selector = _selectorAt(action.data, action.dataOffset);
-
-        if (targetPolicy.allowAnySelector) {
-            if (action.value != 0 && !targetPolicy.allowNonzeroValue) {
-                revert SafeTxShapeNativeValueBlocked(action.target, selector, action.value);
-            }
-            return selector;
-        }
-
-        (bool selectorAllowed, uint256 selectorIndex) = _selectorPolicyIndex(action.target, selector);
-        if (!selectorAllowed) revert SafeTxShapeSelectorNotAllowed(action.target, selector);
-
-        if (action.value != 0 && !selectorPolicies[selectorIndex].allowNonzeroValue) {
-            revert SafeTxShapeNativeValueBlocked(action.target, selector, action.value);
-        }
-    }
-
-    function _validateApproval(Action memory action, bytes4 selector) internal view {
-        if (selector == APPROVE_SELECTOR) {
-            if (action.dataLength != 68) revert SafeTxShapeApprovalMalformed(action.target, selector);
-
-            address spender = _readAbiAddress(action.data, action.dataOffset + 4);
-            uint256 amountOrTokenId = _readUint256(action.data, action.dataOffset + 36);
-            bool erc20 = _tokenHasApprovalKind(action.target, APPROVAL_KIND_ERC20_APPROVE);
-            bool erc721 = _tokenHasApprovalKind(action.target, APPROVAL_KIND_ERC721_APPROVE);
-
-            if (erc20) {
-                if (amountOrTokenId == 0) return;
-                _validateNumericApproval(action.target, spender, APPROVAL_KIND_ERC20_APPROVE, amountOrTokenId);
-                return;
-            }
-
-            if (erc721) {
-                if (spender == address(0)) return;
-                _validateOperatorApproval(action.target, spender, APPROVAL_KIND_ERC721_APPROVE);
-                return;
-            }
-
-            revert SafeTxShapeApprovalTokenUnconfigured(action.target, selector);
-        }
-
-        if (selector == INCREASE_ALLOWANCE_SELECTOR) {
-            if (action.dataLength != 68) revert SafeTxShapeApprovalMalformed(action.target, selector);
-            if (!_tokenHasApprovalKind(action.target, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE)) {
-                revert SafeTxShapeApprovalTokenUnconfigured(action.target, selector);
-            }
-
-            address spender = _readAbiAddress(action.data, action.dataOffset + 4);
-            uint256 addedValue = _readUint256(action.data, action.dataOffset + 36);
-            if (addedValue == 0) return;
-
-            _validateIncreaseAllowanceFromPreState(action.caller, action.target, spender, addedValue);
-            return;
-        }
-
-        if (selector == SET_APPROVAL_FOR_ALL_SELECTOR) {
-            if (action.dataLength != 68) revert SafeTxShapeApprovalMalformed(action.target, selector);
-
-            bool erc721 = _tokenHasApprovalKind(action.target, APPROVAL_KIND_ERC721_SET_APPROVAL_FOR_ALL);
-            bool erc1155 = _tokenHasApprovalKind(action.target, APPROVAL_KIND_ERC1155_SET_APPROVAL_FOR_ALL);
-            if (!erc721 && !erc1155) revert SafeTxShapeApprovalTokenUnconfigured(action.target, selector);
-
-            address operator = _readAbiAddress(action.data, action.dataOffset + 4);
-            bool approved = _readAbiBool(action.data, action.dataOffset + 36);
-            if (!approved) return;
-
-            if (erc721 && _operatorApprovalAllowed(action.target, operator, APPROVAL_KIND_ERC721_SET_APPROVAL_FOR_ALL))
-            {
-                return;
-            }
-            if (
-                erc1155 && _operatorApprovalAllowed(action.target, operator, APPROVAL_KIND_ERC1155_SET_APPROVAL_FOR_ALL)
-            ) {
-                return;
-            }
-
-            revert SafeTxShapeApprovalSpenderNotAllowed(
-                action.target,
-                operator,
-                erc721 ? APPROVAL_KIND_ERC721_SET_APPROVAL_FOR_ALL : APPROVAL_KIND_ERC1155_SET_APPROVAL_FOR_ALL
-            );
-        }
-    }
-
-    function _validateNumericApproval(address token, address spender, uint8 kind, uint256 amount) internal view {
-        if (!_approvalPolicyExists[token][spender][kind]) {
-            revert SafeTxShapeApprovalSpenderNotAllowed(token, spender, kind);
-        }
-
-        ApprovalPolicy storage policy = _approvalPolicyByKey[token][spender][kind];
-        if (amount == type(uint256).max) {
-            if (!policy.allowUnlimited) revert SafeTxShapeApprovalUnlimitedBlocked(token, spender, kind);
-            return;
-        }
-
-        if (amount > policy.maxAmount) {
-            revert SafeTxShapeApprovalAmountAboveCap(token, spender, kind, amount, policy.maxAmount);
-        }
-    }
-
-    function _validateIncreaseAllowanceFromPreState(
-        address owner,
-        address token,
-        address spender,
-        uint256 cumulativeIncrease
-    ) internal view {
-        if (!_approvalPolicyExists[token][spender][APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE]) {
-            revert SafeTxShapeApprovalSpenderNotAllowed(token, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE);
-        }
-
-        uint256 initialAllowance = _readAllowanceFromPreState(owner, token, spender);
-        _validateAllowancePeak(token, spender, initialAllowance, cumulativeIncrease);
-    }
-
-    function _readAllowanceFromPreState(address owner, address token, address spender) internal view returns (uint256) {
-        PhEvm.TriggerContext memory triggerCtx = ph.context();
-        PhEvm.ForkId memory preFork = _preCall(triggerCtx.callStart);
-        PhEvm.StaticCallResult memory result = ph.staticcallAt(
-            token, abi.encodeWithSignature("allowance(address,address)", owner, spender), ALLOWANCE_READ_GAS, preFork
-        );
-        if (!result.ok || result.data.length != 32) revert SafeTxShapeAllowanceReadFailed(token, spender);
-        return abi.decode(result.data, (uint256));
-    }
-
-    function _validateAllowancePeak(
-        address token,
-        address spender,
-        uint256 initialAllowance,
-        uint256 cumulativeIncrease
-    ) internal view {
-        ApprovalPolicy storage policy = _approvalPolicyByKey[token][spender][APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE];
-        if (cumulativeIncrease > policy.maxAmount || initialAllowance > policy.maxAmount - cumulativeIncrease) {
-            uint256 peakAllowance = cumulativeIncrease > type(uint256).max - initialAllowance
-                ? type(uint256).max
-                : initialAllowance + cumulativeIncrease;
-            if (peakAllowance == type(uint256).max && policy.allowUnlimited) return;
-            revert SafeTxShapeApprovalAmountAboveCap(
-                token, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE, peakAllowance, policy.maxAmount
-            );
-        }
-    }
-
-    function _validateOperatorApproval(address token, address operator, uint8 kind) internal view {
-        if (!_operatorApprovalAllowed(token, operator, kind)) {
-            revert SafeTxShapeApprovalSpenderNotAllowed(token, operator, kind);
-        }
-    }
-
-    function _operatorApprovalAllowed(address token, address operator, uint8 kind) internal view returns (bool) {
-        if (operator == address(0)) return false;
-        return _approvalPolicyExists[token][operator][kind];
-    }
-
-    function _validateModuleCaller(address module) internal view {
-        if (!moduleExecutionEnabled) revert SafeTxShapeModuleExecutionDisabled(module);
-        if (!_allowedModule[module]) revert SafeTxShapeModuleNotAllowed(module);
-    }
-
-    function _resolveTriggeredSafeCall() internal view returns (TriggeredSafeCall memory triggered) {
-        address safe = ph.getAssertionAdopter();
-        PhEvm.TriggerContext memory context = ph.context();
-
-        if (context.selector == EXEC_TRANSACTION_SELECTOR) {
-            return TriggeredSafeCall({
-                selector: context.selector,
-                caller: address(0),
-                input: ph.callinputAt(context.callStart),
-                callStart: context.callStart,
-                callEnd: context.callEnd
-            });
-        }
-
-        PhEvm.CallInputs[] memory calls = ph.getAllCallInputs(safe, context.selector);
-
-        for (uint256 i; i < calls.length; ++i) {
-            if (calls[i].id == context.callStart) {
-                return TriggeredSafeCall({
-                    selector: context.selector,
-                    caller: calls[i].caller,
-                    input: ph.callinputAt(context.callStart),
-                    callStart: context.callStart,
-                    callEnd: context.callEnd
-                });
-            }
-        }
-
-        revert SafeTxShapeTriggeredCallNotFound(context.selector, context.callStart);
-    }
-
-    function _decodeOwnerTx(bytes memory input) internal pure returns (OwnerTx memory ownerTx) {
-        if (input.length < 388 || _selector(input) != EXEC_TRANSACTION_SELECTOR) {
-            revert SafeTxShapeBatchPayloadMalformed();
-        }
-
-        ownerTx.to = _readAbiAddress(input, 4);
-        ownerTx.value = _readUint256(input, 36);
-        ownerTx.data = _readDynamicBytes(input, 4, _readUint256(input, 68));
-        ownerTx.operation = _readAbiUint8(input, 100);
-    }
-
-    function _decodeModuleTx(bytes memory input) internal pure returns (ModuleTx memory moduleTx) {
-        if (
-            input.length < 164
-                || (_selector(input) != EXEC_TRANSACTION_FROM_MODULE_SELECTOR
-                    && _selector(input) != EXEC_TRANSACTION_FROM_MODULE_RETURN_DATA_SELECTOR)
-        ) {
-            revert SafeTxShapeBatchPayloadMalformed();
-        }
-
-        moduleTx.to = _readAbiAddress(input, 4);
-        moduleTx.value = _readUint256(input, 36);
-        moduleTx.data = _readDynamicBytes(input, 4, _readUint256(input, 68));
-        moduleTx.operation = _readAbiUint8(input, 100);
-    }
-
-    function _decodeOwnerAction(address safe, bytes memory input) internal pure returns (Action memory action) {
-        if (input.length < 388 || _selector(input) != EXEC_TRANSACTION_SELECTOR) {
-            revert SafeTxShapeBatchPayloadMalformed();
-        }
-
-        _requireNoOwnerGasRefund(input);
-
-        (uint256 dataOffset, uint256 dataLength) = _dynamicBytesBounds(input, 4, _readUint256(input, 68));
-        action = Action({
-            safe: safe,
-            caller: safe,
-            module: address(0),
-            target: _readAbiAddress(input, 4),
-            value: _readUint256(input, 36),
-            data: input,
-            dataOffset: dataOffset,
-            dataLength: dataLength,
-            operation: _readAbiUint8(input, 100),
-            fromModule: false,
-            fromBatch: false
-        });
-    }
-
-    function _requireNoOwnerGasRefund(bytes memory input) internal pure {
-        if (input.length < 388 || _selector(input) != EXEC_TRANSACTION_SELECTOR) {
-            revert SafeTxShapeBatchPayloadMalformed();
-        }
-
-        // Safe performs a second, protocol-native transfer after the requested action whenever
-        // signed gasPrice is nonzero. That recipient/token is outside the action tuple, so this
-        // policy explicitly disables refunds instead of silently leaving the transfer free.
-        uint256 gasPrice = _readUint256(input, 196);
-        if (gasPrice != 0) revert SafeTxShapeGasRefundBlocked(gasPrice);
-    }
-
-    function _decodeModuleAction(address safe, address module, bytes memory input)
-        internal
-        pure
-        returns (Action memory action)
-    {
-        if (
-            input.length < 164
-                || (_selector(input) != EXEC_TRANSACTION_FROM_MODULE_SELECTOR
-                    && _selector(input) != EXEC_TRANSACTION_FROM_MODULE_RETURN_DATA_SELECTOR)
-        ) {
-            revert SafeTxShapeBatchPayloadMalformed();
-        }
-
-        (uint256 dataOffset, uint256 dataLength) = _dynamicBytesBounds(input, 4, _readUint256(input, 68));
-        action = Action({
-            safe: safe,
-            caller: safe,
-            module: module,
-            target: _readAbiAddress(input, 4),
-            value: _readUint256(input, 36),
-            data: input,
-            dataOffset: dataOffset,
-            dataLength: dataLength,
-            operation: _readAbiUint8(input, 100),
-            fromModule: true,
-            fromBatch: false
-        });
-    }
-
-    function _decodeSingleBytesArgument(
-        bytes memory input,
-        uint256 inputOffset,
-        uint256 inputLength,
-        bytes4 expectedSelector
-    ) internal pure returns (uint256 argumentOffset, uint256 argumentLength) {
-        if (inputOffset > input.length || inputLength > input.length - inputOffset || inputLength < 68) {
-            revert SafeTxShapeBatchPayloadMalformed();
-        }
-        if (_selectorAt(input, inputOffset) != expectedSelector) revert SafeTxShapeBatchPayloadMalformed();
-
-        uint256 offset = _readUint256(input, inputOffset + 4);
-        if (offset != 32) revert SafeTxShapeBatchPayloadMalformed();
-
-        uint256 inputEnd = inputOffset + inputLength;
-        uint256 lengthOffset = inputOffset + 4 + offset;
-        argumentLength = _readUint256(input, lengthOffset);
-        argumentOffset = lengthOffset + 32;
-        if (argumentOffset > inputEnd) revert SafeTxShapeBatchPayloadMalformed();
-        if (argumentLength > inputEnd - argumentOffset) revert SafeTxShapeBatchPayloadMalformed();
-
-        uint256 paddedLength = argumentLength;
-        uint256 remainder = argumentLength % 32;
-        if (remainder != 0) paddedLength += 32 - remainder;
-
-        uint256 paddedEnd = argumentOffset + paddedLength;
-        if (paddedEnd != inputEnd) revert SafeTxShapeBatchPayloadMalformed();
-        for (uint256 i = argumentLength; i < paddedLength; ++i) {
-            if (input[argumentOffset + i] != 0) revert SafeTxShapeBatchPayloadMalformed();
-        }
-    }
-
-    function _batchPolicyForAction(address target, bytes memory data, uint256 dataOffset, uint256 dataLength)
-        internal
-        view
-        returns (bool found, uint256 index)
-    {
-        if (dataLength < 4) return (false, 0);
-        return _batchPolicyIndex(target, _selectorAt(data, dataOffset));
-    }
-
-    function _isConfiguredBatchCall(address target, bytes memory data, uint256 dataOffset, uint256 dataLength)
-        internal
-        view
-        returns (bool)
-    {
-        if (dataLength < 4) return false;
-        (bool found,) = _batchPolicyIndex(target, _selectorAt(data, dataOffset));
-        return found;
-    }
-
-    function _targetPolicyIndex(address target) internal view returns (bool found, uint256 index) {
-        uint256 indexPlusOne = _targetPolicyIndexPlusOne[target];
-        if (indexPlusOne == 0) return (false, 0);
-        return (true, indexPlusOne - 1);
-    }
-
-    function _selectorPolicyIndex(address target, bytes4 selector) internal view returns (bool found, uint256 index) {
-        uint256 indexPlusOne = _selectorPolicyIndexPlusOne[target][selector];
-        if (indexPlusOne == 0) return (false, 0);
-        return (true, indexPlusOne - 1);
-    }
-
-    function _batchPolicyIndex(address executor, bytes4 selector) internal view returns (bool found, uint256 index) {
-        uint256 indexPlusOne = _batchPolicyIndexPlusOne[executor][selector];
-        if (indexPlusOne == 0) return (false, 0);
-        return (true, indexPlusOne - 1);
-    }
-
-    function _tokenHasApprovalKind(address token, uint8 kind) internal view returns (bool) {
-        return _tokenApprovalKindRegistered[token][kind];
-    }
-
-    function _storeTargetPolicies(TargetPolicy[] memory policies) private {
-        for (uint256 i; i < policies.length; ++i) {
-            if (policies[i].target == address(0)) revert SafeTxShapeInvalidPolicy();
-            if (_targetPolicyIndexPlusOne[policies[i].target] != 0) {
-                revert SafeTxShapeDuplicateTarget(policies[i].target);
-            }
-
-            targetPolicies.push(policies[i]);
-            _targetPolicyIndexPlusOne[policies[i].target] = targetPolicies.length;
-        }
-    }
-
-    function _storeSelectorPolicies(SelectorPolicy[] memory policies) private {
-        for (uint256 i; i < policies.length; ++i) {
-            if (policies[i].target == address(0) || policies[i].selector == bytes4(0)) {
-                revert SafeTxShapeInvalidPolicy();
-            }
-            if (!_targetPolicyExistsInMemory(policies[i].target)) revert SafeTxShapeInvalidPolicy();
-            if (_selectorPolicyIndexPlusOne[policies[i].target][policies[i].selector] != 0) {
-                revert SafeTxShapeDuplicateSelector(policies[i].target, policies[i].selector);
-            }
-
-            selectorPolicies.push(policies[i]);
-            _selectorPolicyIndexPlusOne[policies[i].target][policies[i].selector] = selectorPolicies.length;
-        }
-    }
-
-    function _storeBatchExecutorPolicies(BatchExecutorPolicy[] memory policies) private {
-        for (uint256 i; i < policies.length; ++i) {
-            if (
-                policies[i].executor == address(0) || policies[i].selector == bytes4(0) || policies[i].maxActions == 0
-                    || policies[i].maxActions > MAX_BATCH_ACTIONS || policies[i].allowNested
-            ) {
-                revert SafeTxShapeInvalidPolicy();
-            }
-            if (_batchPolicyIndexPlusOne[policies[i].executor][policies[i].selector] != 0) {
-                revert SafeTxShapeDuplicateBatchExecutor(policies[i].executor, policies[i].selector);
-            }
-
-            batchExecutorPolicies.push(policies[i]);
-            _batchPolicyIndexPlusOne[policies[i].executor][policies[i].selector] = batchExecutorPolicies.length;
-        }
-    }
-
-    function _storeApprovalPolicies(ApprovalPolicy[] memory policies) private {
-        for (uint256 i; i < policies.length; ++i) {
-            if (
-                policies[i].token == address(0) || policies[i].spender == address(0)
-                    || !_isSupportedApprovalKind(policies[i].kind)
-            ) {
-                revert SafeTxShapeInvalidPolicy();
-            }
-
-            for (uint256 j; j < i; ++j) {
-                if (
-                    policies[j].token == policies[i].token && policies[j].spender == policies[i].spender
-                        && policies[j].kind == policies[i].kind
-                ) {
-                    revert SafeTxShapeDuplicateApprovalPolicy(policies[i].token, policies[i].spender, policies[i].kind);
-                }
-
-                if (
-                    policies[j].token == policies[i].token
-                        && ((policies[j].kind == APPROVAL_KIND_ERC20_APPROVE
-                                && policies[i].kind == APPROVAL_KIND_ERC721_APPROVE)
-                            || (policies[j].kind == APPROVAL_KIND_ERC721_APPROVE
-                                && policies[i].kind == APPROVAL_KIND_ERC20_APPROVE))
-                ) {
-                    revert SafeTxShapeInvalidPolicy();
-                }
-            }
-
-            approvalPolicies.push(policies[i]);
-            _approvalPolicyByKey[policies[i].token][policies[i].spender][policies[i].kind] = policies[i];
-            _approvalPolicyExists[policies[i].token][policies[i].spender][policies[i].kind] = true;
-            _approvalPolicyIndexPlusOne[policies[i].token][policies[i].spender][policies[i].kind] =
-            approvalPolicies.length;
-            _tokenApprovalKindRegistered[policies[i].token][policies[i].kind] = true;
-        }
-    }
-
-    function _storeAllowedModules(address[] memory modules) private {
-        for (uint256 i; i < modules.length; ++i) {
-            if (modules[i] == address(0)) revert SafeTxShapeInvalidPolicy();
-            if (_allowedModule[modules[i]]) revert SafeTxShapeDuplicateModule(modules[i]);
-
-            allowedModules.push(modules[i]);
-            _allowedModule[modules[i]] = true;
-        }
-    }
-
-    function _targetPolicyExistsInMemory(address target) private view returns (bool) {
-        return _targetPolicyIndexPlusOne[target] != 0;
-    }
-
-    function _isSupportedApprovalKind(uint8 kind) private pure returns (bool) {
-        return kind == APPROVAL_KIND_ERC20_APPROVE || kind == APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE
-            || kind == APPROVAL_KIND_ERC721_APPROVE || kind == APPROVAL_KIND_ERC721_SET_APPROVAL_FOR_ALL
-            || kind == APPROVAL_KIND_ERC1155_SET_APPROVAL_FOR_ALL;
-    }
-
-    function _registerReshiramSpec() internal {
-        registerAssertionSpec(AssertionSpec.Reshiram);
-    }
-
-    function _stripSelector(bytes memory input) internal pure returns (bytes memory args) {
-        if (input.length < 4) revert SafeTxShapeCalldataTooShort(address(0), input.length);
-        args = _slice(input, 4, input.length - 4);
-    }
-
-    function _selector(bytes memory input) internal pure returns (bytes4 selector) {
-        if (input.length < 4) revert SafeTxShapeCalldataTooShort(address(0), input.length);
-        selector = _selectorAt(input, 0);
-    }
-
-    function _selectorAt(bytes memory input, uint256 offset) internal pure returns (bytes4 selector) {
-        if (offset > input.length || input.length - offset < 4) {
-            revert SafeTxShapeCalldataTooShort(address(0), input.length);
-        }
-        selector = bytes4(
-            (uint32(uint8(input[offset])) << 24) | (uint32(uint8(input[offset + 1])) << 16)
-                | (uint32(uint8(input[offset + 2])) << 8) | uint32(uint8(input[offset + 3]))
-        );
-    }
-
-    function _readAbiAddress(bytes memory data, uint256 offset) internal pure returns (address value) {
-        value = address(uint160(_readUint256(data, offset)));
-    }
-
-    function _readAbiUint8(bytes memory data, uint256 offset) internal pure returns (uint8 value) {
-        uint256 raw = _readUint256(data, offset);
-        if (raw > type(uint8).max) revert SafeTxShapeBatchPayloadMalformed();
-        value = uint8(raw);
-    }
-
-    function _readAbiBool(bytes memory data, uint256 offset) internal pure returns (bool value) {
-        uint256 raw = _readUint256(data, offset);
-        if (raw > 1) revert SafeTxShapeApprovalMalformed(address(0), bytes4(0));
-        value = raw == 1;
-    }
-
-    function _readDynamicBytes(bytes memory data, uint256 headStart, uint256 relativeOffset)
-        internal
-        pure
-        returns (bytes memory value)
-    {
-        (uint256 valueOffset, uint256 valueLength) = _dynamicBytesBounds(data, headStart, relativeOffset);
-        value = _slice(data, valueOffset, valueLength);
-    }
-
-    function _dynamicBytesBounds(bytes memory data, uint256 headStart, uint256 relativeOffset)
-        internal
-        pure
-        returns (uint256 valueOffset, uint256 valueLength)
-    {
-        if (headStart > data.length || relativeOffset > data.length - headStart) {
-            revert SafeTxShapeBatchPayloadMalformed();
-        }
-        uint256 lengthOffset = headStart + relativeOffset;
-        valueLength = _readUint256(data, lengthOffset);
-        valueOffset = lengthOffset + 32;
-        if (valueOffset > data.length) revert SafeTxShapeBatchPayloadMalformed();
-        if (valueLength > data.length - valueOffset) revert SafeTxShapeBatchPayloadMalformed();
-    }
-
-    function _readPackedAddress(bytes memory data, uint256 offset) internal pure returns (address value) {
-        if (offset > data.length || data.length - offset < 20) revert SafeTxShapeBatchPayloadMalformed();
-        uint160 result;
-        for (uint256 i; i < 20; ++i) {
-            result = (result << 8) | uint160(uint8(data[offset + i]));
-        }
-        value = address(result);
-    }
-
-    function _readUint256(bytes memory data, uint256 offset) internal pure returns (uint256 value) {
-        if (offset > data.length || data.length - offset < 32) revert SafeTxShapeBatchPayloadMalformed();
-        for (uint256 i; i < 32; ++i) {
-            value = (value << 8) | uint256(uint8(data[offset + i]));
-        }
-    }
-
-    function _slice(bytes memory data, uint256 offset, uint256 length) internal pure returns (bytes memory out) {
-        if (offset > data.length || length > data.length - offset) revert SafeTxShapeBatchPayloadMalformed();
-        out = new bytes(length);
-        for (uint256 i; i < length; ++i) {
-            out[i] = data[offset + i];
+    /// @notice Verifies that none of the protected storage slots were written to during the tx.
+    /// @dev Uses `ph.forbidChangeForSlots()` for a single precompile call covering all slots.
+    ///      Reverts if any protected slot was modified.
+    function assertSlotProtection() external view {
+        bytes32[] memory slots = _protectedSlots();
+        if (!ph.forbidChangeForSlots(slots)) {
+            revert ProtectedSlotChanged(slots);
         }
     }
 }
 
 // policy-catalog/sources/policy-assertions.sol
 
-interface IVerifierGateway {
-    function routes(bytes4 selector) external view returns (address verifier, bool frozen);
-}
-
-/// @title RollingOutflowCircuitBreakerAssertion
-/// @notice Reusable rolling outflow protection with configurable soft or hard transaction caps.
-/// @dev The adopter is the custody contract. A zero transaction cap creates a hard stop once
-///      cumulative outflow crosses the configured threshold and floor.
-contract RollingOutflowCircuitBreakerAssertion is Assertion {
+/// @title TokenOutflowCircuitBreakerAssertion
+/// @notice A constructor-configured rolling token outflow limit for any custody adopter.
+/// @dev Generalizes the independent Derive SpotVault breaker and Lighter bridge breaker. The
+///      executor maintains the rolling net-outflow context; this assertion decides whether an
+///      armed transaction is a hard stop when transactionCapBps is zero, or a soft per-transaction cap.
+///      Deploy one instance per token and threshold tier. minimumOutflow is zero when the
+///      adopter does not need Derive's thin-asset floor.
+contract TokenOutflowCircuitBreakerAssertion is Assertion {
     address public immutable TOKEN;
     uint256 public immutable THRESHOLD_BPS;
     uint256 public immutable WINDOW;
-    uint256 public immutable FLOOR;
-    uint256 public immutable TX_CAP_BPS;
+    uint256 public immutable MINIMUM_OUTFLOW;
+    uint256 public immutable TRANSACTION_CAP_BPS;
 
-    constructor(address token_, uint256 thresholdBps_, uint256 window_, uint256 floor_, uint256 txCapBps_) {
+    constructor(
+        address token_,
+        uint256 thresholdBps_,
+        uint256 window_,
+        uint256 minimumOutflow_,
+        uint256 transactionCapBps_
+    ) {
         require(token_ != address(0), "Outflow breaker: token zero");
-        require(thresholdBps_ > 0 && thresholdBps_ < 10_000, "Outflow breaker: threshold");
-        require(window_ >= 10 && window_ <= type(uint64).max, "Outflow breaker: window");
-        require(txCapBps_ < thresholdBps_, "Outflow breaker: cap");
+        require(thresholdBps_ > 0 && thresholdBps_ < 10_000, "Outflow breaker: invalid threshold");
+        require(window_ >= 10 && window_ <= type(uint64).max, "Outflow breaker: invalid window");
+        require(transactionCapBps_ < thresholdBps_, "Outflow breaker: cap must be below threshold");
         TOKEN = token_;
         THRESHOLD_BPS = thresholdBps_;
         WINDOW = window_;
-        FLOOR = floor_;
-        TX_CAP_BPS = txCapBps_;
+        MINIMUM_OUTFLOW = minimumOutflow_;
+        TRANSACTION_CAP_BPS = transactionCapBps_;
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
     function triggers() external view override {
-        watchCumulativeOutflow(TOKEN, THRESHOLD_BPS, WINDOW, this.assertionOutflowWithinBreaker.selector);
+        watchCumulativeOutflow(TOKEN, THRESHOLD_BPS, WINDOW, this.assertionOutflowWithinLimit.selector);
     }
 
-    function assertionOutflowWithinBreaker() external view {
+    function assertionOutflowWithinLimit() external view {
         PhEvm.OutflowContext memory context = ph.outflowContext();
-        if (context.cumulativeOutflow < FLOOR) return;
+        if (context.cumulativeOutflow < MINIMUM_OUTFLOW) return;
 
+        address adopter = ph.getAssertionAdopter();
         uint256 grossOutflow;
         PhEvm.Erc20TransferData[] memory transfers = ph.getErc20Transfers(TOKEN, _postTx());
-        address adopter = ph.getAssertionAdopter();
         for (uint256 i; i < transfers.length; ++i) {
             if (transfers[i].from == adopter && transfers[i].to != adopter) grossOutflow += transfers[i].value;
         }
         if (grossOutflow == 0) return;
-        if (TX_CAP_BPS == 0) revert("Outflow breaker: hard stop");
+        if (TRANSACTION_CAP_BPS == 0) revert("Outflow breaker: hard limit reached");
 
         uint256 balance = _readBalanceAt(TOKEN, adopter, _preTx());
         if (context.tvlSnapshot != 0 && context.tvlSnapshot < balance) balance = context.tvlSnapshot;
-        require(grossOutflow * 10_000 <= balance * TX_CAP_BPS, "Outflow breaker: transaction cap");
+        require(grossOutflow * 10_000 <= balance * TRANSACTION_CAP_BPS, "Outflow breaker: transaction cap exceeded");
     }
 }
 
-/// @title TieredOutflowCircuitBreakerAssertion
-/// @notice Reusable soft and hard rolling outflow limits, generalized from bridge and vault controls.
-contract TieredOutflowCircuitBreakerAssertion is Assertion {
-    address public immutable TOKEN;
-    uint256 public immutable WINDOW;
-    uint256 public immutable SOFT_THRESHOLD_BPS;
-    uint256 public immutable HARD_THRESHOLD_BPS;
-    uint256 public immutable SOFT_WITHDRAWAL_LIMIT;
+/// @title UpgradeGovernancePolicyAssertion
+/// @author Phylax Systems
+/// @notice Requires governance to replace or disable the active assertion release before changing
+///         the protected proxy implementation.
+/// @dev Protects the EIP-1967 implementation slot on one adopter. This assertion does not inspect
+///      finality, priority-request accounting, desert mode, Safe actions, or bridge outflows.
+contract UpgradeGovernancePolicyAssertion is SlotProtectionAssertion {
+    error InvalidProtectedProxy();
 
-    error SoftOutflowLimitExceeded(uint256 outgoing);
-    error HardOutflowLimitExceeded(uint256 outgoing);
+    /// @notice EIP-1967 implementation slot, `keccak256("eip1967.proxy.implementation") - 1`.
+    bytes32 internal constant EIP1967_IMPLEMENTATION_SLOT =
+        0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
 
-    constructor(
-        address token_,
-        uint256 window_,
-        uint256 softThresholdBps_,
-        uint256 hardThresholdBps_,
-        uint256 softWithdrawalLimit_
-    ) {
-        require(token_ != address(0), "Tiered breaker: token zero");
-        require(window_ >= 10 && window_ <= type(uint64).max, "Tiered breaker: window");
-        require(softThresholdBps_ > 0 && softThresholdBps_ < hardThresholdBps_, "Tiered breaker: thresholds");
-        require(hardThresholdBps_ < 10_000, "Tiered breaker: hard threshold");
-        require(softWithdrawalLimit_ > 0, "Tiered breaker: soft limit");
-        TOKEN = token_;
-        WINDOW = window_;
-        SOFT_THRESHOLD_BPS = softThresholdBps_;
-        HARD_THRESHOLD_BPS = hardThresholdBps_;
-        SOFT_WITHDRAWAL_LIMIT = softWithdrawalLimit_;
+    constructor(address protectedProxy_) AccessControlBaseAssertion(protectedProxy_) {
+        if (protectedProxy_ == address(0)) revert InvalidProtectedProxy();
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
+    /// @notice Registers one storage-change trigger for the proxy implementation slot.
     function triggers() external view override {
-        watchCumulativeOutflow(TOKEN, SOFT_THRESHOLD_BPS, WINDOW, this.assertSoftOutflowLimit.selector);
-        watchCumulativeOutflow(TOKEN, HARD_THRESHOLD_BPS, WINDOW, this.assertHardOutflowLimit.selector);
+        _registerSlotProtectionTriggers();
     }
 
-    function assertSoftOutflowLimit() external view {
-        uint256 outgoing = _grossOutflow();
-        if (outgoing >= SOFT_WITHDRAWAL_LIMIT) revert SoftOutflowLimitExceeded(outgoing);
-    }
-
-    function assertHardOutflowLimit() external view {
-        uint256 outgoing = _grossOutflow();
-        if (outgoing != 0) revert HardOutflowLimitExceeded(outgoing);
-    }
-
-    function _grossOutflow() internal view returns (uint256 outgoing) {
-        address adopter = ph.getAssertionAdopter();
-        PhEvm.Erc20TransferData[] memory transfers = ph.getErc20Transfers(TOKEN, _postTx());
-        for (uint256 i; i < transfers.length; ++i) {
-            if (transfers[i].from == adopter && transfers[i].to != adopter) outgoing += transfers[i].value;
-        }
+    function _protectedSlots() internal pure override returns (bytes32[] memory slots) {
+        slots = new bytes32[](1);
+        slots[0] = EIP1967_IMPLEMENTATION_SLOT;
     }
 }
 
-/// @title SafeActionPolicyAssertion
-/// @notice Constructor-driven Safe transaction-shape policy for owner and module execution.
-/// @dev The same contract can serve any Safe role. All target, selector, batch, approval, and
-///      module rules are supplied by the policy configuration rather than hard-coded in a subclass.
-contract SafeActionPolicyAssertion is SafeTxShapeHelpers {
-    address public immutable EXPECTED_SAFE;
-
-    constructor(
-        address expectedSafe_,
-        TargetPolicy[] memory targetPolicies_,
-        SelectorPolicy[] memory selectorPolicies_,
-        BatchExecutorPolicy[] memory batchExecutorPolicies_,
-        ApprovalPolicy[] memory approvalPolicies_,
-        bool moduleExecutionEnabled_,
-        address[] memory allowedModules_
-    )
-        SafeTxShapeHelpers(
-            targetPolicies_,
-            selectorPolicies_,
-            batchExecutorPolicies_,
-            approvalPolicies_,
-            moduleExecutionEnabled_,
-            allowedModules_
-        )
-    {
-        require(expectedSafe_ != address(0), "Safe policy: safe zero");
-        EXPECTED_SAFE = expectedSafe_;
-    }
-
-    function triggers() external view override {
-        registerFnCallTrigger(this.assertAllowedAction.selector, EXEC_TRANSACTION_SELECTOR);
-        registerFnCallTrigger(this.assertAllowedAction.selector, EXEC_TRANSACTION_FROM_MODULE_SELECTOR);
-        registerFnCallTrigger(this.assertAllowedAction.selector, EXEC_TRANSACTION_FROM_MODULE_RETURN_DATA_SELECTOR);
-    }
-
-    function assertAllowedAction() external view {
-        Action memory action = _triggeredAction();
-        require(action.safe == EXPECTED_SAFE, "Safe policy: unexpected adopter");
-        if (action.fromModule) _validateModuleCaller(action.module);
-        if (action.operation > OPERATION_DELEGATECALL) revert SafeTxShapeUnknownOperation(action.operation);
-
-        (bool isBatchExecutor, uint256 batchIndex) =
-            _batchPolicyForAction(action.target, action.data, action.dataOffset, action.dataLength);
-        if (isBatchExecutor) {
-            if (action.operation != OPERATION_DELEGATECALL) revert SafeTxShapeDelegateCallBlocked(action.target);
-            if (action.value != 0) {
-                revert SafeTxShapeNativeValueBlocked(action.target, MULTISEND_SELECTOR, action.value);
-            }
-            BatchExecutorPolicy storage policy = batchExecutorPolicies[batchIndex];
-            _validateMultiSendBatchPolicy(action, policy);
-            _validateMultiSendTargetSelectorPolicy(action, policy);
-            _validateMultiSendApprovalPolicy(action, policy);
-            return;
-        }
-
-        if (action.operation == OPERATION_DELEGATECALL) revert SafeTxShapeDelegateCallBlocked(action.target);
-        _validateTargetAndSelector(action);
-        if (action.dataLength >= 4) _validateApproval(action, _selectorAt(action.data, action.dataOffset));
-    }
-}
-
-/// @title SafeConfigurationLockAssertion
-/// @notice Exact Safe owner, threshold, module, guard, fallback, and singleton lock.
-contract SafeConfigurationLockAssertion is SafeConfigLockHelpers {
+/// @title SafeConfigurationPolicyAssertion
+/// @notice A Safe ends every transaction with the signers, threshold and plumbing it started
+///         the package with.
+/// @dev Adopted by each Safe. Who can sign, how many must sign, and which code runs behind the
+///      Safe are what every other assertion relies on. Pinned exactly, not as a minimum:
+///      - the owner set (any order) and the threshold;
+///      - no modules, since a module executes without signatures and outside the action policy;
+///      - the transaction guard, the module guard (Safe 1.5.0) and the fallback handler;
+///      - the singleton in storage slot 0, which a delegatecall could otherwise rewrite.
+///      It runs at transaction end on every transaction that writes the Safe's storage, which is
+///      every executed Safe transaction (the nonce moves), whatever path made the change. Rotating a
+///      signer or installing a guard follows the agreed flow: disable, change, re-enable with the new
+///      configuration.
+contract SafeConfigurationPolicyAssertion is SafeConfigLockHelpers {
     bytes32 public immutable OWNER_SET_HASH;
-    bytes32 public immutable MODULE_SET_HASH;
     uint256 public immutable OWNER_COUNT;
     uint256 public immutable THRESHOLD;
     address public immutable SINGLETON;
     address public immutable FALLBACK_HANDLER;
     address public immutable GUARD;
-    address public immutable MODULE_GUARD;
 
-    constructor(
-        address[] memory owners_,
-        uint256 threshold_,
-        address singleton_,
-        address fallbackHandler_,
-        address guard_,
-        address moduleGuard_,
-        address[] memory allowedModules_
-    ) {
-        require(owners_.length != 0 && threshold_ != 0 && threshold_ <= owners_.length, "Safe lock: owners");
-        require(singleton_ != address(0), "Safe lock: singleton");
-        OWNER_SET_HASH = hashAddressSet(owners_);
-        MODULE_SET_HASH = hashAddressSet(allowedModules_);
-        OWNER_COUNT = owners_.length;
-        THRESHOLD = threshold_;
-        SINGLETON = singleton_;
-        FALLBACK_HANDLER = fallbackHandler_;
-        GUARD = guard_;
-        MODULE_GUARD = moduleGuard_;
+    constructor(address[] memory owners, uint256 threshold, address singleton, address fallbackHandler, address guard) {
+        require(owners.length != 0 && threshold != 0 && threshold <= owners.length, "Safe lock: bad owners");
+        require(singleton != address(0), "Safe lock: singleton zero");
+        OWNER_SET_HASH = hashAddressSet(owners);
+        OWNER_COUNT = owners.length;
+        THRESHOLD = threshold;
+        SINGLETON = singleton;
+        FALLBACK_HANDLER = fallbackHandler;
+        GUARD = guard;
         _registerReshiramSpec();
     }
 
     function triggers() external view override {
-        registerStorageChangeTrigger(this.assertionSafeConfigurationUnchanged.selector);
+        registerStorageChangeTrigger(this.assertionSafeConfigUnchanged.selector);
     }
 
-    function assertionSafeConfigurationUnchanged() external view {
+    /// @notice The Safe's configuration at transaction end is the pinned one.
+    /// - A failure names the part that moved: owners, threshold, modules, guard, fallback handler or
+    ///   singleton.
+    function assertionSafeConfigUnchanged() external view {
         address safe = ph.getAssertionAdopter();
         PhEvm.ForkId memory post = _postTx();
-        require(_addressSlotAt(safe, bytes32(0), post) == SINGLETON, "Safe lock: singleton changed");
+
+        // First: every other read below runs the singleton's code, which a new singleton controls.
+        require(_addressSlotAt(safe, bytes32(0), post) == SINGLETON, "Safe: singleton changed");
         address[] memory owners = _ownersAt(safe, post);
-        require(owners.length == OWNER_COUNT && hashAddressSet(owners) == OWNER_SET_HASH, "Safe lock: owners changed");
-        require(_thresholdAt(safe, post) == THRESHOLD, "Safe lock: threshold changed");
-        require(hashAddressSet(_modulesAt(safe, post)) == MODULE_SET_HASH, "Safe lock: modules changed");
-        require(_guardAt(safe, post) == GUARD, "Safe lock: guard changed");
-        require(_moduleGuardAt(safe, post) == MODULE_GUARD, "Safe lock: module guard changed");
-        require(_fallbackHandlerAt(safe, post) == FALLBACK_HANDLER, "Safe lock: fallback changed");
+        require(owners.length == OWNER_COUNT && hashAddressSet(owners) == OWNER_SET_HASH, "Safe: owner set changed");
+        require(_thresholdAt(safe, post) == THRESHOLD, "Safe: threshold changed");
+        require(_modulesAt(safe, post).length == 0, "Safe: module enabled");
+        require(_guardAt(safe, post) == GUARD, "Safe: guard changed");
+        require(_moduleGuardAt(safe, post) == address(0), "Safe: module guard set");
+        require(_fallbackHandlerAt(safe, post) == FALLBACK_HANDLER, "Safe: fallback handler changed");
     }
 }
 
-/// @title UpgradeGateStateLockAssertion
-/// @notice Generalized gatekeeper state lock for Safe-controlled upgrade authorities.
-contract UpgradeGateStateLockAssertion is Assertion {
-    bytes32 public immutable VERSION_SLOT;
-    bytes32 public immutable STATUS_SLOT;
-    bytes32 public immutable START_SLOT;
-    bytes32 public immutable MANAGED_LENGTH_SLOT;
-    bytes32 public immutable MASTER_SLOT;
-    uint256 public immutable LOCKED_VERSION_ID;
-    bytes4 public immutable TRIGGER_SELECTOR;
+/// @title SafeOutflowCircuitBreakerAssertion
+/// @notice Caps how much of one token can leave a Safe in a rolling window, at a limit fitted
+///         to the Safe's own history.
+/// @dev Adopted by a Safe, one instance per (token, window). The action policy decides how
+///      funds may leave; this decides how fast. It counts every way the Safe's balance can fall: a
+///      Safe transaction, a batch, or a `transferFrom` pull by a contract the Safe approved, even in a
+///      transaction the Safe never signed.
+///      - The window counter is the Safe's net outflow of the token (out minus in) over the last
+///        `WINDOW` seconds, kept by the executor. The trigger threshold is 1 bps of the window-start
+///        balance, so the absolute `LIMIT` is what decides.
+///      - Once the counter reaches `LIMIT`, any transaction that moves the token out of the Safe is
+///        rejected until the window rolls forward. Inflows always pass.
+///      - Transfers to other Safes count like any other. Inflows offset the counter, so an
+///        exemption for them would let funds pass through: a Safe could receive a sibling's balance
+///        and send it on with its counter near zero. Without one, a drain through any chain of Derive
+///        Safes is bounded by the sum of their limits per window. Sweeps larger than a limit are
+///        planned one-offs: disable, sweep, re-enable.
+///      - Burns (a LayerZero OFT `send`) count: the tokens leave the Safe's custody.
+contract SafeOutflowCircuitBreakerAssertion is Assertion {
+    /// @notice The ERC-20 this instance watches.
+    address public immutable TOKEN;
+    /// @notice Rolling window length in seconds.
+    uint256 public immutable WINDOW;
+    /// @notice Net outflow over the window, in token units, at which outflows stop.
+    uint256 public immutable LIMIT;
 
-    constructor(
-        address gatekeeper_,
-        uint256 lockedVersionId_,
-        bytes32 versionSlot_,
-        bytes32 statusSlot_,
-        bytes32 startSlot_,
-        bytes32 managedLengthSlot_,
-        bytes32 masterSlot_,
-        bytes4 triggerSelector_
-    ) {
-        require(gatekeeper_ != address(0) && triggerSelector_ != bytes4(0), "Upgrade lock: config");
-        GATEKEEPER = gatekeeper_;
-        LOCKED_VERSION_ID = lockedVersionId_;
-        VERSION_SLOT = versionSlot_;
-        STATUS_SLOT = statusSlot_;
-        START_SLOT = startSlot_;
-        MANAGED_LENGTH_SLOT = managedLengthSlot_;
-        MASTER_SLOT = masterSlot_;
-        TRIGGER_SELECTOR = triggerSelector_;
+    constructor(address token, uint256 window, uint256 limit) {
+        require(token != address(0), "Safe breaker: token zero");
+        require(window >= 10 && window <= type(uint64).max, "Safe breaker: invalid window");
+        require(limit != 0, "Safe breaker: limit zero");
+        TOKEN = token;
+        WINDOW = window;
+        LIMIT = limit;
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
-    address public immutable GATEKEEPER;
-
-    function triggers() external view override {
-        registerFnCallTrigger(this.assertUpgradeLocked.selector, TRIGGER_SELECTOR);
+    function triggers() external view virtual override {
+        watchCumulativeOutflow(TOKEN, 1, WINDOW, this.assertionOutflowWithinLimit.selector);
     }
 
-    function assertUpgradeLocked() external view {
-        PhEvm.ForkId memory pre = _preTx();
-        PhEvm.ForkId memory post = _postTx();
-        uint256 actualVersion = uint256(ph.loadStateAt(GATEKEEPER, VERSION_SLOT, post));
-        require(actualVersion == LOCKED_VERSION_ID, "Upgrade lock: version changed");
-
-        uint256 preStatus = uint256(ph.loadStateAt(GATEKEEPER, STATUS_SLOT, pre));
-        uint256 postStatus = uint256(ph.loadStateAt(GATEKEEPER, STATUS_SLOT, post));
-        if (postStatus != 0) {
-            bool sameUpgrade = postStatus == preStatus
-                && ph.loadStateAt(GATEKEEPER, START_SLOT, pre) == ph.loadStateAt(GATEKEEPER, START_SLOT, post);
-            require(sameUpgrade, "Upgrade lock: upgrade advanced");
+    /// @notice While the window's net outflow is at or above `LIMIT`, the token cannot leave the Safe.
+    /// - The counter includes this transaction, so the transaction that reaches the limit is rejected.
+    /// - A failure means the Safe tried to pay out more of the token, in the window, than its history
+    ///   supports.
+    function assertionOutflowWithinLimit() external view {
+        if (_windowOutflow() < LIMIT) return;
+        address safe = ph.getAssertionAdopter();
+        PhEvm.Erc20TransferData[] memory transfers = ph.getErc20Transfers(TOKEN, _postTx());
+        for (uint256 i; i < transfers.length; ++i) {
+            if (transfers[i].from == safe && transfers[i].to != safe && transfers[i].value != 0) {
+                revert("Safe: outflow limit reached");
+            }
         }
+    }
 
-        address master = address(uint160(uint256(ph.loadStateAt(GATEKEEPER, MASTER_SLOT, post))));
-        require(master == ph.getAssertionAdopter(), "Upgrade lock: master changed");
-        require(
-            ph.loadStateAt(GATEKEEPER, MANAGED_LENGTH_SLOT, pre)
-                == ph.loadStateAt(GATEKEEPER, MANAGED_LENGTH_SLOT, post),
-            "Upgrade lock: managed set changed"
-        );
+    /// @dev The executor's net outflow for the window, including this transaction.
+    function _windowOutflow() internal view virtual returns (uint256) {
+        return ph.outflowContext().cumulativeOutflow;
     }
 }
 
-/// @title SettlementIntegrityPinAssertion
-/// @notice Constructor-driven pin for verifier, program, state-root, and data-availability calls.
-contract SettlementIntegrityPinAssertion is Assertion {
-    address public immutable ROUTE_VERIFIER;
-    bytes32 public immutable VERIFIER_SLOT;
-    bytes32 public immutable PROGRAM_SLOT;
-    bytes32 public immutable STATE_ROOT_SLOT;
-    bytes4 public immutable SUBMIT_BATCH_SELECTOR;
-    uint256 public immutable PROOF_OFFSET_WORD;
-    bytes4[] public PINNED_CALL_SELECTORS;
-    bytes4[] public FORBIDDEN_CALL_SELECTORS;
-    uint256 internal constant MAX_CALLS_PER_SELECTOR = 32;
-    uint64 internal constant ROUTE_VIEW_GAS = 500_000;
+/// @title SafeActionPolicyAssertion
+/// @notice A Safe may only make the calls its history shows it makes.
+/// @dev Adopted by each Safe, with that Safe's policy as constructor arguments (rendered into
+///      assertions/credible.toml). It runs on every `execTransaction` into the Safe and
+///      checks each call the Safe is about to make: the call itself, or every call in a batch run
+///      through an approved MultiSendCallOnly. A stolen signer quorum, a compromised signing UI or a
+///      blind-signed payload can still only produce calls of an allowed shape:
+///      - Allowed calls are `(target, selector)` pairs. `ANY` as the target allows the selector on
+///        every contract. That is used only for calls that do nothing unless the Safe holds a role on
+///        the target (claiming ownership, updating Socket limits, revoking roles), or for calls whose
+///        arguments are pinned (a token sweep that may only go to another Safe). An exact rule
+///        takes precedence over the wildcard, with only its own pins.
+///      - Each rule caps the ETH the call may carry. `EMPTY` as the selector is a plain ETH transfer.
+///      - Argument pins fix a calldata word to a value, to the Safe itself (`SELF`) or to any Derive
+///        Safe (`INTERNAL`). Pin word `TARGET_WORD` pins the call target instead.
+///      - ERC-20 `approve` is checked against per-(token, spender) caps instead of a rule. Setting an
+///        allowance to zero is always allowed. `increaseAllowance` and `setApprovalForAll` may only
+///        lower or revoke.
+///      - Everything else is rejected: unknown calls, delegatecall outside the batch executors, inner
+///        delegatecalls, nested batches, calls to the Safe itself (owner, threshold, module, guard,
+///        fallback and singleton changes), signed gas refunds and module executions. the adopter's Safes
+///        have never used modules or refunds.
+///      - The ETH all calls carry together is capped per transaction.
+///      Funds can still leave through allowed calls, such as a token `transfer`. The outflow
+///      breakers bound how fast; this policy bounds how. Planned changes outside the policy follow
+///      the agreed flow: disable, change, re-enable.
+contract SafeActionPolicyAssertion is Assertion {
+    struct CallRule {
+        address target;
+        bytes4 selector;
+        uint256 maxValue;
+    }
+
+    struct ArgPin {
+        address target;
+        bytes4 selector;
+        uint8 word;
+        bytes32 value;
+    }
+
+    struct ApprovalCap {
+        address token;
+        address spender;
+        uint256 maxAmount;
+    }
+
+    struct Pin {
+        uint8 word;
+        bytes32 value;
+    }
+
+    /// @notice Rule target matching every contract.
+    address public constant ANY = address(0);
+    /// @notice Rule selector for a call with empty calldata (a plain ETH transfer).
+    bytes4 public constant EMPTY = bytes4(0);
+    /// @notice Pin value standing for the adopting Safe.
+    bytes32 public constant SELF = keccak256("credible.safe-policy.self");
+    /// @notice Pin value standing for any address in the configured internal set.
+    bytes32 public constant INTERNAL = keccak256("credible.safe-policy.internal");
+    /// @notice Pin word that checks the call target instead of a calldata word.
+    uint8 public constant TARGET_WORD = type(uint8).max;
+    /// @notice Most calls one batch may hold; a larger batch fails closed.
+    uint256 public constant MAX_BATCH_CALLS = 200;
+
+    /// @notice Most Safe transactions one Ethereum transaction may execute; more fails closed.
+    uint256 public constant MAX_EXECS_PER_TX = 8;
+
+    bytes4 internal constant EXEC_TRANSACTION = 0x6a761202;
+    bytes4 internal constant EXEC_FROM_MODULE = 0x468721a7;
+    bytes4 internal constant EXEC_FROM_MODULE_RETURN_DATA = 0x5229073f;
+    bytes4 internal constant MULTI_SEND = 0x8d80ff0a;
+    bytes4 internal constant APPROVE = 0x095ea7b3;
+    bytes4 internal constant INCREASE_ALLOWANCE = 0x39509351;
+    bytes4 internal constant SET_APPROVAL_FOR_ALL = 0xa22cb465;
+
+    uint8 internal constant CALL = 0;
+    uint8 internal constant DELEGATECALL = 1;
+    /// @dev Packed MultiSend entry header: operation (1), to (20), value (32), data length (32).
+    uint256 internal constant ENTRY_HEADER = 85;
+
+    /// @notice Most ETH one Safe transaction may send, summed over all of its calls.
+    uint256 public immutable MAX_ETH_PER_TX;
+
+    mapping(bytes32 key => uint256 maxValuePlusOne) internal _rules;
+    mapping(bytes32 key => Pin[]) internal _pins;
+    mapping(address token => mapping(address spender => uint256 capPlusOne)) internal _approvalCaps;
+    mapping(address executor => bool) public isBatchExecutor;
+    mapping(address account => bool) public isInternal;
+
+    error SafeActionPolicyModuleExecutionBlocked(bytes4 entrypoint);
+    error SafeActionPolicyTooManyExecutions(uint256 maxExecutions);
+    error SafeActionPolicyGasRefundBlocked(uint256 gasPrice);
+    error SafeActionPolicyDelegateCallBlocked(address target);
+    error SafeActionPolicyInnerDelegateCallBlocked(address target);
+    error SafeActionPolicyNestedBatchBlocked(address target);
+    error SafeActionPolicyUnknownOperation(uint8 operation);
+    error SafeActionPolicyMalformedCalldata();
+    error SafeActionPolicyBatchTooLarge(uint256 maxCalls);
+    error SafeActionPolicySelfCallBlocked(bytes4 selector);
+    error SafeActionPolicyCallNotAllowed(address target, bytes4 selector);
+    error SafeActionPolicyValueNotAllowed(address target, bytes4 selector, uint256 value, uint256 maxValue);
+    error SafeActionPolicyArgumentNotAllowed(address target, bytes4 selector, uint8 word, bytes32 value);
+    error SafeActionPolicyApprovalNotAllowed(address token, address spender, uint256 amount);
+    error SafeActionPolicyApprovalAboveCap(address token, address spender, uint256 amount, uint256 cap);
+    error SafeActionPolicyEthCapExceeded(uint256 value, uint256 cap);
+    error SafeActionPolicyInvalidPolicy();
 
     constructor(
-        address routeVerifier_,
-        bytes32 verifierSlot_,
-        bytes32 programSlot_,
-        bytes32 stateRootSlot_,
-        bytes4 submitBatchSelector_,
-        uint256 proofOffsetWord_,
-        bytes4[] memory pinnedCallSelectors_,
-        bytes4[] memory forbiddenCallSelectors_
+        address[] memory batchExecutors,
+        address[] memory internalSet,
+        CallRule[] memory rules,
+        ArgPin[] memory pins,
+        ApprovalCap[] memory approvalCaps,
+        uint256 maxEthPerTx
     ) {
-        require(submitBatchSelector_ != bytes4(0), "Settlement pin: submit selector");
-        ROUTE_VERIFIER = routeVerifier_;
-        VERIFIER_SLOT = verifierSlot_;
-        PROGRAM_SLOT = programSlot_;
-        STATE_ROOT_SLOT = stateRootSlot_;
-        SUBMIT_BATCH_SELECTOR = submitBatchSelector_;
-        PROOF_OFFSET_WORD = proofOffsetWord_;
-        PINNED_CALL_SELECTORS = pinnedCallSelectors_;
-        FORBIDDEN_CALL_SELECTORS = forbiddenCallSelectors_;
+        for (uint256 i; i < batchExecutors.length; ++i) {
+            if (batchExecutors[i] == address(0)) revert SafeActionPolicyInvalidPolicy();
+            isBatchExecutor[batchExecutors[i]] = true;
+        }
+        for (uint256 i; i < internalSet.length; ++i) {
+            isInternal[internalSet[i]] = true;
+        }
+        for (uint256 i; i < rules.length; ++i) {
+            CallRule memory rule = rules[i];
+            bytes32 key = _key(rule.target, rule.selector);
+            // Approvals have their own caps, and batches are expanded rather than called.
+            if (
+                _rules[key] != 0 || rule.selector == APPROVE || rule.selector == INCREASE_ALLOWANCE
+                    || rule.selector == SET_APPROVAL_FOR_ALL || isBatchExecutor[rule.target]
+                    || rule.maxValue == type(uint256).max
+            ) revert SafeActionPolicyInvalidPolicy();
+            _rules[key] = rule.maxValue + 1;
+        }
+        for (uint256 i; i < pins.length; ++i) {
+            ArgPin memory pin = pins[i];
+            bytes32 key = _key(pin.target, pin.selector);
+            if (_rules[key] == 0) revert SafeActionPolicyInvalidPolicy();
+            _pins[key].push(Pin({word: pin.word, value: pin.value}));
+        }
+        for (uint256 i; i < approvalCaps.length; ++i) {
+            ApprovalCap memory cap = approvalCaps[i];
+            if (
+                cap.token == address(0) || cap.spender == address(0) || cap.maxAmount == 0
+                    || cap.maxAmount == type(uint256).max || _approvalCaps[cap.token][cap.spender] != 0
+            ) revert SafeActionPolicyInvalidPolicy();
+            _approvalCaps[cap.token][cap.spender] = cap.maxAmount + 1;
+        }
+        MAX_ETH_PER_TX = maxEthPerTx;
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 
     function triggers() external view override {
-        registerTxEndTrigger(this.assertProofSystemPinned.selector);
-        registerTxEndTrigger(this.assertStateRootPinned.selector);
-        registerTxEndTrigger(this.assertDataAvailabilityPinned.selector);
+        registerTxEndTrigger(this.assertionSafeCallsAllowed.selector);
     }
 
-    function assertProofSystemPinned() external view {
-        address app = ph.getAssertionAdopter();
-        require(
-            ph.loadStateAt(app, VERIFIER_SLOT, _postTx()) == ph.loadStateAt(app, VERIFIER_SLOT, _preTx()),
-            "Settlement pin: verifier changed"
-        );
-        require(
-            ph.loadStateAt(app, PROGRAM_SLOT, _postTx()) == ph.loadStateAt(app, PROGRAM_SLOT, _preTx()),
-            "Settlement pin: program changed"
-        );
-        for (uint256 i; i < PINNED_CALL_SELECTORS.length; ++i) {
-            _requireSlotsUnchangedAcross(PINNED_CALL_SELECTORS[i]);
-        }
-        if (ROUTE_VERIFIER == address(0)) return;
-
-        PhEvm.TriggerCall[] memory batches = _callsTo(SUBMIT_BATCH_SELECTOR);
-        for (uint256 i; i < batches.length; ++i) {
-            PhEvm.ForkId memory pre = _preCall(batches[i].callId);
-            address gateway = address(uint160(uint256(ph.loadStateAt(app, VERIFIER_SLOT, pre))));
-            PhEvm.StaticCallResult memory route = ph.staticcallAt(
-                gateway,
-                abi.encodeCall(IVerifierGateway.routes, (_proofSelector(_args(batches[i])))),
-                ROUTE_VIEW_GAS,
-                pre
-            );
-            require(route.ok, "Settlement pin: route lookup failed");
-            (address verifier, bool frozen) = abi.decode(route.data, (address, bool));
-            require(verifier == ROUTE_VERIFIER && !frozen, "Settlement pin: route changed");
-        }
-    }
-
-    function assertStateRootPinned() external view {
-        require(
-            ph.loadStateAt(ph.getAssertionAdopter(), STATE_ROOT_SLOT, _postTx())
-                == ph.loadStateAt(ph.getAssertionAdopter(), STATE_ROOT_SLOT, _preTx()),
-            "Settlement pin: root changed"
-        );
-    }
-
-    function assertDataAvailabilityPinned() external view {
-        for (uint256 i; i < FORBIDDEN_CALL_SELECTORS.length; ++i) {
-            PhEvm.CallFilter memory filter = PhEvm.CallFilter({
-                callType: 1, minDepth: 0, maxDepth: type(uint32).max, topLevelOnly: false, successOnly: true
-            });
-            PhEvm.TriggerCall[] memory calls =
-                ph.matchingCalls(ph.getAssertionAdopter(), FORBIDDEN_CALL_SELECTORS[i], filter, 1);
-            require(calls.length == 0, "Settlement pin: forbidden call");
-        }
-    }
-
-    function pinnedCallSelectorCount() external view returns (uint256) {
-        return PINNED_CALL_SELECTORS.length;
-    }
-
-    function _callsTo(bytes4 selector) internal view returns (PhEvm.TriggerCall[] memory calls) {
-        PhEvm.CallFilter memory filter = PhEvm.CallFilter({
+    /// @notice Every call the Safe made in this transaction matches its policy.
+    /// - Walks every successful CALL into the Safe with `execTransaction`, at any depth: one Safe
+    ///   transaction, several in one transaction, or one sent through a relayer or another Safe. The
+    ///   proxy's DELEGATECALL into the singleton carries the same calldata and is not counted twice.
+    /// - Rejects any module execution: the adopter's Safes have no modules.
+    /// - A failure names the call that broke the policy.
+    function assertionSafeCallsAllowed() external view {
+        address safe = ph.getAssertionAdopter();
+        PhEvm.CallFilter memory frames = PhEvm.CallFilter({
             callType: 1, minDepth: 0, maxDepth: type(uint32).max, topLevelOnly: false, successOnly: true
         });
-        calls = ph.matchingCalls(ph.getAssertionAdopter(), selector, filter, MAX_CALLS_PER_SELECTOR + 1);
-        require(calls.length <= MAX_CALLS_PER_SELECTOR, "Settlement pin: too many calls");
-    }
-
-    function _args(PhEvm.TriggerCall memory call) internal view returns (bytes memory args) {
-        if (call.input.length > 0) return call.input;
-        bytes memory raw = ph.callinputAt(call.callId);
-        if (raw.length <= 4) return new bytes(0);
-        args = new bytes(raw.length - 4);
-        for (uint256 i; i < args.length; ++i) {
-            args[i] = raw[i + 4];
+        if (ph.matchingCalls(safe, EXEC_FROM_MODULE, frames, 1).length != 0) {
+            revert SafeActionPolicyModuleExecutionBlocked(EXEC_FROM_MODULE);
+        }
+        if (ph.matchingCalls(safe, EXEC_FROM_MODULE_RETURN_DATA, frames, 1).length != 0) {
+            revert SafeActionPolicyModuleExecutionBlocked(EXEC_FROM_MODULE_RETURN_DATA);
+        }
+        PhEvm.TriggerCall[] memory execs = ph.matchingCalls(safe, EXEC_TRANSACTION, frames, MAX_EXECS_PER_TX + 1);
+        if (execs.length > MAX_EXECS_PER_TX) revert SafeActionPolicyTooManyExecutions(MAX_EXECS_PER_TX);
+        for (uint256 i; i < execs.length; ++i) {
+            _checkExecTransaction(safe, ph.callinputAt(execs[i].callId));
         }
     }
 
-    function _requireSlotsUnchangedAcross(bytes4 selector) internal view {
-        address app = ph.getAssertionAdopter();
-        PhEvm.TriggerCall[] memory calls = _callsTo(selector);
-        for (uint256 i; i < calls.length; ++i) {
-            require(
-                ph.loadStateAt(app, VERIFIER_SLOT, _postCall(calls[i].callId))
-                    == ph.loadStateAt(app, VERIFIER_SLOT, _preCall(calls[i].callId)),
-                "Settlement pin: verifier changed"
-            );
-            require(
-                ph.loadStateAt(app, PROGRAM_SLOT, _postCall(calls[i].callId))
-                    == ph.loadStateAt(app, PROGRAM_SLOT, _preCall(calls[i].callId)),
-                "Settlement pin: program changed"
-            );
+    /// @dev One `execTransaction`: the Safe transaction and, for a batch, every call inside it.
+    function _checkExecTransaction(address safe, bytes memory input) internal view {
+        // execTransaction(to, value, data, operation, safeTxGas, baseGas, gasPrice, gasToken,
+        //                 refundReceiver, signatures): ten head words.
+        if (input.length < 4 + 32 * 10) revert SafeActionPolicyMalformedCalldata();
+        uint256 gasPrice = _word(input, 4 + 32 * 6);
+        if (gasPrice != 0) revert SafeActionPolicyGasRefundBlocked(gasPrice);
+
+        address to = _address(input, 4);
+        uint256 value = _word(input, 4 + 32);
+        (uint256 dataOffset, uint256 dataLength) = _bytesArg(input, 4, _word(input, 4 + 32 * 2));
+        uint256 operation = _word(input, 4 + 32 * 3);
+
+        uint256 eth;
+        if (operation == CALL) {
+            eth = _checkCall(safe, to, value, input, dataOffset, dataLength);
+        } else if (operation == DELEGATECALL) {
+            if (!isBatchExecutor[to]) revert SafeActionPolicyDelegateCallBlocked(to);
+            if (value != 0) revert SafeActionPolicyValueNotAllowed(to, MULTI_SEND, value, 0);
+            eth = _checkBatch(safe, input, dataOffset, dataLength);
+        } else {
+            revert SafeActionPolicyUnknownOperation(uint8(operation > type(uint8).max ? type(uint8).max : operation));
+        }
+        if (eth > MAX_ETH_PER_TX) revert SafeActionPolicyEthCapExceeded(eth, MAX_ETH_PER_TX);
+    }
+
+    /// @notice Whether `(target, selector)` has a rule, and the ETH it may carry.
+    function ruleFor(address target, bytes4 selector) external view returns (bool allowed, uint256 maxValue) {
+        uint256 stored = _rules[_key(target, selector)];
+        return stored == 0 ? (false, 0) : (true, stored - 1);
+    }
+
+    /// @notice The approval cap for `(token, spender)`, zero if none.
+    function approvalCap(address token, address spender) external view returns (uint256) {
+        uint256 stored = _approvalCaps[token][spender];
+        return stored == 0 ? 0 : stored - 1;
+    }
+
+    // ---------------------------------------------------------------
+    //  Checks
+    // ---------------------------------------------------------------
+
+    /// @dev Expands `multiSend(bytes)` run by delegatecall from the Safe. Only canonical ABI encoding
+    ///      is accepted, and the packed entries must tile the payload exactly.
+    function _checkBatch(address safe, bytes memory input, uint256 dataOffset, uint256 dataLength)
+        internal
+        view
+        returns (uint256 eth)
+    {
+        if (dataLength < 4 + 64 || _selectorAt(input, dataOffset) != MULTI_SEND) {
+            revert SafeActionPolicyMalformedCalldata();
+        }
+        if (_word(input, dataOffset + 4) != 32) revert SafeActionPolicyMalformedCalldata();
+        uint256 payloadLength = _word(input, dataOffset + 4 + 32);
+        uint256 payload = dataOffset + 4 + 64;
+        if (payloadLength > dataOffset + dataLength - payload) revert SafeActionPolicyMalformedCalldata();
+
+        uint256 end = payload + payloadLength;
+        uint256 cursor = payload;
+        uint256 calls;
+        while (cursor < end) {
+            if (end - cursor < ENTRY_HEADER) revert SafeActionPolicyMalformedCalldata();
+            uint8 operation = uint8(input[cursor]);
+            address target = _packedAddress(input, cursor + 1);
+            uint256 value = _word(input, cursor + 21);
+            uint256 length = _word(input, cursor + 53);
+            uint256 data = cursor + ENTRY_HEADER;
+            if (length > end - data) revert SafeActionPolicyMalformedCalldata();
+            if (++calls > MAX_BATCH_CALLS) revert SafeActionPolicyBatchTooLarge(MAX_BATCH_CALLS);
+            if (operation != CALL) revert SafeActionPolicyInnerDelegateCallBlocked(target);
+            if (isBatchExecutor[target]) revert SafeActionPolicyNestedBatchBlocked(target);
+            // Safe 1.5.0's MultiSendCallOnly sends a zero `to` to the Safe itself.
+            if (target == address(0)) target = safe;
+            eth += _checkCall(safe, target, value, input, data, length);
+            cursor = data + length;
         }
     }
 
-    function _proofSelector(bytes memory args) internal view returns (bytes4 selector) {
-        require(args.length >= (PROOF_OFFSET_WORD + 1) * 32, "Settlement pin: malformed proof");
-        uint256 offset = uint256(_word(args, PROOF_OFFSET_WORD));
-        require(offset + 36 <= args.length, "Settlement pin: malformed proof");
-        bytes32 head;
+    /// @dev One call from the Safe. Returns the ETH it carries.
+    function _checkCall(address safe, address target, uint256 value, bytes memory input, uint256 offset, uint256 length)
+        internal
+        view
+        returns (uint256)
+    {
+        bytes4 selector;
+        if (length != 0) {
+            if (length < 4) revert SafeActionPolicyMalformedCalldata();
+            selector = _selectorAt(input, offset);
+            // A real zero selector would collide with the plain-transfer rule.
+            if (selector == EMPTY) revert SafeActionPolicyCallNotAllowed(target, selector);
+        }
+
+        if (target == safe) {
+            // An empty self-call with no value only burns a nonce (Safe's "reject transaction").
+            if (length == 0 && value == 0) return 0;
+            revert SafeActionPolicySelfCallBlocked(selector);
+        }
+
+        if (selector == APPROVE || selector == INCREASE_ALLOWANCE || selector == SET_APPROVAL_FOR_ALL) {
+            if (value != 0) revert SafeActionPolicyValueNotAllowed(target, selector, value, 0);
+            _checkApproval(target, selector, input, offset, length);
+            return 0;
+        }
+
+        // An exact rule takes precedence over the wildcard, together with its own pins.
+        bytes32 key = _key(target, selector);
+        uint256 stored = _rules[key];
+        if (stored == 0) {
+            key = _key(ANY, selector);
+            stored = _rules[key];
+        }
+        if (stored == 0) revert SafeActionPolicyCallNotAllowed(target, selector);
+        if (value > stored - 1) revert SafeActionPolicyValueNotAllowed(target, selector, value, stored - 1);
+
+        _checkPins(_pins[key], safe, target, selector, input, offset, length);
+        return value;
+    }
+
+    function _checkPins(
+        Pin[] storage pins,
+        address safe,
+        address target,
+        bytes4 selector,
+        bytes memory input,
+        uint256 offset,
+        uint256 length
+    ) internal view {
+        for (uint256 i; i < pins.length; ++i) {
+            Pin memory pin = pins[i];
+            bytes32 actual;
+            if (pin.word == TARGET_WORD) {
+                actual = bytes32(uint256(uint160(target)));
+            } else {
+                uint256 at = 4 + 32 * uint256(pin.word);
+                if (length < at + 32) {
+                    revert SafeActionPolicyArgumentNotAllowed(target, selector, pin.word, bytes32(0));
+                }
+                actual = bytes32(_word(input, offset + at));
+            }
+            bool ok;
+            if (pin.value == SELF) {
+                ok = actual == bytes32(uint256(uint160(safe)));
+            } else if (pin.value == INTERNAL) {
+                ok = uint256(actual) >> 160 == 0 && isInternal[address(uint160(uint256(actual)))];
+            } else {
+                ok = actual == pin.value;
+            }
+            if (!ok) revert SafeActionPolicyArgumentNotAllowed(target, selector, pin.word, actual);
+        }
+    }
+
+    /// @dev `approve(spender, amount)` must be zero or within the (token, spender) cap. Allowances only
+    ///      go down through `increaseAllowance(spender, 0)` and `setApprovalForAll(operator, false)`.
+    function _checkApproval(address token, bytes4 selector, bytes memory input, uint256 offset, uint256 length)
+        internal
+        view
+    {
+        if (length != 4 + 64) revert SafeActionPolicyMalformedCalldata();
+        address spender = _address(input, offset + 4);
+        uint256 amount = _word(input, offset + 36);
+        if (amount == 0) return;
+        uint256 stored = selector == APPROVE ? _approvalCaps[token][spender] : 0;
+        if (stored == 0) revert SafeActionPolicyApprovalNotAllowed(token, spender, amount);
+        if (amount > stored - 1) revert SafeActionPolicyApprovalAboveCap(token, spender, amount, stored - 1);
+    }
+
+    // ---------------------------------------------------------------
+    //  Calldata reads (bounds-checked)
+    // ---------------------------------------------------------------
+
+    function _key(address target, bytes4 selector) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked(target, selector));
+    }
+
+    function _word(bytes memory data, uint256 offset) internal pure returns (uint256 value) {
+        if (offset > data.length || data.length - offset < 32) revert SafeActionPolicyMalformedCalldata();
         assembly {
-            head := mload(add(add(args, 32), offset))
+            value := mload(add(add(data, 32), offset))
         }
-        // The proof selector occupies the first four bytes of the ABI word.
-        // forge-lint: disable-next-line(unsafe-typecast)
-        selector = bytes4(head);
     }
 
-    function _word(bytes memory data, uint256 index) internal pure returns (bytes32 value) {
+    function _address(bytes memory data, uint256 offset) internal pure returns (address) {
+        uint256 raw = _word(data, offset);
+        if (raw >> 160 != 0) revert SafeActionPolicyMalformedCalldata();
+        return address(uint160(raw));
+    }
+
+    function _packedAddress(bytes memory data, uint256 offset) internal pure returns (address) {
+        return address(uint160(_word(data, offset) >> 96));
+    }
+
+    function _selectorAt(bytes memory data, uint256 offset) internal pure returns (bytes4 selector) {
+        if (offset > data.length || data.length - offset < 4) revert SafeActionPolicyMalformedCalldata();
         assembly {
-            value := mload(add(add(data, 32), mul(index, 32)))
+            selector := and(mload(add(add(data, 32), offset)), shl(224, 0xffffffff))
         }
+    }
+
+    /// @dev Bounds of an ABI `bytes` argument whose head word holds `relativeOffset` from `headStart`.
+    function _bytesArg(bytes memory data, uint256 headStart, uint256 relativeOffset)
+        internal
+        pure
+        returns (uint256 offset, uint256 length)
+    {
+        if (relativeOffset > data.length) revert SafeActionPolicyMalformedCalldata();
+        uint256 lengthAt = headStart + relativeOffset;
+        length = _word(data, lengthAt);
+        offset = lengthAt + 32;
+        if (length > data.length - offset) revert SafeActionPolicyMalformedCalldata();
     }
 }

@@ -237,7 +237,7 @@ ignore = ["test/**", "lib/**", "examples/**"]
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
 [profile.policy-library]
-src = "policy-catalog/bundles"
+src = "policy-catalog/sources"
 test = "policy-catalog/test"
 out = "policy-catalog/out"
 cache_path = "policy-catalog/cache"
