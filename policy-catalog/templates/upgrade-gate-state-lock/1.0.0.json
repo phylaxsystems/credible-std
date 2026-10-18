@@ -129,14 +129,24 @@
     "sourceBundleKey": "policy-catalog/bundles/policy-assertions.sol",
     "credibleStdCommit": "1dc8c68e38a3892bdedd007fffe48702b9ee199c",
     "compilerMetadata": {
-      "evmVersion": "cancun",
-      "fullVersion": "v0.8.28+commit.7893614a",
-      "optimizer": {
-        "enabled": true,
-        "runs": 200
-      },
       "solcVersion": "0.8.28",
-      "viaIR": true
+      "fullVersion": "v0.8.28+commit.7893614a",
+      "settings": {
+        "remappings": [
+          "credible-std/=src/",
+          "forge-std/=lib/forge-std/src/"
+        ],
+        "optimizer": {
+          "enabled": true,
+          "runs": 200
+        },
+        "metadata": {
+          "bytecodeHash": "ipfs"
+        },
+        "evmVersion": "cancun",
+        "libraries": {},
+        "viaIR": true
+      }
     },
     "testEvidence": {
       "unit": "FOUNDRY_PROFILE=policy-library forge test: 10 constructor tests passed, including 256 rolling-input fuzz runs",

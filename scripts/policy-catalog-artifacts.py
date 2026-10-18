@@ -28,6 +28,17 @@ for path in sorted((ROOT / 'policy-catalog/templates').glob('*/*.json')):
                 assert binding[key] == value, f'{path}: stale {key}'
         else:
             binding.update(expected)
+    settings = dict(artifact['metadata']['settings'])
+    settings.pop('compilationTarget', None)
+    compiler_metadata = {
+        'solcVersion': artifact['metadata']['compiler']['version'].split('+')[0],
+        'fullVersion': 'v' + artifact['metadata']['compiler']['version'],
+        'settings': settings,
+    }
+    if args.check:
+        assert manifest['version']['compilerMetadata'] == compiler_metadata, f'{path}: stale compiler settings'
+    else:
+        manifest['version']['compilerMetadata'] = compiler_metadata
     if not args.check:
         path.write_text(json.dumps(manifest, indent=2) + '\n')
 print('Policy artifacts match compiled constructor ABIs and bytecode.' if args.check else 'Updated policy artifacts.')
