@@ -99,7 +99,7 @@
       "required_gate"
     ],
     "sourceRepository": "https://github.com/phylaxsystems/credible-std",
-    "sourceCommit": "340a28896e17cfb90ddaac21d5eed109b292a7ce",
+    "sourceCommit": "6c00a0e947ea4429e0e97927985805b9671f1ca3",
     "sourceBundleKey": "policy-catalog/bundles/token-outflow-circuit-breaker.sol",
     "credibleStdCommit": "1dc8c68e38a3892bdedd007fffe48702b9ee199c",
     "compilerMetadata": {
