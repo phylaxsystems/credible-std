@@ -26,7 +26,7 @@ available to the dApp.
 
 ## Author and verify
 
-1. Edit one `policy-catalog/policies/<slug>/policy.sol` and its colocated `metadata.json`, plus `policy-catalog/test` when behavior changes.
+1. Edit one `policy-catalog/policies/<slug>/policy.sol` and its colocated `metadata.json`, plus `policy-catalog/test` when behavior changes. The same directory must publish the generated `bytecode.bin` artifact.
 2. Keep `policy-catalog/index.json` pointed at every `metadata.json`; the dApp reads the constructor ABI and parameter metadata from these files.
 3. Run FOUNDRY_PROFILE=policy-library forge test.
 4. Regenerate the derived bundles under `policy-catalog/bundles/` when source changes.
@@ -38,7 +38,10 @@ available to the dApp.
    credibleStdCommit to the credible-std revision used to compile it.
 
 The dApp points at this repository and branch, resolves the branch once, reads
-policy-catalog/index.json, then validates all listed metadata and source files. Every policy directory contains exactly one Solidity assertion source and one metadata file; bundles are derived compatibility artifacts.
+policy-catalog/index.json, then validates all listed metadata, source files and
+colocated bytecode artifacts. Every policy directory contains exactly one
+Solidity assertion source, one metadata file and one canonical creation bytecode
+file; bundles are derived compatibility artifacts.
 pnpm policy:sync records the resolved commit in a lock file. Synchronization
 does not publish database rows or activate a release.
 

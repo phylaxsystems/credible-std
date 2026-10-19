@@ -20,8 +20,14 @@ Each manifest contains:
   productionQualified: false until a reviewed publication gate is complete.
 - bindings[]: one or more assertion deployments. Each binding declares the
   contract, source paths, constructor ABI/signature, positional argument bindings,
-  expected assertion functions, expected trigger families, compiled bytecode,
-  compiler settings and supported profiles.
+  expected assertion functions, expected trigger families, a `bytecodeFile` that
+  points to the colocated canonical creation bytecode, the inline `baseBytecode`
+  compatibility value, compiler settings and supported profiles.
+
+Every policy directory contains `policy.sol`, `metadata.json`, and `bytecode.bin`.
+The bytecode file is UTF-8 text containing the `0x`-prefixed creation bytecode
+without constructor arguments. It is generated from the pinned Foundry artifact;
+the catalog checker rejects a missing or mismatched file.
 
 argumentBindings connect constructor arguments to policy_parameter values,
 target bindings, reviewed relationships, integration values or constants. Their

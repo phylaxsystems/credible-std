@@ -142,7 +142,8 @@
         "generic-erc4626",
         "custom-reviewed-contract"
       ],
-      "sortOrder": 0
+      "sortOrder": 0,
+      "bytecodeFile": "policy-catalog/policies/upgrade-governance/bytecode.bin"
     }
   ]
 }

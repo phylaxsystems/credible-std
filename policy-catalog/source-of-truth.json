@@ -42,5 +42,6 @@
   "indexFile": "policy-catalog/index.json",
   "policyDirectory": "policy-catalog/policies",
   "metadataFileName": "metadata.json",
-  "sourceFileName": "policy.sol"
+  "sourceFileName": "policy.sol",
+  "bytecodeFileName": "bytecode.bin"
 }

@@ -323,7 +323,8 @@
         "generic-erc4626",
         "custom-reviewed-contract"
       ],
-      "sortOrder": 0
+      "sortOrder": 0,
+      "bytecodeFile": "policy-catalog/policies/safe-action-policy/bytecode.bin"
     }
   ]
 }
