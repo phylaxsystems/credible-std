@@ -17,10 +17,8 @@ import {Assertion} from "../../Assertion.sol";
 ///     constructor(address _target)
 ///         AccessControlBaseAssertion(_target)
 ///     {}
-///
 ///     function _protectedSlots() internal pure override returns (bytes32[] memory) { ... }
 ///     function _conservedBalances() internal view override returns (ConservedBalance[] memory) { ... }
-///
 ///     function triggers() external view override {
 ///         _registerSlotProtectionTriggers();
 ///         _registerBalanceConservationTriggers();
