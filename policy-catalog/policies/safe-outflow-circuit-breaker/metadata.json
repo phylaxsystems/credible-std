@@ -76,7 +76,7 @@
       "safe_transaction_guard"
     ],
     "sourceRepository": "https://github.com/phylaxsystems/credible-std",
-    "sourceCommit": "6c00a0e947ea4429e0e97927985805b9671f1ca3",
+    "sourceCommit": "422229f4d62c4da2ce5adbd2482a0b44573e4415",
     "sourceBundleKey": "policy-catalog/bundles/safe-outflow-circuit-breaker.sol",
     "credibleStdCommit": "1dc8c68e38a3892bdedd007fffe48702b9ee199c",
     "compilerMetadata": {
