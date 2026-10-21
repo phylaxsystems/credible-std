@@ -11,7 +11,7 @@
     "ownerTeam": "Phylax Policy Engineering"
   },
   "version": {
-    "semanticVersion": "1.0.0",
+    "semanticVersion": "1.0.1",
     "publicationStatus": "draft",
     "businessDescription": "Pin Safe owners, threshold, singleton, guard, fallback handler and module state.",
     "parameterSchema": [
@@ -71,6 +71,9 @@
     ],
     "applicabilityRules": {
       "supportedProfileKeys": [
+        "safe-1.3.0",
+        "safe-1.4.1",
+        "safe-1.5.0",
         "generic-bridge",
         "generic-vault",
         "generic-erc4626",
@@ -236,6 +239,9 @@
       "optimizerRuns": 200,
       "libraries": {},
       "supportedTargetProfiles": [
+        "safe-1.3.0",
+        "safe-1.4.1",
+        "safe-1.5.0",
         "generic-bridge",
         "generic-vault",
         "generic-erc4626",
