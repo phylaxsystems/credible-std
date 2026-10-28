@@ -61,7 +61,7 @@ interface TriggerRecorder {
     /// @param thresholdBps Maximum cumulative outflow as basis points of the
     ///        TVL snapshot taken at window start. 1000 = 10%.
     /// @param windowDuration Rolling window length in seconds. Balance deltas are
-    ///        stored in 10-second buckets; old buckets that fall outside the window
+    ///        stored in per-block buckets; old buckets that fall outside the window
     ///        are dropped as the window slides forward.
     /// @param fnSelector The assertion function to invoke when the threshold
     ///        is breached.
