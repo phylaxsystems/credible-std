@@ -3,15 +3,14 @@ name: Deploy Documentation
 on:
   push:
     branches: [master]
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: "pages"
+  group: "pages-${{ github.event.pull_request.number || github.ref }}"
   cancel-in-progress: false
 
 jobs:
@@ -26,20 +25,41 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: stable
+          version: v1.8.3
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
 
       - name: Generate Documentation
-        run: forge doc --build
+        run: |
+          forge doc
+
+      - name: Build Vocs site
+        run: |
+          npm ci --prefix docs --no-audit --no-fund
+          npm run build --prefix docs
+          test -s docs/dist/public/index.html
+          test -s docs/dist/public/src/interface.PhEvm/index.html
 
       - name: Setup Pages
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
         uses: actions/configure-pages@v4
 
       - name: Upload artifact
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './docs/book'
+          path: './docs/dist/public'
 
   deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
