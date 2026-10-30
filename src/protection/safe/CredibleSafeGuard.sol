@@ -134,7 +134,7 @@ contract CredibleSafeGuard is ITransactionGuard {
     /// @dev View helper mirroring {checkTransaction}'s decision for off-chain inspection.
     /// @return True if the current block is credible or the guard is failing open.
     function isCurrentBlockAllowed() external view returns (bool) {
-        return credibleRegistry.isCredibleBlock(block.number) || _failOpenActive();
+        return credibleRegistry.isCredibleBlock() || _failOpenActive();
     }
 
     /// @notice Whether the guard is currently failing open because the builder set looks offline.
@@ -147,7 +147,7 @@ contract CredibleSafeGuard is ITransactionGuard {
     ///      offline. The credible-block check runs first so the expected hot path (credible block,
     ///      live builder set) costs a single registry call.
     function _checkCredibleBlock() internal view {
-        if (credibleRegistry.isCredibleBlock(block.number)) return;
+        if (credibleRegistry.isCredibleBlock()) return;
         if (!_failOpenActive()) revert NonCredibleBlock();
     }
 

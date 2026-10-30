@@ -45,6 +45,7 @@ contract CredibleSafeGuardSafeIntegrationTest is Test {
         safe = Safe(payable(address(factory.createProxyWithNonce(address(singleton), initializer, 0))));
 
         vm.roll(BASE_BLOCK);
+        vm.txGasPrice(1 gwei);
 
         // `setGuard` is `authorized` (callable only by the Safe itself), so route it through a
         // signed `execTransaction`. The guard is not yet active for this call, and Safe runs its
