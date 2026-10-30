@@ -9,12 +9,7 @@ import {CredibleSafeGuard, Enum, IERC165, ITransactionGuard} from "../../../src/
 /// @notice Test double for the Credible Registry. Exposes fine-grained setters and a faithful
 ///         `markCurrentBlockCredible()` replicating `phylaxsystems/credible-registry` semantics.
 contract MockCredibleRegistry is ICredibleRegistry {
-    mapping(uint256 blockNumber => bool credible) internal _credible;
     uint256 internal _lastCredibleBlock;
-
-    function setCredibleBlock(uint256 blockNumber, bool credible) external {
-        _credible[blockNumber] = credible;
-    }
 
     function setLastCredibleBlock(uint256 blockNumber) external {
         _lastCredibleBlock = blockNumber;
@@ -22,12 +17,12 @@ contract MockCredibleRegistry is ICredibleRegistry {
 
     /// @dev Mirrors the real registry: marks `block.number` credible and advances the pointer.
     function markCurrentBlockCredible() external {
-        _credible[block.number] = true;
         _lastCredibleBlock = block.number;
     }
 
-    function isCredibleBlock(uint256 blockNumber) external view returns (bool) {
-        return _credible[blockNumber];
+    function isCredibleBlock() external view returns (bool) {
+        require(msg.data.length == 4, "unexpected calldata length");
+        return block.number != 0 && (block.number == _lastCredibleBlock || tx.gasprice == 0);
     }
 
     function lastCredibleBlock() external view returns (uint256) {
@@ -67,6 +62,7 @@ contract CredibleSafeGuardTest is Test {
         registry = new MockCredibleRegistry();
         guard = new CredibleSafeGuard(registry, THRESHOLD);
         vm.roll(BASE_BLOCK);
+        vm.txGasPrice(1 gwei);
     }
 
     /// @dev Calls the guard with a representative full Safe transaction tuple.
@@ -144,6 +140,49 @@ contract CredibleSafeGuardTest is Test {
         // and credibility carries the allow.
         registry.markCurrentBlockCredible();
         assertEq(registry.lastCredibleBlock(), block.number);
+        _check();
+    }
+
+    function test_allowsSimulation_withoutStoredMarker() public {
+        registry.setLastCredibleBlock(block.number - 1);
+        vm.txGasPrice(0);
+
+        assertTrue(guard.isCurrentBlockAllowed());
+        _check();
+        assertEq(registry.lastCredibleBlock(), block.number - 1);
+    }
+
+    function test_rejectsBlockZero_evenDuringSimulation() public {
+        vm.roll(0);
+        for (uint256 price = 0; price < 2; price++) {
+            vm.txGasPrice(price);
+            assertFalse(guard.isCurrentBlockAllowed());
+            vm.expectRevert(CredibleSafeGuard.NonCredibleBlock.selector);
+            _check();
+        }
+    }
+
+    function test_revertsOnMalformedRegistryBoolean() public {
+        registry.setLastCredibleBlock(block.number - 1);
+        bytes[3] memory responses = [bytes(""), new bytes(31), abi.encode(uint256(2))];
+        for (uint256 i = 0; i < responses.length; i++) {
+            vm.mockCall(address(registry), abi.encodeCall(ICredibleRegistry.isCredibleBlock, ()), responses[i]);
+            vm.expectRevert();
+            _check();
+        }
+    }
+
+    function test_bubblesRegistryRevert() public {
+        registry.setLastCredibleBlock(block.number - 1);
+        vm.mockCallRevert(address(registry), abi.encodeCall(ICredibleRegistry.isCredibleBlock, ()), hex"deadbeef");
+        vm.expectRevert(bytes4(0xdeadbeef));
+        _check();
+    }
+
+    function test_registryFailureStillRevertsBeyondFailOpenThreshold() public {
+        registry.setLastCredibleBlock(block.number - THRESHOLD - 1);
+        vm.mockCallRevert(address(registry), abi.encodeCall(ICredibleRegistry.isCredibleBlock, ()), hex"deadbeef");
+        vm.expectRevert(bytes4(0xdeadbeef));
         _check();
     }
 
@@ -321,14 +360,13 @@ contract CredibleSafeGuardTest is Test {
     // Fuzz: decision is exactly "credible current block OR gap beyond threshold"
     // ---------------------------------------------------------------------
 
-    function testFuzz_decisionMatchesSpec(uint256 gap, bool currentCredible) public {
+    function testFuzz_decisionMatchesSpec(uint256 gap) public {
         gap = bound(gap, 0, 10 * THRESHOLD);
         // Keep BASE_BLOCK large enough that block.number - gap never underflows.
         registry.setLastCredibleBlock(block.number - gap);
-        if (currentCredible) registry.setCredibleBlock(block.number, true);
 
         bool failOpen = gap > THRESHOLD; // block.number > last is guaranteed for gap > 0
-        bool expectedAllowed = failOpen || currentCredible;
+        bool expectedAllowed = failOpen || gap == 0;
 
         assertEq(guard.failOpenActive(), failOpen);
         assertEq(guard.isCurrentBlockAllowed(), expectedAllowed);

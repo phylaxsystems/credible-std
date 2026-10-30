@@ -67,7 +67,7 @@ abstract contract CredibleBlockGuard {
     /// @dev View helper mirroring {_checkCredibleBlock}'s decision for off-chain inspection.
     /// @return True if the current block is credible or the guard is failing open.
     function isCurrentBlockAllowed() public view returns (bool) {
-        return _failOpenActive() || credibleRegistry.isCredibleBlock(block.number);
+        return _failOpenActive() || credibleRegistry.isCredibleBlock();
     }
 
     /// @notice Whether the guard is currently failing open because the builder set looks offline.
@@ -79,7 +79,7 @@ abstract contract CredibleBlockGuard {
     /// @dev Core gate: fail open when the builder set is offline, otherwise require credibility.
     function _checkCredibleBlock() internal view {
         if (_failOpenActive()) return;
-        if (!credibleRegistry.isCredibleBlock(block.number)) revert NonCredibleBlock();
+        if (!credibleRegistry.isCredibleBlock()) revert NonCredibleBlock();
     }
 
     /// @dev Fail-open is active when the current block is strictly more than

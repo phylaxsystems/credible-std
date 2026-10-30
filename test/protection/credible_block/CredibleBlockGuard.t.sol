@@ -9,12 +9,7 @@ import {CredibleBlockGuard} from "../../../src/protection/credible_block/Credibl
 /// @notice Test double for the Credible Registry. Exposes fine-grained setters and a faithful
 ///         `markCurrentBlockCredible()` replicating `phylaxsystems/credible-registry` semantics.
 contract MockCredibleRegistry is ICredibleRegistry {
-    mapping(uint256 blockNumber => bool credible) internal _credible;
     uint256 internal _lastCredibleBlock;
-
-    function setCredibleBlock(uint256 blockNumber, bool credible) external {
-        _credible[blockNumber] = credible;
-    }
 
     function setLastCredibleBlock(uint256 blockNumber) external {
         _lastCredibleBlock = blockNumber;
@@ -22,12 +17,12 @@ contract MockCredibleRegistry is ICredibleRegistry {
 
     /// @dev Mirrors the real registry: marks `block.number` credible and advances the pointer.
     function markCurrentBlockCredible() external {
-        _credible[block.number] = true;
         _lastCredibleBlock = block.number;
     }
 
-    function isCredibleBlock(uint256 blockNumber) external view returns (bool) {
-        return _credible[blockNumber];
+    function isCredibleBlock() external view returns (bool) {
+        require(msg.data.length == 4, "unexpected calldata length");
+        return block.number != 0 && (block.number == _lastCredibleBlock || tx.gasprice == 0);
     }
 
     function lastCredibleBlock() external view returns (uint256) {
@@ -65,6 +60,7 @@ contract CredibleBlockGuardTest is Test {
         registry = new MockCredibleRegistry();
         vault = new GuardedVault(registry, THRESHOLD);
         vm.roll(BASE_BLOCK);
+        vm.txGasPrice(1 gwei);
     }
 
     // ---------------------------------------------------------------------
@@ -115,6 +111,49 @@ contract CredibleBlockGuardTest is Test {
         // Builder live, block not credible -> guarded path would revert, unguarded must not.
         registry.setLastCredibleBlock(block.number - 1);
         assertEq(vault.doUnguardedAction(), 1);
+    }
+
+    function test_allowsSimulation_withoutStoredMarker() public {
+        registry.setLastCredibleBlock(block.number - 1);
+        vm.txGasPrice(0);
+
+        assertTrue(vault.isCurrentBlockAllowed());
+        vault.doProtectedAction();
+        assertEq(registry.lastCredibleBlock(), block.number - 1);
+    }
+
+    function test_rejectsBlockZero_evenDuringSimulation() public {
+        vm.roll(0);
+        for (uint256 price = 0; price < 2; price++) {
+            vm.txGasPrice(price);
+            assertFalse(vault.isCurrentBlockAllowed());
+            vm.expectRevert(CredibleBlockGuard.NonCredibleBlock.selector);
+            vault.doProtectedAction();
+        }
+    }
+
+    function test_revertsOnMalformedRegistryBoolean() public {
+        registry.setLastCredibleBlock(block.number - 1);
+        bytes[3] memory responses = [bytes(""), new bytes(31), abi.encode(uint256(2))];
+        for (uint256 i = 0; i < responses.length; i++) {
+            vm.mockCall(address(registry), abi.encodeCall(ICredibleRegistry.isCredibleBlock, ()), responses[i]);
+            vm.expectRevert();
+            vault.doProtectedAction();
+        }
+    }
+
+    function test_bubblesRegistryRevert() public {
+        registry.setLastCredibleBlock(block.number - 1);
+        vm.mockCallRevert(address(registry), abi.encodeCall(ICredibleRegistry.isCredibleBlock, ()), hex"deadbeef");
+        vm.expectRevert(bytes4(0xdeadbeef));
+        vault.doProtectedAction();
+    }
+
+    function test_failOpenDoesNotReadCredibility() public {
+        registry.setLastCredibleBlock(block.number - THRESHOLD - 1);
+        vm.mockCallRevert(address(registry), abi.encodeCall(ICredibleRegistry.isCredibleBlock, ()), hex"deadbeef");
+        vault.doProtectedAction();
+        assertTrue(vault.isCurrentBlockAllowed());
     }
 
     // ---------------------------------------------------------------------
@@ -219,8 +258,8 @@ contract CredibleBlockGuardTest is Test {
     // Decision table: allowed == "credible current block OR gap beyond threshold"
     //
     // The gate is fully deterministic, so a fixed table over the boundary-relevant
-    // gaps (below / at / above the threshold, with the current block credible or
-    // not) gives the same coverage an equivalent fuzz test would. It is kept
+    // gaps (zero / below / at / above the threshold) gives the same coverage an
+    // equivalent fuzz test would. It is kept
     // table-driven rather than fuzzed because this directory is gated by the
     // `pcl test` runner, whose fuzzing worker overflows its stack and aborts the
     // whole protection job.
@@ -230,23 +269,21 @@ contract CredibleBlockGuardTest is Test {
         uint256[6] memory gaps = [uint256(0), 1, THRESHOLD - 1, THRESHOLD, THRESHOLD + 1, 10 * THRESHOLD];
 
         for (uint256 i = 0; i < gaps.length; i++) {
-            _assertDecision(gaps[i], false);
-            _assertDecision(gaps[i], true);
+            _assertDecision(gaps[i]);
         }
     }
 
-    /// @dev Asserts the gate's decision for one (gap, currentCredible) case. Uses fresh
+    /// @dev Asserts the gate's decision for one current-block marker gap. Uses fresh
     ///      instances so each case starts from a clean slate, exactly as a fuzz run would.
-    function _assertDecision(uint256 gap, bool currentCredible) internal {
+    function _assertDecision(uint256 gap) internal {
         MockCredibleRegistry reg = new MockCredibleRegistry();
         GuardedVault v = new GuardedVault(reg, THRESHOLD);
 
         // BASE_BLOCK is large enough that block.number - gap never underflows.
         reg.setLastCredibleBlock(block.number - gap);
-        if (currentCredible) reg.setCredibleBlock(block.number, true);
 
         bool failOpen = gap > THRESHOLD; // block.number > last is guaranteed for gap > 0
-        bool expectedAllowed = failOpen || currentCredible;
+        bool expectedAllowed = failOpen || gap == 0;
 
         assertEq(v.failOpenActive(), failOpen);
         assertEq(v.isCurrentBlockAllowed(), expectedAllowed);

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.4;
 
 /// @title ICredibleRegistry
 /// @author Phylax Systems
@@ -9,10 +9,11 @@ pragma solidity ^0.8.13;
 ///      {CredibleSafeGuard} are drop-in compatible with the deployed registry. The registry
 ///      records block credibility by block number; it does not expose timestamps.
 interface ICredibleRegistry {
-    /// @notice Returns whether the given block number was marked credible by a whitelisted builder.
-    /// @param blockNumber The block number to query.
-    /// @return True if `blockNumber` was marked credible, false otherwise.
-    function isCredibleBlock(uint256 blockNumber) external view returns (bool);
+    /// @notice Returns whether the current nonzero block is credible.
+    /// @dev Also returns true for zero-gas-price simulations. Use lastCredibleBlock() to
+    ///      distinguish a stored marker from the simulation bypass.
+    /// @return True if the current block is marked credible or the simulation bypass applies.
+    function isCredibleBlock() external view returns (bool);
 
     /// @notice Returns the most recent block number that was marked credible.
     /// @dev Returns 0 if no block has ever been marked credible.

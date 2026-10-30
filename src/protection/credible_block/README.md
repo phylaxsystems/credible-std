@@ -12,7 +12,7 @@ guard; inherit `CredibleBlockGuard` directly when you want to protect your own f
 ## Files
 
 - `ICredibleRegistry.sol` — read interface for the on-chain Credible Registry
-  (`isCredibleBlock(blockNumber)`, `lastCredibleBlock()`), mirroring `phylaxsystems/credible-registry`.
+  (`isCredibleBlock()`, `lastCredibleBlock()`), mirroring `phylaxsystems/credible-registry`.
 - `CredibleBlockGuard.sol` — abstract base contract providing the `onlyCredibleBlock` modifier.
 
 ## Usage
@@ -45,7 +45,12 @@ contract MyVault is CredibleBlockGuard {
 3. If the current block is itself credible, the call is always allowed.
 
 `isCurrentBlockAllowed()` and `failOpenActive()` expose the same decision as view helpers for
-off-chain inspection.
+off-chain inspection. The registry checks the executing block, with block zero always rejected.
+Zero-gas-price simulations bypass the marker check, so `isCredibleBlock()` or
+`isCurrentBlockAllowed()` returning true during an `eth_call` does not prove a stored marker exists.
+Inspect `lastCredibleBlock()` in the same block context to verify an actual marker.
+
+The read interface supports Solidity 0.8.4 and later; the guard requires Solidity 0.8.13 or later.
 
 ## Fail-open window
 
