@@ -57,12 +57,25 @@ interface TriggerRecorder {
     ///         threshold within a rolling time window.
     /// @dev The executor handles all persistent state tracking, TVL snapshots,
     ///      and threshold enforcement internally.
+    ///      Each fully observed block contributes one bucket with its exact timestamp,
+    ///      accumulated gross inflow/outflow, and ending balance. Quiet observed blocks
+    ///      also contribute buckets with zero flows and their actual balance; missing
+    ///      observations remain absent. Updating the balance does not erase prior flows.
+    ///      Deposits offset withdrawals across the whole window before net outflow is
+    ///      clamped to zero. The trigger fires strictly above the threshold, not at equality.
+    ///      Gross transaction, pending, and per-block totals independently saturate at
+    ///      uint256 max. Lost overflow can distort the baseline/net and miss a breach;
+    ///      this extreme-value limitation is accepted. Wider window sums and threshold
+    ///      products preserve retained values, not discarded overflow. Context amounts
+    ///      saturate to uint256 without changing the precompile ABI.
     /// @param token The ERC20 token address to monitor.
     /// @param thresholdBps Maximum cumulative outflow as basis points of the
     ///        TVL snapshot taken at window start. 1000 = 10%.
-    /// @param windowDuration Rolling window length in seconds. Balance deltas are
-    ///        stored in per-block buckets; old buckets that fall outside the window
-    ///        are dropped as the window slides forward.
+    /// @param windowDuration Rolling window length in seconds. Include exact bucket
+    ///        timestamps from max(0, referenceTimestamp - windowDuration) through
+    ///        referenceTimestamp, inclusively, without rounding. Evaluation uses the
+    ///        execution block timestamp; export uses the canonical head timestamp.
+    ///        Expired buckets are dropped as the window slides forward.
     /// @param fnSelector The assertion function to invoke when the threshold
     ///        is breached.
     function watchCumulativeOutflow(address token, uint256 thresholdBps, uint256 windowDuration, bytes4 fnSelector)
