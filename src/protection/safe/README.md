@@ -44,3 +44,21 @@ execution policy. This is not an authorization check on who initiates an upgrade
 Every listed implementation must have the supported Safe storage layout and
 trusted configuration views. The tests cover Safe 1.3.0, 1.4.0, 1.4.1, and 1.5.0.
 Existing constructor encodings must append this argument when adopting this version.
+
+### Module authorization is not module enumeration
+
+The configuration lock hashes the sentinel-linked module list. Safe authorizes
+module execution using a separate mapping lookup: a nonzero entry can authorize
+an address that is absent from that list. Therefore the configuration lock alone
+does **not** freeze effective module authorization, even with an empty-list policy.
+`SafeOrphanModule.t.sol` demonstrates creation via a precomputed storage slot and
+successful hidden-module execution on all four supported Safe releases.
+
+An explicit `SafeTxShapeAssertion.assertSafeModulePolicy` allowlist protects both
+module entrypoints independently of enumeration. The delegatecall policy also
+blocks the demonstrated arbitrary-storage writer, when that policy is installed.
+These are separate, opt-in execution policies, not guarantees of the config lock.
+Deployments must decide which modules and delegatecall executors they support;
+an approved executor that can write arbitrary Safe storage remains trusted.
+Mapping-key discovery is best-effort and cannot close this gap. This limitation
+is not resolved by pagination changes or the singleton allowlist.
