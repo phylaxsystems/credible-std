@@ -14,8 +14,11 @@ contract ExampleAssertionBehaviorTest is Test {
     function testSafeConfigHashIgnoresOwnerOrdering() external {
         bytes32[] memory ownerHashes = new bytes32[](1);
         bytes32[] memory moduleHashes = new bytes32[](1);
-        SafeConfigLockAssertion config =
-            new SafeConfigLockAssertion(2, 3, ownerHashes, moduleHashes, address(0), address(0), address(0));
+        address[] memory singletons = new address[](1);
+        singletons[0] = address(0x5150);
+        SafeConfigLockAssertion config = new SafeConfigLockAssertion(
+            2, 3, ownerHashes, moduleHashes, address(0), address(0), address(0), singletons
+        );
 
         address[] memory owners = new address[](3);
         owners[0] = address(0x3003);
