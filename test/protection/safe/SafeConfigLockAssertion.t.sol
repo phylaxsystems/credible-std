@@ -15,6 +15,7 @@ contract MockSafeConfigLockTarget {
     bytes32 internal constant MODULE_GUARD_STORAGE_SLOT =
         0xb104e0b93118902c651344349b610029d694cfdec91c589c91ebafbcd0289947;
 
+    address internal singleton = address(0x5150);
     uint256 internal threshold;
     address[] internal owners;
     address[] internal modules;
@@ -266,10 +267,19 @@ contract SafeConfigLockAssertionTest is Test, CredibleTest {
         address expectedModuleGuard,
         address expectedFallbackHandler
     ) internal {
+        address[] memory singletons = new address[](1);
+        singletons[0] = address(0x5150);
         bytes memory createData = abi.encodePacked(
             type(SafeConfigLockAssertion).creationCode,
             abi.encode(
-                2, 3, ownerSetHashes, moduleSetHashes, expectedGuard, expectedModuleGuard, expectedFallbackHandler
+                2,
+                3,
+                ownerSetHashes,
+                moduleSetHashes,
+                expectedGuard,
+                expectedModuleGuard,
+                expectedFallbackHandler,
+                singletons
             )
         );
 

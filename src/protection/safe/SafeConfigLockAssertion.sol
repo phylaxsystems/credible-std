@@ -24,6 +24,7 @@ contract SafeConfigLockAssertion is SafeConfigLockHelpers {
 
     bytes32[] public approvedOwnerSetHashes;
     bytes32[] public approvedModuleSetHashes;
+    mapping(address => bool) public approvedSingletons;
 
     constructor(
         uint256 minThreshold_,
@@ -32,10 +33,16 @@ contract SafeConfigLockAssertion is SafeConfigLockHelpers {
         bytes32[] memory approvedModuleSetHashes_,
         address expectedGuard_,
         address expectedModuleGuard_,
-        address expectedFallbackHandler_
+        address expectedFallbackHandler_,
+        address[] memory approvedSingletons_
     ) {
         require(approvedOwnerSetHashes_.length != 0, "SafeConfigLock: owner hashes empty");
         require(approvedModuleSetHashes_.length != 0, "SafeConfigLock: module hashes empty");
+        require(approvedSingletons_.length != 0, "SafeConfigLock: singletons empty");
+        for (uint256 i; i < approvedSingletons_.length; ++i) {
+            require(approvedSingletons_[i] != address(0), "SafeConfigLock: zero singleton");
+            approvedSingletons[approvedSingletons_[i]] = true;
+        }
 
         minThreshold = minThreshold_;
         minOwners = minOwners_;
@@ -65,6 +72,19 @@ contract SafeConfigLockAssertion is SafeConfigLockHelpers {
     function assertSafeConfiguration() external view {
         address safe = ph.getAssertionAdopter();
         PhEvm.ForkId memory post = _postTx();
+
+        // Read proxy storage directly, before trusting any implementation's views.
+        require(
+            approvedSingletons[_addressSlotAt(safe, bytes32(0), _preTx())], "SafeConfigLock: singleton not approved"
+        );
+        require(approvedSingletons[_addressSlotAt(safe, bytes32(0), post)], "SafeConfigLock: singleton not approved");
+        bytes32[] memory implementations = ph.getStateChanges(safe, bytes32(0));
+        for (uint256 i; i < implementations.length; ++i) {
+            require(
+                approvedSingletons[address(uint160(uint256(implementations[i])))],
+                "SafeConfigLock: singleton not approved"
+            );
+        }
 
         address[] memory owners = _ownersAt(safe, post);
         uint256 threshold = _thresholdAt(safe, post);
