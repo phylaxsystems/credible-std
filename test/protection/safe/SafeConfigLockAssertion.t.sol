@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import {Test} from "forge-std/Test.sol";
 
 import {CredibleTest} from "../../../src/CredibleTest.sol";
+import {PhEvm} from "../../../src/PhEvm.sol";
 import {SafeConfigLockAssertion} from "../../../src/protection/safe/SafeConfigLockAssertion.sol";
 
 contract MockSafeConfigLockTarget {
@@ -45,6 +46,7 @@ contract MockSafeConfigLockTarget {
     function getModulesPaginated(address start, uint256 pageSize)
         external
         view
+        virtual
         returns (address[] memory array, address next)
     {
         require(pageSize != 0, "MockSafe: page size zero");
@@ -111,6 +113,82 @@ contract MockSafeConfigLockTarget {
         assembly {
             sstore(slot, value)
         }
+    }
+}
+
+/// @dev Models the linked-list traversal in Safe's ModuleManager, including the
+///      different continuation values returned by 1.3.0 and 1.4.0+.
+contract MockSafeLinkedListPaginationTarget is MockSafeConfigLockTarget {
+    mapping(address => address) internal moduleLinks;
+    bool internal immutable legacyPagination;
+
+    constructor(address[] memory owners_, address[] memory modules_, bool legacyPagination_)
+        MockSafeConfigLockTarget(owners_, 2, new address[](0), address(0), address(0), address(0))
+    {
+        legacyPagination = legacyPagination_;
+        address previous = SENTINEL_MODULES;
+        for (uint256 i; i < modules_.length; ++i) {
+            moduleLinks[previous] = modules_[i];
+            previous = modules_[i];
+        }
+        moduleLinks[previous] = SENTINEL_MODULES;
+    }
+
+    function getModulesPaginated(address start, uint256 pageSize)
+        external
+        view
+        override
+        returns (address[] memory array, address next)
+    {
+        if (!legacyPagination) {
+            require(start == SENTINEL_MODULES || moduleLinks[start] != address(0), "GS105");
+            require(pageSize > 0, "GS106");
+        }
+        array = new address[](pageSize);
+        uint256 count;
+        next = moduleLinks[start];
+        while (next != address(0) && next != SENTINEL_MODULES && count < pageSize) {
+            array[count++] = next;
+            next = moduleLinks[next];
+        }
+        // Safe 1.3 returns the first omitted module; newer versions return the
+        // last included module. Both start traversal at moduleLinks[start].
+        if (!legacyPagination && next != SENTINEL_MODULES) {
+            next = array[count - 1];
+        }
+        assembly {
+            mstore(array, count)
+        }
+    }
+}
+
+/// @dev Supplies a fixed post-transaction snapshot for public-interface pagination
+///      tests. Large module sets exceed the runtime's assertion gas budget, so
+///      these tests check enumeration correctness, not production gas viability.
+contract MockSafePaginationSnapshot {
+    address internal immutable safe;
+
+    constructor(address safe_) {
+        safe = safe_;
+    }
+
+    function getAssertionAdopter() external view returns (address) {
+        return safe;
+    }
+
+    function staticcallAt(address target, bytes calldata data, uint64 gasLimit, PhEvm.ForkId calldata fork)
+        external
+        view
+        returns (PhEvm.StaticCallResult memory result)
+    {
+        require(target == safe && fork.forkType == 1 && fork.callIndex == 0, "unexpected snapshot");
+        (result.ok, result.data) = target.staticcall{gas: gasLimit}(data);
+    }
+
+    function loadStateAt(address target, bytes32, PhEvm.ForkId calldata fork) external view returns (bytes32) {
+        require(target == safe && fork.forkType == 1 && fork.callIndex == 0, "unexpected snapshot");
+        // This fixture has no guard, module guard, or fallback handler.
+        return bytes32(0);
     }
 }
 
@@ -226,6 +304,119 @@ contract SafeConfigLockAssertionTest is Test, CredibleTest {
         );
 
         safe.setThreshold(3);
+    }
+
+    function testPaginationSafe13Allows255Modules() public {
+        _checkPagination(255, true, false);
+    }
+
+    function testPaginationSafe13Allows256Modules() public {
+        _checkPagination(256, true, false);
+    }
+
+    function testPaginationSafe13Allows257Modules() public {
+        _checkPagination(257, true, false);
+    }
+
+    function testPaginationSafe13Allows512Modules() public {
+        _checkPagination(512, true, false);
+    }
+
+    function testPaginationSafe13Allows513Modules() public {
+        _checkPagination(513, true, false);
+    }
+
+    function testPaginationSafe13Allows514Modules() public {
+        _checkPagination(514, true, false);
+    }
+
+    function testPaginationSafe14PlusAllows255Modules() public {
+        _checkPagination(255, false, false);
+    }
+
+    function testPaginationSafe14PlusAllows256Modules() public {
+        _checkPagination(256, false, false);
+    }
+
+    function testPaginationSafe14PlusAllows257Modules() public {
+        _checkPagination(257, false, false);
+    }
+
+    function testPaginationSafe14PlusAllows512Modules() public {
+        _checkPagination(512, false, false);
+    }
+
+    function testPaginationSafe14PlusAllows513Modules() public {
+        _checkPagination(513, false, false);
+    }
+
+    function testPaginationSafe14PlusAllows514Modules() public {
+        _checkPagination(514, false, false);
+    }
+
+    function testPaginationSafe13RejectsMissingBoundaryHash257() public {
+        _checkPagination(257, true, true);
+    }
+
+    function testPaginationSafe13RejectsMissingBoundaryHash514() public {
+        _checkPagination(514, true, true);
+    }
+
+    function testPaginationSafe14PlusRejectsMissingBoundaryHash257() public {
+        _checkPagination(257, false, true);
+    }
+
+    function testPaginationSafe14PlusRejectsMissingBoundaryHash514() public {
+        _checkPagination(514, false, true);
+    }
+
+    function _checkPagination(uint256 count, bool legacyPagination, bool approveMissingBoundaries) internal {
+        address[] memory modules = new address[](count);
+        for (uint256 i; i < count; ++i) {
+            // forge-lint: disable-next-line(unsafe-typecast)
+            modules[i] = address(uint160(0x10000 + i));
+        }
+        safe = new MockSafeLinkedListPaginationTarget(_baselineOwners(), modules, legacyPagination);
+
+        // Pin the fixture's version-specific cursor and the shared resume semantics.
+        (address[] memory page, address next) = safe.getModulesPaginated(address(1), 256);
+        assertEq(page.length, count < 256 ? count : 256);
+        assertEq(next, count <= 256 ? address(1) : modules[legacyPagination ? 256 : 255]);
+        if (count > 256) {
+            (page,) = safe.getModulesPaginated(page[page.length - 1], 256);
+            assertEq(page[0], modules[256]);
+        }
+
+        bytes32 approvedHash = _hashAddressSet(modules);
+        if (approveMissingBoundaries) {
+            // With the old cursor handling, Safe 1.3 skips indices 256 and 513:
+            // each skipped module becomes the start argument for the next page.
+            address[] memory incomplete = new address[](count - count / 257);
+            uint256 included;
+            for (uint256 i; i < count; ++i) {
+                if ((i + 1) % 257 != 0) incomplete[included++] = modules[i];
+            }
+            bytes32 incompleteHash = _hashAddressSet(incomplete);
+            assertTrue(approvedHash != incompleteHash);
+            approvedHash = incompleteHash;
+        }
+        MockSafePaginationSnapshot snapshot = new MockSafePaginationSnapshot(address(safe));
+        address phEvm = address(uint160(uint256(keccak256("Kim Jong Un Sucks"))));
+        vm.etch(phEvm, address(snapshot).code);
+        SafeConfigLockAssertion assertion = new SafeConfigLockAssertion(
+            2,
+            3,
+            _singleHash(_hashAddressSet(_baselineOwners())),
+            _singleHash(approvedHash),
+            address(0),
+            address(0),
+            address(0)
+        );
+
+        if (approveMissingBoundaries) {
+            vm.expectRevert(bytes("SafeConfigLock: module set not approved"));
+        }
+        assertion.assertSafeConfiguration();
     }
 
     function testBlocksGuardMismatch() public {

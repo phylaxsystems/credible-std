@@ -65,7 +65,9 @@ abstract contract SafeConfigLockHelpers is Assertion {
 
             modules = _appendAddresses(modules, page);
             if (pageNext == SENTINEL_MODULES) return modules;
-            next = pageNext;
+            // Safe 1.3 returns the first omitted module; 1.4+ returns the last included.
+            // Both resume after start, so use the last included module in either case.
+            next = page[page.length - 1];
         }
     }
 
