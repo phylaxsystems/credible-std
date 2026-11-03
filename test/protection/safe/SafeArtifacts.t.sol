@@ -11,6 +11,10 @@ import {Safe as Safe141} from "../../../lib/safe-smart-account/contracts/Safe.so
 import {SafeProxy as Proxy141} from "../../../lib/safe-smart-account/contracts/proxies/SafeProxy.sol";
 import {Safe as Safe150} from "../../../lib/safe-smart-account-1.5.0/contracts/Safe.sol";
 import {SafeProxy as Proxy150} from "../../../lib/safe-smart-account-1.5.0/contracts/proxies/SafeProxy.sol";
+import {SignMessageLib as Sign140} from "../../../lib/safe-smart-account-1.4.0/contracts/libraries/SignMessageLib.sol";
+import {
+    CompatibilityFallbackHandler as Handler140
+} from "../../../lib/safe-smart-account-1.4.0/contracts/handler/CompatibilityFallbackHandler.sol";
 
 contract SafeArtifactsTest {
     function testSupportedSingletonVersions() public {
