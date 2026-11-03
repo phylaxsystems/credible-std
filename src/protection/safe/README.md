@@ -22,6 +22,20 @@ batch executors, and rejects malformed, nested, or delegatecall-containing
 batches. It validates the action shape, not arbitrary downstream behavior in a
 trusted router; pair it with effect-based assertions when that is required.
 
+### Hybrid token approval semantics are not supported
+
+The configured approval kind is a semantic trust assumption, not token-type
+detection. Do not configure a hybrid ERC-20/ERC-721 token as either ordinary
+kind. Its shared `approve(address,uint256)` entrypoint may interpret the numeric
+argument as an NFT identifier or an allowance, depending on the value.
+
+The upstream ERC404 regression demonstrates both directions: an ERC-20 cap
+can authorize an NFT, and an ERC-721 operator policy can authorize unlimited
+fungible allowance. This token does not advertise the ERC-721 ERC-165 interface,
+so that interface check alone cannot reject all hybrids. Supporting hybrids
+requires an explicit token-specific semantic policy or separately validated
+approval entrypoints; these tests document the gap and do not implement either.
+
 ## Safe Config Lock Assertion
 
 `SafeConfigLockAssertion` checks the Safe's final configuration after each
