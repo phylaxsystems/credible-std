@@ -62,3 +62,18 @@ Deployments must decide which modules and delegatecall executors they support;
 an approved executor that can write arbitrary Safe storage remains trusted.
 Mapping-key discovery is best-effort and cannot close this gap. This limitation
 is not resolved by pagination changes or the singleton allowlist.
+
+### Signed-message policy remains separate
+
+The configuration lock does not freeze `signedMessages`. With the compatibility
+fallback handler, an enabled module can delegatecall the signing library and
+make a new message valid to ERC-1271 consumers without changing the checked
+configuration. A precomputed write to the message mapping has the same effect.
+The real Safe 1.3.0/1.4.0 tests exercise the actual signing libraries, handlers,
+owner-signing control, and ERC-1271 return value, not merely mapping changes.
+
+The existing blanket delegatecall policy blocks that library but also blocks
+ordinary owner-initiated on-chain message signing. It is not a selective
+message-authorization policy. Whether owner signing, module signing, or particular
+message domains remain allowed must be decided before adopting a stricter policy.
+No heuristic mapping-key check or implicit signing ban is added here.
