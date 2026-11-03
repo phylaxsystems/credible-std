@@ -571,12 +571,17 @@ abstract contract SafeTxShapeHelpers is Assertion {
         uint256 initialAllowance,
         uint256 cumulativeIncrease
     ) internal view {
+        uint256 peakAllowance = cumulativeIncrease > type(uint256).max - initialAllowance
+            ? type(uint256).max
+            : initialAllowance + cumulativeIncrease;
         ApprovalPolicy storage policy = _approvalPolicyByKey[token][spender][APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE];
-        if (cumulativeIncrease > policy.maxAmount || initialAllowance > policy.maxAmount - cumulativeIncrease) {
-            uint256 peakAllowance = cumulativeIncrease > type(uint256).max - initialAllowance
-                ? type(uint256).max
-                : initialAllowance + cumulativeIncrease;
-            if (peakAllowance == type(uint256).max && policy.allowUnlimited) return;
+        if (peakAllowance == type(uint256).max) {
+            if (!policy.allowUnlimited) {
+                revert SafeTxShapeApprovalUnlimitedBlocked(token, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE);
+            }
+            return;
+        }
+        if (peakAllowance > policy.maxAmount) {
             revert SafeTxShapeApprovalAmountAboveCap(
                 token, spender, APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE, peakAllowance, policy.maxAmount
             );
