@@ -202,6 +202,7 @@ It is meant for teams that know what their Safe configuration should look like a
 
 ## What It Checks
 
+- The singleton slot stays equal to its pre-transaction value, including every intermediate change.
 - The Safe threshold is at least `minThreshold`.
 - The Safe owner count is at least `minOwners`.
 - The full owner set matches one of `approvedOwnerSetHashes`.
@@ -232,6 +233,36 @@ Module-set checks paginate Safe modules in pages of 256. Very large module sets 
 - A transaction cannot quietly swap, add, or remove owners unless the resulting owner set is pre-approved.
 - A transaction cannot enable an unexpected module, or any module at all when modules are disabled by policy.
 - A transaction cannot change the transaction guard, module guard, or fallback handler away from the configured addresses.
-- The check runs at transaction end, so it cares about the final Safe configuration rather than the specific function path used to get there.
+- The check runs at transaction end and inspects the final configuration plus every intermediate singleton-slot value, regardless of the function path used to get there.
 
 This does not decide who should be an owner, which modules are safe, or what guard logic is correct. Those choices are encoded by the hashes and expected addresses passed when the assertion is deployed.
+
+## Singleton protection
+
+The proxy's raw slot 0 must equal its pre-transaction value throughout execution.
+The assertion compares both the post-state and every value returned by
+`ph.getStateChanges(safe, bytes32(0))` against that starting value, using all 32 bytes.
+Temporary replacements are rejected even if restored before transaction end;
+writing the same value is allowed. The check does not trust an implementation-provided
+`masterCopy()` view. No expected implementation or allowlist is configured, and the
+existing constructor encoding is unchanged.
+
+**No upgrade is allowed while this assertion is active**, even to another reviewed
+Safe release or when authorized by the owners. For planned maintenance, the
+assertion-policy manager must deactivate the lock and confirm deactivation is
+effective before the Safe owners execute the upgrade. After verifying the new
+implementation and configuration, reactivate the same assertion. Rollback uses
+the same deactivate, migrate, and reactivate procedure. The assertion prevents
+changes within protected transactions; it does not certify the implementation
+already installed when protection starts, including changes made during maintenance.
+
+`SafeTxShapeAssertion` separately blocks migration delegatecalls. Its blocking
+policy must also be deliberately disabled or adjusted during authorized maintenance,
+then restored. No general upgrade exception or module authority is added. The
+on-chain Credible Safe Guard need not be removed. During deactivation, the disabled
+assertions provide no protection; keep that interval controlled and short.
+
+The installed implementation still needs trusted configuration getters and the supported
+Safe storage layout. Tests cover Safe 1.3.0, 1.4.0, 1.4.1, and 1.5.0. Owner-set and
+threshold behavior is unchanged: approved owner sets and minimum thresholds are
+policies, not an unconditional freeze on all owner or threshold changes.

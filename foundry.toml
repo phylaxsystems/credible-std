@@ -6,6 +6,11 @@ libs = ["lib"]
 remappings = ["credible-std/=src/"]
 via_ir = true
 skip = ["CredibleSafeGuardSafeIntegration", "CredibleSafeGuardScripts"]
+additional_compiler_profiles = [{ name = "safe-legacy", via_ir = false, optimizer = true }]
+compilation_restrictions = [
+  { paths = "test/protection/safe/SafeArtifacts.t.sol", via_ir = false },
+  { paths = "lib/safe-smart-account*/contracts/**", via_ir = false }
+]
 
 [profile.ci]
 src = "src"
