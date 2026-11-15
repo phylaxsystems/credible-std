@@ -119,8 +119,8 @@ Every watched execution is normalized into one or more actions. A normal owner o
 - Sub-selector calldata (one to three bytes, routed to the fallback) is blocked unless the target sets `allowFallbackCalldata`.
 - Native value attached to a selector is blocked unless that selector or target allows nonzero value.
 - Owner transactions with nonzero signed `gasPrice` are blocked because Safe's refund payment has a separate token and receiver that this action policy does not model.
-- Direct Safe `DELEGATECALL` and module `DELEGATECALL` are blocked.
-- The only delegatecall exception is a configured batch executor such as Safe `MultiSend`.
+- Direct Safe `DELEGATECALL` and module `DELEGATECALL` are blocked except configured batch executors and the owner-signing exception below.
+- A configured batch executor such as Safe `MultiSend` remains subject to its inner-action policy.
 - Configured CALL-based batch executors such as `MultiSendCallOnly` are expanded as well.
 - Batch payloads are parsed strictly using Safe's packed format: operation byte, target address, value, data length, and data bytes.
 - Malformed, truncated, overlong, nested, or delegatecall-containing batches are blocked.
@@ -168,6 +168,25 @@ Module policy:
 - module execution can be disabled entirely;
 - when enabled, the module caller must be allowlisted;
 - allowlisted modules still must pass the same target, selector, delegatecall, batch, and approval checks.
+
+Owner signing policy:
+
+- The final constructor argument, `ownerSigningLibraries_`, lists trusted signing-library addresses. Pass an empty array to retain the previous policy with no signing exception. Existing constructor encodings must append this array.
+- Only a direct owner-authorized `execTransaction` delegatecall to a listed library's `signMessage(bytes)` function is exempted. Calldata must be canonical ABI encoding, and the declared value must be zero. Safe authenticates the owners; the exception does not use `tx.origin` or the outer transaction sender as evidence of authorization.
+- Neither module entrypoint receives the exception, including when the module is otherwise allowlisted. Inner delegatecalls remain blocked: adding a signing library does not implicitly approve MultiSend or batched signing.
+- Entries must be reviewed, immutable Safe signing libraries for the deployment's Safe version and chain, not upgradeable proxies or arbitrary delegatecall routers. The assertion trusts the configured code; it does not authenticate an address merely because it implements the signing selector. The on-chain guard must allow the same library and operation.
+
+For the supported owner-only deployment, set `moduleExecutionEnabled=false`, leave `allowedModules_` and `batchExecutorPolicies_` empty, and configure the signing library in both the guard and this assertion. Generic batch/module options are not additional owner-only exceptions. Protect the Safe's singleton, owners, guards and handler separately; this execution policy assumes those authentication and validation components remain trusted.
+
+This preserves both ordinary owner signatures and owner-approved `signedMessages` entries, including later ERC-1271 checks with empty signatures. No application-domain restriction is added, and existing stored approvals are not revoked. Signature validation itself does not invoke the transaction guard. The configuration lock alone still permits stored approvals: the execution policy rejects unauthorized signing and arbitrary delegatecall writers, including precomputed mapping-slot writes, rather than relying on heuristic mapping-key discovery.
+
+The signing regression suite covers Safe 1.3.0, 1.4.0, 1.4.1 and 1.5.0:
+
+```sh
+RUST_MIN_STACK=16777216 FOUNDRY_PROFILE=ci pcl test --match-path 'test/protection/safe/SafeSign*.t.sol'
+```
+
+Keep the artifact tests in that filter so all version-specific binaries are available. CI's PCL 1.5.1 and PCL 1.6.0 both pass the suite. Real-proxy controls reproduce the config-lock gap and validate ordinary signatures and stored approvals against the upstream handlers with the configuration lock installed. These assertion tests do not depend on the library's guard implementation; combined guard/signing coverage belongs with the canonical guard in its consuming repository. Function-trigger tests use upstream singleton runtime over initialized Safe storage: PCL's `cl.assertion` requires exactly one invocation, while a proxy execution produces two. These checks are not a claim of full proxy/function-trigger integration coverage. Rejected-assertion cases each use a separate test because PCL ends the test frame on rejection.
 
 Approval policy:
 

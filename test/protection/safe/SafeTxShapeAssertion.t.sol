@@ -578,7 +578,13 @@ contract SafeTxShapeAssertionTest is Test, CredibleTest {
 
         vm.expectRevert();
         new SafeTxShapeAssertion(
-            targets, _baselineSelectors(), _baselineBatchPolicies(4), _approvalPolicies(false), false, _noModules()
+            targets,
+            _baselineSelectors(),
+            _baselineBatchPolicies(4),
+            _approvalPolicies(false),
+            false,
+            _noModules(),
+            new address[](0)
         );
     }
 
@@ -590,7 +596,8 @@ contract SafeTxShapeAssertionTest is Test, CredibleTest {
             new SafeTxShapeHelpers.BatchExecutorPolicy[](0),
             new SafeTxShapeHelpers.ApprovalPolicy[](0),
             false,
-            _noModules()
+            _noModules(),
+            new address[](0)
         );
     }
 
@@ -682,7 +689,7 @@ contract SafeTxShapeAssertionTest is Test, CredibleTest {
     ) internal {
         bytes memory createData = abi.encodePacked(
             type(SafeTxShapeAssertion).creationCode,
-            abi.encode(targets, selectors, batches, approvals, moduleEnabled, modules)
+            abi.encode(targets, selectors, batches, approvals, moduleEnabled, modules, new address[](0))
         );
 
         _armAssertion(createData, assertionSelector);
