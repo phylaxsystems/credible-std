@@ -897,8 +897,8 @@ abstract contract SafeTxShapeHelpers is Assertion {
 
     function _readUint256(bytes memory data, uint256 offset) internal pure returns (uint256 value) {
         if (offset > data.length || data.length - offset < 32) revert SafeTxShapeBatchPayloadMalformed();
-        for (uint256 i; i < 32; ++i) {
-            value = (value << 8) | uint256(uint8(data[offset + i]));
+        assembly ("memory-safe") {
+            value := mload(add(add(data, 0x20), offset))
         }
     }
 
