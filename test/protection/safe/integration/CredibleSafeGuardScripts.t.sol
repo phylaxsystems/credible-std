@@ -6,6 +6,7 @@ import {Test} from "forge-std/Test.sol";
 import {Safe} from "../../../../lib/safe-smart-account/contracts/Safe.sol";
 import {SafeProxyFactory} from "../../../../lib/safe-smart-account/contracts/proxies/SafeProxyFactory.sol";
 import {Enum} from "../../../../lib/safe-smart-account/contracts/common/Enum.sol";
+import {SignMessageLib} from "../../../../lib/safe-smart-account/contracts/libraries/SignMessageLib.sol";
 
 import {CredibleSafeGuard} from "credible-std/protection/safe/CredibleSafeGuard.sol";
 import {InitialProtocolManager} from "credible-std/protection/credible_block/InitialProtocolManager.sol";
@@ -68,7 +69,7 @@ contract CredibleSafeGuardScriptsTest is Test {
     }
 
     function test_deployHelper_deploysConfiguredGuard() public {
-        CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER);
+        CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER, new address[](0));
 
         assertEq(address(guard.credibleRegistry()), address(registry));
         assertEq(guard.failOpenBlockThreshold(), THRESHOLD);
@@ -77,13 +78,41 @@ contract CredibleSafeGuardScriptsTest is Test {
 
     function test_deployHelper_preservesConstructorValidation() public {
         vm.expectRevert(CredibleSafeGuard.ZeroCredibleRegistryAddress.selector);
-        deployer.deploy(address(0), THRESHOLD, PROTOCOL_MANAGER);
+        deployer.deploy(address(0), THRESHOLD, PROTOCOL_MANAGER, new address[](0));
 
         vm.expectRevert(CredibleSafeGuard.ZeroFailOpenBlockThreshold.selector);
-        deployer.deploy(address(registry), 0, PROTOCOL_MANAGER);
+        deployer.deploy(address(registry), 0, PROTOCOL_MANAGER, new address[](0));
 
         vm.expectRevert(InitialProtocolManager.ZeroInitialProtocolManager.selector);
-        deployer.deploy(address(registry), THRESHOLD, address(0));
+        deployer.deploy(address(registry), THRESHOLD, address(0), new address[](0));
+    }
+
+    function test_deployRejectsCodelessAndDuplicateSigningLibraries() public {
+        address[] memory libraries = new address[](2);
+        vm.expectRevert(abi.encodeWithSelector(CredibleSafeGuard.InvalidOwnerSigningLibrary.selector, address(0)));
+        deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER, libraries);
+        libraries[0] = address(0xBEEF);
+        vm.expectRevert(abi.encodeWithSelector(CredibleSafeGuard.InvalidOwnerSigningLibrary.selector, address(0xBEEF)));
+        deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER, libraries);
+        libraries[0] = address(new SignMessageLib());
+        libraries[1] = libraries[0];
+        vm.expectRevert(abi.encodeWithSelector(CredibleSafeGuard.InvalidOwnerSigningLibrary.selector, libraries[0]));
+        deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER, libraries);
+    }
+
+    function test_runDeploysEnvironmentSigningLibraries() public {
+        address first = address(new SignMessageLib());
+        address second = address(new SignMessageLib());
+        vm.setEnv("CREDIBLE_REGISTRY", vm.toString(address(registry)));
+        vm.setEnv("FAIL_OPEN_BLOCK_THRESHOLD", vm.toString(THRESHOLD));
+        vm.setEnv("INITIAL_PROTOCOL_MANAGER", vm.toString(PROTOCOL_MANAGER));
+        vm.setEnv("OWNER_SIGNING_LIBRARIES", string.concat(vm.toString(first), ",", vm.toString(second)));
+        CredibleSafeGuard configured = deployer.run();
+        assertEq(configured.ownerSigningLibraryCodeHashes(first), first.codehash);
+        assertEq(configured.ownerSigningLibraryCodeHashes(second), second.codehash);
+        vm.setEnv("OWNER_SIGNING_LIBRARIES", "");
+        CredibleSafeGuard empty = deployer.run();
+        assertEq(empty.ownerSigningLibraryCodeHashes(first), bytes32(0));
     }
 
     function test_validateRegistry_acceptsResponsiveRegistry() public view {
@@ -124,7 +153,7 @@ contract CredibleSafeGuardScriptsTest is Test {
     }
 
     function test_installBatch_matchesSafeTransactionBuilderSchema() public {
-        CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER);
+        CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER, new address[](0));
         string memory json = generator.buildInstallBatch(address(safe), address(guard), block.chainid, CREATED_AT);
 
         assertEq(vm.parseJsonString(json, ".version"), "1.0");
@@ -164,7 +193,7 @@ contract CredibleSafeGuardScriptsTest is Test {
     }
 
     function test_generatedInstallBatch_executesThroughRealSafe() public {
-        CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER);
+        CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER, new address[](0));
         string memory json = generator.buildInstallBatch(address(safe), address(guard), block.chainid, CREATED_AT);
 
         _executeGeneratedBatch(json);
@@ -172,8 +201,9 @@ contract CredibleSafeGuardScriptsTest is Test {
     }
 
     function test_generatedBatch_replacesAndRemovesGuard() public {
-        CredibleSafeGuard firstGuard = deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER);
-        CredibleSafeGuard secondGuard = deployer.deploy(address(registry), THRESHOLD + 1, PROTOCOL_MANAGER);
+        CredibleSafeGuard firstGuard = deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER, new address[](0));
+        CredibleSafeGuard secondGuard =
+            deployer.deploy(address(registry), THRESHOLD + 1, PROTOCOL_MANAGER, new address[](0));
 
         _executeGeneratedBatch(
             generator.buildInstallBatch(address(safe), address(firstGuard), block.chainid, CREATED_AT)
@@ -192,7 +222,7 @@ contract CredibleSafeGuardScriptsTest is Test {
     }
 
     function test_rejectsInvalidSafeAndGuardInputs() public {
-        CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER);
+        CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER, new address[](0));
 
         vm.expectRevert(SafeGuardBatch.ZeroSafeAddress.selector);
         generator.buildInstallBatch(address(0), address(guard), block.chainid, CREATED_AT);
@@ -222,10 +252,14 @@ contract CredibleSafeGuardScriptsTest is Test {
     }
 
     function test_run_writesImportableInstallBatch() public {
-        CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER);
+        CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER, new address[](0));
         vm.setEnv("SAFE_ADDRESS", vm.toString(address(safe)));
         vm.setEnv("SAFE_GUARD_ACTION", "install");
         vm.setEnv("CREDIBLE_SAFE_GUARD", vm.toString(address(guard)));
+        vm.setEnv("SAFE_OWNER_ONLY_PROVENANCE_CONFIRMED", "false");
+        vm.expectRevert(GenerateSafeGuardBatch.OwnerOnlyProvenanceNotConfirmed.selector);
+        generator.run();
+        vm.setEnv("SAFE_OWNER_ONLY_PROVENANCE_CONFIRMED", "true");
 
         (string memory json, string memory path) = generator.run();
 
@@ -234,6 +268,21 @@ contract CredibleSafeGuardScriptsTest is Test {
         assertEq(vm.parseJsonAddress(json, ".transactions[0].to"), address(safe));
         assertEq(vm.parseJsonAddress(json, ".transactions[0].contractInputsValues.guard"), address(guard));
         vm.removeFile(path);
+    }
+
+    function test_installRejectsModulesButRemovalRemainsAvailable() public {
+        CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER, new address[](0));
+        bytes memory data = abi.encodeWithSignature("enableModule(address)", address(0xBEEF));
+        bytes memory signatures = _signTx(address(safe), data);
+        assertTrue(
+            safe.execTransaction(
+                address(safe), 0, data, Enum.Operation.Call, 0, 0, 0, address(0), payable(address(0)), signatures
+            )
+        );
+        vm.expectRevert(SafeGuardBatch.SafeHasModules.selector);
+        generator.buildInstallBatch(address(safe), address(guard), block.chainid, CREATED_AT);
+        string memory removal = generator.buildRemoveBatch(address(safe), block.chainid, CREATED_AT);
+        assertEq(vm.parseJsonAddress(removal, ".transactions[0].contractInputsValues.guard"), address(0));
     }
 
     function _executeGeneratedBatch(string memory json) internal {

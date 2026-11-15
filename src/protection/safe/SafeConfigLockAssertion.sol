@@ -14,7 +14,9 @@ import {SafeConfigLockHelpers} from "./SafeConfigLockHelpers.sol";
 ///
 ///      Address set hashes are computed by sorting addresses ascending and then hashing
 ///      `abi.encode(sortedAddresses)`. For modules, `bytes32(0)` in the approved hash list
-///      is a sentinel meaning "modules must be disabled".
+///      is a sentinel requiring an empty enumerated list, NOT an empty authorization mapping.
+///      Orphan module entries are invisible here. Owner-only protection additionally requires
+///      clean provenance and the on-chain CredibleSafeGuard module/delegatecall restrictions.
 contract SafeConfigLockAssertion is SafeConfigLockHelpers {
     uint256 public immutable minThreshold;
     uint256 public immutable minOwners;

@@ -92,7 +92,7 @@ abstract contract CredibleSafeGuardSafeIntegrationTest is Test {
         owner = vm.addr(ownerPk);
 
         registry = new CredibleRegistryMock();
-        guard = new CredibleSafeGuard(registry, FAIL_OPEN_BLOCK_THRESHOLD, PROTOCOL_MANAGER);
+        guard = new CredibleSafeGuard(registry, FAIL_OPEN_BLOCK_THRESHOLD, PROTOCOL_MANAGER, new address[](0));
 
         address[] memory owners = new address[](1);
         owners[0] = owner;

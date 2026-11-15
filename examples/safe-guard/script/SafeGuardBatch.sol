@@ -5,6 +5,11 @@ import {Script} from "forge-std/Script.sol";
 
 import {IERC165, ITransactionGuard} from "credible-std/protection/safe/CredibleSafeGuard.sol";
 
+interface ISafeOwnerOnlySetup {
+    function getModulesPaginated(address start, uint256 pageSize) external view returns (address[] memory, address);
+    function getStorageAt(uint256 offset, uint256 length) external view returns (bytes memory);
+}
+
 /// @notice Builds Safe Transaction Builder batches for installing and removing a Safe guard.
 /// @dev The checksum implementation matches Safe Transaction Builder's canonical serializer for
 ///      the fixed one-transaction schema emitted by this contract.
@@ -23,6 +28,8 @@ abstract contract SafeGuardBatch is Script {
     error GuardHasNoCode(address guard);
     error UnsupportedGuardInterface(address guard);
     error InvalidAction(string action);
+    error SafeHasModules();
+    error SafeHasSelfFallbackHandler();
 
     function buildInstallBatch(address safe, address guard, uint256 chainId, uint256 createdAt)
         public
@@ -31,6 +38,12 @@ abstract contract SafeGuardBatch is Script {
     {
         _validateSafe(safe);
         _validateGuard(guard);
+        // Necessary sanity checks, NOT proof that hidden module mapping entries are absent.
+        (address[] memory modules, address next) = ISafeOwnerOnlySetup(safe).getModulesPaginated(address(1), 1);
+        if (modules.length != 0 || next != address(1)) revert SafeHasModules();
+        bytes memory handler = ISafeOwnerOnlySetup(safe)
+            .getStorageAt(uint256(0x6c9a6c4a39284e37ed1cf53d337577d14212a4870fb976a4366c693b939918d5), 1);
+        if (abi.decode(handler, (address)) == safe) revert SafeHasSelfFallbackHandler();
         return _buildBatch(safe, guard, Action.Install, chainId, createdAt);
     }
 

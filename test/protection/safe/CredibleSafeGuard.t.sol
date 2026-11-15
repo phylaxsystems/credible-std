@@ -123,7 +123,7 @@ contract CredibleSafeGuardTest is Test {
 
     function setUp() public {
         registry = new MockCredibleRegistry();
-        guard = new CredibleSafeGuard(registry, THRESHOLD, PROTOCOL_MANAGER);
+        guard = new CredibleSafeGuard(registry, THRESHOLD, PROTOCOL_MANAGER, new address[](0));
         vm.roll(BASE_BLOCK);
     }
 
@@ -160,17 +160,17 @@ contract CredibleSafeGuardTest is Test {
 
     function test_constructor_revertsOnZeroRegistry() public {
         vm.expectRevert(CredibleSafeGuard.ZeroCredibleRegistryAddress.selector);
-        new CredibleSafeGuard(ICredibleRegistry(address(0)), THRESHOLD, PROTOCOL_MANAGER);
+        new CredibleSafeGuard(ICredibleRegistry(address(0)), THRESHOLD, PROTOCOL_MANAGER, new address[](0));
     }
 
     function test_constructor_revertsOnZeroThreshold() public {
         vm.expectRevert(CredibleSafeGuard.ZeroFailOpenBlockThreshold.selector);
-        new CredibleSafeGuard(registry, 0, PROTOCOL_MANAGER);
+        new CredibleSafeGuard(registry, 0, PROTOCOL_MANAGER, new address[](0));
     }
 
     function test_constructor_revertsOnZeroProtocolManager() public {
         vm.expectRevert(InitialProtocolManager.ZeroInitialProtocolManager.selector);
-        new CredibleSafeGuard(registry, THRESHOLD, address(0));
+        new CredibleSafeGuard(registry, THRESHOLD, address(0), new address[](0));
     }
 
     // ---------------------------------------------------------------------
@@ -200,7 +200,8 @@ contract CredibleSafeGuardTest is Test {
         vm.assume(threshold_ != 0);
         vm.assume(manager_ != address(0));
 
-        CredibleSafeGuard fuzzGuard = new CredibleSafeGuard(ICredibleRegistry(registry_), threshold_, manager_);
+        CredibleSafeGuard fuzzGuard =
+            new CredibleSafeGuard(ICredibleRegistry(registry_), threshold_, manager_, new address[](0));
 
         assertEq(fuzzGuard.initialProtocolManager(), manager_);
         // The manager is stored independently of the other two immutables.
@@ -211,7 +212,7 @@ contract CredibleSafeGuardTest is Test {
     /// @dev Two guards deployed with different managers report their own value — the manager is
     ///      per-deployment, not shared state.
     function test_initialProtocolManager_isPerDeployment() public {
-        CredibleSafeGuard otherGuard = new CredibleSafeGuard(registry, THRESHOLD, address(0xB0B));
+        CredibleSafeGuard otherGuard = new CredibleSafeGuard(registry, THRESHOLD, address(0xB0B), new address[](0));
 
         assertEq(guard.initialProtocolManager(), PROTOCOL_MANAGER);
         assertEq(otherGuard.initialProtocolManager(), address(0xB0B));
@@ -365,7 +366,7 @@ contract CredibleSafeGuardTest is Test {
 
     function test_failsOpen_whenRegistryHasNoCode() public {
         CredibleSafeGuard codelessRegistryGuard =
-            new CredibleSafeGuard(ICredibleRegistry(address(0xBEEF)), THRESHOLD, PROTOCOL_MANAGER);
+            new CredibleSafeGuard(ICredibleRegistry(address(0xBEEF)), THRESHOLD, PROTOCOL_MANAGER, new address[](0));
 
         assertTrue(codelessRegistryGuard.isCurrentBlockAllowed());
         _checkGuard(codelessRegistryGuard);
@@ -375,7 +376,7 @@ contract CredibleSafeGuardTest is Test {
         // isCredibleBlock burns >> 50k gas; the capped staticcall OOGs and fails open without
         // reverting the outer (Safe) transaction.
         GasGuzzlingRegistry guzzler = new GasGuzzlingRegistry();
-        CredibleSafeGuard guzzlerGuard = new CredibleSafeGuard(guzzler, THRESHOLD, PROTOCOL_MANAGER);
+        CredibleSafeGuard guzzlerGuard = new CredibleSafeGuard(guzzler, THRESHOLD, PROTOCOL_MANAGER, new address[](0));
 
         assertTrue(guzzlerGuard.isCurrentBlockAllowed());
         assertTrue(guzzlerGuard.failOpenActive());
@@ -387,7 +388,7 @@ contract CredibleSafeGuardTest is Test {
         // burns >> 50k gas. The capped staticcall on that read OOGs and fails open too.
         GasGuzzlingRegistry guzzler = new GasGuzzlingRegistry();
         guzzler.setGuzzleIsCredible(false);
-        CredibleSafeGuard guzzlerGuard = new CredibleSafeGuard(guzzler, THRESHOLD, PROTOCOL_MANAGER);
+        CredibleSafeGuard guzzlerGuard = new CredibleSafeGuard(guzzler, THRESHOLD, PROTOCOL_MANAGER, new address[](0));
 
         assertTrue(guzzlerGuard.isCurrentBlockAllowed());
         assertTrue(guzzlerGuard.failOpenActive());
@@ -399,7 +400,7 @@ contract CredibleSafeGuardTest is Test {
         // copies at most one word and rejects the over-long returndata, so the guard fails open
         // rather than trusting the payload or copying it unbounded.
         ReturnDataBombRegistry bomb = new ReturnDataBombRegistry();
-        CredibleSafeGuard bombGuard = new CredibleSafeGuard(bomb, THRESHOLD, PROTOCOL_MANAGER);
+        CredibleSafeGuard bombGuard = new CredibleSafeGuard(bomb, THRESHOLD, PROTOCOL_MANAGER, new address[](0));
 
         assertTrue(bombGuard.isCurrentBlockAllowed());
         assertTrue(bombGuard.failOpenActive());
@@ -463,8 +464,9 @@ contract CredibleSafeGuardTest is Test {
     // Full ABI exercise, including delegatecall operation
     // ---------------------------------------------------------------------
 
-    function test_checkTransaction_delegateCallOperation_allowedWhenCredible() public {
+    function test_checkTransaction_delegateCallOperation_blockedWhenCredible() public {
         registry.markCurrentBlockCredible();
+        vm.expectRevert(CredibleSafeGuard.DelegateCallBlocked.selector);
         guard.checkTransaction(
             address(0x1234),
             0,
@@ -482,7 +484,7 @@ contract CredibleSafeGuardTest is Test {
 
     function test_checkTransaction_delegateCallOperation_blockedWhenNotCredible() public {
         registry.setLastCredibleBlock(block.number - 1);
-        vm.expectRevert(CredibleSafeGuard.NonCredibleBlock.selector);
+        vm.expectRevert(CredibleSafeGuard.DelegateCallBlocked.selector);
         guard.checkTransaction(
             address(0x1234),
             0,
@@ -495,6 +497,35 @@ contract CredibleSafeGuardTest is Test {
             payable(address(0)),
             "",
             address(this)
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // Owner-only authorization does not depend on registry availability.
+    // ---------------------------------------------------------------------
+
+    function test_moduleEnableBlockedDuringFailOpenButOtherTargetsAllowed() public {
+        registry.setLastCredibleBlock(block.number - (THRESHOLD + 1));
+        bytes memory data = abi.encodeWithSignature("enableModule(address)", address(0xBEEF));
+        vm.expectRevert(CredibleSafeGuard.ModuleEnableBlocked.selector);
+        guard.checkTransaction(
+            address(this), 0, data, Enum.Operation.Call, 0, 0, 0, address(0), payable(address(0)), "", address(0xCAFE)
+        );
+        guard.checkTransaction(
+            address(0x1234), 0, data, Enum.Operation.Call, 0, 0, 0, address(0), payable(address(0)), "", address(this)
+        );
+    }
+
+    function test_selfFallbackBlockedDuringFailOpenButExternalHandlerAllowed() public {
+        registry.setLastCredibleBlock(block.number - (THRESHOLD + 1));
+        bytes memory data = abi.encodeWithSignature("setFallbackHandler(address)", address(this));
+        vm.expectRevert(CredibleSafeGuard.SelfFallbackHandlerBlocked.selector);
+        guard.checkTransaction(
+            address(this), 0, data, Enum.Operation.Call, 0, 0, 0, address(0), payable(address(0)), "", address(0xCAFE)
+        );
+        data = abi.encodeWithSignature("setFallbackHandler(address)", address(0x1234));
+        guard.checkTransaction(
+            address(this), 0, data, Enum.Operation.Call, 0, 0, 0, address(0), payable(address(0)), "", address(0xCAFE)
         );
     }
 

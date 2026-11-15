@@ -49,21 +49,28 @@ interface ITransactionGuard is IERC165 {
 /// @notice Safe transaction guard that only allows owner/multisig Safe transactions while the
 ///         current block is credible, i.e. built by a Credible Layer builder that enforces
 ///         assertions. When the credible builder set or registry is unavailable the guard fails
-///         open so the Safe is never bricked by the credibility gate.
+///         open for ordinary calls, including owner recovery. Owner-only restrictions never fail open.
 /// @dev Installed on a Safe via `setGuard(address(thisGuard))`. The Safe calls
 ///      {checkTransaction} before every owner-path execution; a revert blocks that execution.
 ///
 ///      Scope. This guard implements only Safe's transaction-guard interface ({ITransactionGuard}),
 ///      so it gates the owner/multisig `execTransaction` path only. Module executions
 ///      (`execTransactionFromModule`/`...ReturnData`) do not run transaction guards, so an enabled
-///      module can still execute while the current block is not credible. Gating module executions
-///      requires a separate Safe module guard (the v1.5.0 `checkModuleTransaction` hook) or a
-///      Credible Layer assertion such as {SafeTxShapeAssertion}.
+///      module can still execute while the current block is not credible. Install only on fresh
+///      or independently proven-clean Safes with no authorized modules and no self fallback
+///      handler. An empty enumerated module list does NOT rule out orphan mapping entries.
+///      The guard prevents new module authorization by rejecting enableModule self-calls and
+///      delegatecalls except configured owner signMessage(bytes) calls (never MultiSend or modules).
+///      Signing targets must be reviewed immutable libraries, not proxies or arbitrary writers.
+///      It also rejects self fallback handlers
+///      consistently with newer Safe releases. Module support is disabled on all versions.
+///      Removing/replacing the guard ends these guarantees.
 ///
 ///      Decision in {checkTransaction}:
+///      0. Reject unapproved delegatecalls, module enablement, and self fallback handlers, even during fail-open.
 ///      1. If a required registry read reverts or returns malformed data, FAIL OPEN and allow the
-///         transaction. This prevents an unavailable registry from permanently locking the Safe.
-///      2. If the current block is credible, the transaction is always allowed.
+///         remaining transaction. This prevents an unavailable registry from locking owner recovery.
+///      2. If the current block is credible, the remaining transaction is allowed.
 ///      3. Otherwise, if the credible builder set looks offline (the most recent credible block
 ///         is more than `failOpenBlockThreshold` blocks behind the current block), FAIL OPEN and
 ///         allow the transaction. This prevents a stalled builder set from permanently locking
@@ -88,7 +95,7 @@ interface ITransactionGuard is IERC165 {
 ///      deliberate, reviewed decision, not an accidental side effect of the bounded-call
 ///      hardening.
 ///      Security tradeoff (stated plainly): a broken, absent, or malicious registry that fails
-///      any of the above ways lets ALL owner transactions through unchecked. The mitigation is at
+///      any of the above ways lets ordinary calls through without credibility checks. The mitigation is at
 ///      DEPLOY TIME, not runtime: the deployment script's `validateRegistry` step rejects a
 ///      codeless / EOA registry address and verifies that both `isCredibleBlock` and
 ///      `lastCredibleBlock` return well-formed data before broadcasting, so a guard is never
@@ -121,8 +128,19 @@ contract CredibleSafeGuard is ITransactionGuard, InitialProtocolManager {
     ///         the guard fails open. Should approximate the chain's 15-minute block budget.
     uint256 public immutable failOpenBlockThreshold;
 
+    /// @notice Runtime hashes of reviewed, immutable, non-proxy owner-signing libraries.
+    /// @dev No setters. A listed address permits only signMessage(bytes), not arbitrary delegatecalls.
+    mapping(address => bytes32) public ownerSigningLibraryCodeHashes;
+
     /// @notice Thrown when the current block is not credible and the builder set is live.
     error NonCredibleBlock();
+    /// @notice The delegatecall is not an approved owner-signing call.
+    error DelegateCallBlocked();
+    error InvalidOwnerSigningLibrary(address libraryAddress);
+    /// @notice New module authorization is incompatible with owner-only protection.
+    error ModuleEnableBlocked();
+    /// @notice Self fallback handlers are unsupported, matching newer Safe versions.
+    error SelfFallbackHandlerBlocked();
     /// @notice Thrown when constructed with the zero address as the registry.
     error ZeroCredibleRegistryAddress();
     /// @notice Thrown when constructed with a zero fail-open threshold.
@@ -132,24 +150,37 @@ contract CredibleSafeGuard is ITransactionGuard, InitialProtocolManager {
     /// @param failOpenBlockThreshold_ Blocks of builder silence tolerated before failing open.
     /// @param initialProtocolManager_ Address allowed to manage this deployment's assertions in the
     ///        Credible Layer, exposed via {initialProtocolManager}. Must be non-zero.
-    constructor(ICredibleRegistry credibleRegistry_, uint256 failOpenBlockThreshold_, address initialProtocolManager_)
-        InitialProtocolManager(initialProtocolManager_)
-    {
-        if (address(credibleRegistry_) == address(0)) revert ZeroCredibleRegistryAddress();
+    /// @param ownerSigningLibraries_ Reviewed immutable signing libraries; empty disables all delegatecalls.
+    constructor(
+        ICredibleRegistry credibleRegistry_,
+        uint256 failOpenBlockThreshold_,
+        address initialProtocolManager_,
+        address[] memory ownerSigningLibraries_
+    ) InitialProtocolManager(initialProtocolManager_) {
+        if (address(credibleRegistry_) == address(0)) {
+            revert ZeroCredibleRegistryAddress();
+        }
         if (failOpenBlockThreshold_ == 0) revert ZeroFailOpenBlockThreshold();
 
         credibleRegistry = credibleRegistry_;
         failOpenBlockThreshold = failOpenBlockThreshold_;
+        for (uint256 i; i < ownerSigningLibraries_.length; ++i) {
+            address libraryAddress = ownerSigningLibraries_[i];
+            if (libraryAddress.code.length == 0 || ownerSigningLibraryCodeHashes[libraryAddress] != bytes32(0)) {
+                revert InvalidOwnerSigningLibrary(libraryAddress);
+            }
+            ownerSigningLibraryCodeHashes[libraryAddress] = libraryAddress.codehash;
+        }
     }
 
     /// @inheritdoc ITransactionGuard
-    /// @dev Reverts with {NonCredibleBlock} to block a Safe transaction. All transaction fields
-    ///      are ignored: the guard only gates on whether the executing block is credible.
+    /// @dev Owner-only restrictions precede the credibility gate and have no fail-open exception.
+    ///      `msg.sender` is the Safe; the final ABI argument is the transaction submitter, not the Safe.
     function checkTransaction(
-        address,
-        uint256,
-        bytes memory,
-        Enum.Operation,
+        address to,
+        uint256 value,
+        bytes memory data,
+        Enum.Operation operation,
         uint256,
         uint256,
         uint256,
@@ -158,7 +189,46 @@ contract CredibleSafeGuard is ITransactionGuard, InitialProtocolManager {
         bytes memory,
         address
     ) external view override {
+        if (operation == Enum.Operation.DelegateCall && !_isOwnerSigningCall(to, value, data)) {
+            revert DelegateCallBlocked();
+        }
+        if (to == msg.sender && data.length >= 4) {
+            bytes4 selector;
+            assembly ("memory-safe") {
+                selector := mload(add(data, 0x20))
+            }
+            if (selector == bytes4(keccak256("enableModule(address)"))) revert ModuleEnableBlocked();
+            if (selector == bytes4(keccak256("setFallbackHandler(address)")) && data.length >= 36) {
+                uint256 handler;
+                assembly ("memory-safe") {
+                    handler := mload(add(data, 0x24))
+                }
+                if (address(uint160(handler)) == msg.sender) revert SelfFallbackHandlerBlocked();
+            }
+        }
         _checkCredibleBlock();
+    }
+
+    /// @dev This hook is reached only for owner-authorized Safe transactions. Modules do not
+    ///      inherit this exception. Code-hash pinning detects changed runtime, not proxy upgrades:
+    ///      operators must review the target as an immutable, non-proxy signing library.
+    function _isOwnerSigningCall(address to, uint256 value, bytes memory data) internal view returns (bool) {
+        bytes32 expectedHash = ownerSigningLibraryCodeHashes[to];
+        if (value != 0 || expectedHash == bytes32(0) || to.codehash != expectedHash || data.length < 68) return false;
+        if (bytes4(data) != bytes4(keccak256("signMessage(bytes)"))) return false;
+        uint256 offset;
+        uint256 length;
+        assembly ("memory-safe") {
+            offset := mload(add(data, 0x24))
+            length := mload(add(data, 0x44))
+        }
+        uint256 available = data.length - 68;
+        if (offset != 32 || length > available || available % 32 != 0 || available - length >= 32) return false;
+        // Canonical ABI includes exactly the padded bytes payload, with zero padding.
+        for (uint256 i = 68 + length; i < data.length; ++i) {
+            if (data[i] != 0) return false;
+        }
+        return true;
     }
 
     /// @inheritdoc ITransactionGuard
@@ -170,8 +240,8 @@ contract CredibleSafeGuard is ITransactionGuard, InitialProtocolManager {
         return interfaceId == type(ITransactionGuard).interfaceId || interfaceId == type(IERC165).interfaceId;
     }
 
-    /// @notice Whether a Safe transaction would currently be allowed by this guard.
-    /// @dev View helper mirroring {checkTransaction}'s decision for off-chain inspection.
+    /// @notice Whether the credibility gate currently permits ordinary owner calls.
+    /// @dev Does not evaluate the independent owner-only restrictions in {checkTransaction}.
     /// @return True if the block is credible, the builder set is offline, or a required registry
     ///         read is unavailable or malformed.
     function isCurrentBlockAllowed() external view returns (bool) {

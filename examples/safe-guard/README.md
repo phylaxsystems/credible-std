@@ -28,14 +28,31 @@ forge script examples/safe-guard/script/DeployCredibleSafeGuard.s.sol \
 
 Foundry hardware-wallet flags such as `--ledger` or `--trezor` can be used instead of `--account`.
 
+Set optional `OWNER_SIGNING_LIBRARIES` to comma-separated reviewed immutable, non-proxy signing
+library addresses. Unset or empty disables all delegatecalls. The guard constructor and `deploy`
+helper take this list as a trailing `address[]`. The script prints each target and its pinned runtime
+hash. Only direct owner-authorized `signMessage(bytes)` delegatecalls with zero declared value and
+canonical ABI are admitted, subject to credibility/fail-open. Code hashes cannot detect proxy
+upgrades or certify library behavior; review targets and dependencies. Configure the corresponding
+assertion signing exception too (ENG-6173). No MultiSend, nested signing or module exception exists.
+
 ## Create a Safe{Wallet} installation transaction
 
 `GenerateSafeGuardBatch.s.sol` creates an official Safe Transaction Builder JSON batch. It does not sign, broadcast, call `execTransaction`, or submit anything to the Safe Transaction Service.
+
+This guard supports **owner-only Safes**, with only the configured owner-signing exception, on 1.3.0–1.5.0.
+Before installation, review clean provenance as described in the protection package's
+[scope](../../src/protection/safe/README.md#scope): no existing authorized modules (including
+hidden mapping entries), no unsafe setup/history, and no self fallback handler. An empty module
+list alone cannot establish this. The generator rejects listed modules and self fallback handlers
+but cannot prove absence of orphans. Set the acknowledgement below only after that review,
+and recheck intervening transactions before execution. It is not an on-chain admission proof.
 
 ```sh
 FOUNDRY_PROFILE=safe-guard \
 SAFE_ADDRESS=0x... \
 SAFE_GUARD_ACTION=install \
+SAFE_OWNER_ONLY_PROVENANCE_CONFIRMED=true \
 CREDIBLE_SAFE_GUARD=0x... \
 forge script examples/safe-guard/script/GenerateSafeGuardBatch.s.sol \
   --rpc-url "$RPC_URL"
@@ -72,6 +89,11 @@ forge script examples/safe-guard/script/GenerateSafeGuardBatch.s.sol \
 Import `safe-guard-output/remove.json` into Transaction Builder and verify that it displays `setGuard(0x0000000000000000000000000000000000000000)` before submitting it.
 
 If a guard is already installed, that current guard checks a replacement or removal transaction before Safe executes it. `CredibleSafeGuard` therefore requires the transaction to land in a credible block while the builder set is live. Its fail-open behavior still permits recovery if the builder set is stale or a required registry read is unavailable or malformed.
+
+Use a direct owner-authorized `CALL`, not delegatecall-based MultiSend. Removal does not require
+the provenance acknowledgement or an empty module list. It ends the owner-only guarantee;
+re-review the Safe before reinstalling. Separate assertions that lock the guard need their own
+authorized recovery/deactivation route.
 
 Importing a batch does not automatically publish it to the Safe transaction queue. The owner creates the proposal from Transaction Builder after reviewing the imported action. Automatically inserting a transaction into the queue would require a separate Safe owner signature and Safe Transaction Service integration.
 

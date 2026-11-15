@@ -20,6 +20,7 @@ contract DeployCredibleSafeGuard is Script {
         address registry = vm.envAddress("CREDIBLE_REGISTRY");
         uint256 threshold = vm.envUint("FAIL_OPEN_BLOCK_THRESHOLD");
         address protocolManager = vm.envAddress("INITIAL_PROTOCOL_MANAGER");
+        address[] memory signingLibraries = vm.envOr("OWNER_SIGNING_LIBRARIES", ",", new address[](0));
 
         // Validate the registry before broadcasting so a misconfigured (codeless or
         // non-responsive) registry is caught up front rather than silently deploying a
@@ -27,7 +28,7 @@ contract DeployCredibleSafeGuard is Script {
         validateRegistry(registry);
 
         vm.startBroadcast();
-        guard = deploy(registry, threshold, protocolManager);
+        guard = deploy(registry, threshold, protocolManager, signingLibraries);
         vm.stopBroadcast();
 
         console2.log("Chain ID:", block.chainid);
@@ -35,13 +36,19 @@ contract DeployCredibleSafeGuard is Script {
         console2.log("Credible Registry:", registry);
         console2.log("Fail-open block threshold:", threshold);
         console2.log("Initial protocol manager:", protocolManager);
+        for (uint256 i; i < signingLibraries.length; ++i) {
+            console2.log("Owner signing library:", signingLibraries[i]);
+            console2.logBytes32(guard.ownerSigningLibraryCodeHashes(signingLibraries[i]));
+        }
     }
 
-    function deploy(address registry, uint256 threshold, address protocolManager)
-        public
-        returns (CredibleSafeGuard)
-    {
-        return new CredibleSafeGuard(ICredibleRegistry(registry), threshold, protocolManager);
+    function deploy(
+        address registry,
+        uint256 threshold,
+        address protocolManager,
+        address[] memory ownerSigningLibraries
+    ) public returns (CredibleSafeGuard) {
+        return new CredibleSafeGuard(ICredibleRegistry(registry), threshold, protocolManager, ownerSigningLibraries);
     }
 
     /// @notice Asserts the registry has code and answers both reads the guard depends on.

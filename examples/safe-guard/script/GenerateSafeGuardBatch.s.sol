@@ -9,6 +9,8 @@ import {SafeGuardBatch} from "./SafeGuardBatch.sol";
 /// @dev This script never broadcasts or signs. Import the generated file into Safe{Wallet}'s
 ///      Transaction Builder and submit it through the Safe's normal owner-confirmation flow.
 contract GenerateSafeGuardBatch is SafeGuardBatch {
+    error OwnerOnlyProvenanceNotConfirmed();
+
     function run() external returns (string memory json, string memory path) {
         address safe = vm.envAddress("SAFE_ADDRESS");
         Action action = parseAction(vm.envString("SAFE_GUARD_ACTION"));
@@ -16,6 +18,7 @@ contract GenerateSafeGuardBatch is SafeGuardBatch {
         uint256 createdAt = vm.unixTime();
 
         if (action == Action.Install) {
+            if (!vm.envOr("SAFE_OWNER_ONLY_PROVENANCE_CONFIRMED", false)) revert OwnerOnlyProvenanceNotConfirmed();
             json = buildInstallBatch(safe, guard, block.chainid, createdAt);
         } else {
             json = buildRemoveBatch(safe, block.chainid, createdAt);

@@ -61,7 +61,9 @@ compiler pipeline (`optimizer = true`, no `via_ir`).
 
 ### What It Checks
 
-On every Safe transaction the guard reads the Credible Registry and decides:
+Before reading the registry, the guard rejects unapproved delegatecalls (including MultiSend),
+`enableModule(address)` self-calls, and `setFallbackHandler(safe)` self-calls. These owner-only
+restrictions remain active during fail-open. For the remaining owner calls it decides:
 
 1. If a required registry read reverts, exceeds its gas budget, or returns malformed data, the registry is treated as unavailable, so the guard fails open and allows the transaction. This prevents a broken registry from locking the Safe.
 2. If the current block is credible, the transaction is allowed.
@@ -72,10 +74,22 @@ Registry probes are limited to 50,000 gas and copy exactly one 32-byte return wo
 
 ### Config Options
 
-Both values are immutable constructor arguments:
+The constructor takes:
 
 - `credibleRegistry`: address of the on-chain Credible Registry to query (`ICredibleRegistry`). Configurable per deployment; re-pointing means deploying a new guard and calling `setGuard` again.
 - `failOpenBlockThreshold`: number of blocks of builder silence tolerated before failing open.
+- `initialProtocolManager`: nonzero assertion-management address.
+- `ownerSigningLibraries_`: trailing `address[]` of reviewed immutable, non-proxy signing libraries;
+  empty disables all delegatecalls. Only direct owner-path `signMessage(bytes)` delegatecalls with
+  zero declared value, canonical ABI (exact offset/length/zero padding), and the pinned runtime
+  code hash are admitted. Signing still obeys credibility/fail-open. Zero/codeless and duplicate
+  targets revert at deployment. `ownerSigningLibraryCodeHashes(address)` exposes each hash; there
+  is no setter. Hash pinning does not certify safe behavior or detect proxy implementation changes;
+  operators must review immutable libraries and their dependencies, never generic writers/proxies.
+
+Changing this configuration requires a new guard. No MultiSend, inner signing, module or
+active-policy upgrade exception exists. Configure the matching assertion signing policy too
+(ENG-6173); the guard does not override assertions.
 
 #### Choosing the fail-open threshold
 
@@ -91,11 +105,42 @@ The target is to fail open after roughly 15 minutes with no credible blocks. The
 
 - While the credible builder set is live, a Safe transaction cannot land in a non-credible block, such as one built by a builder that does not enforce assertions.
 - If the credible builder set goes offline for longer than the configured window, or the registry becomes unreadable, the Safe keeps working.
-- The guard gates only on block credibility and does not inspect the transaction target, value, calldata, or signatures. Pair it with `SafeConfigLockAssertion`, `SafeTxShapeAssertion`, or other assertions to constrain what the Safe may do within a credible block.
+- The guard prevents module enablement, unapproved Safe-context delegatecalls, and self fallback handlers even during fail-open. Pair it with `SafeConfigLockAssertion`, `SafeTxShapeAssertion`, or other assertions for additional policy within credible blocks.
 
 ### Scope
 
-`CredibleSafeGuard` is a Safe *transaction* guard, so it gates only the owner/multisig `execTransaction` path. Module executions (`execTransactionFromModule` / `execTransactionFromModuleReturnData`) bypass transaction guards entirely, so an enabled module can still execute while the current block is not credible. To gate module executions, install a separate Safe module guard (the v1.5.0 `checkModuleTransaction` hook) or protect that path with a Credible Layer assertion such as `SafeTxShapeAssertion`.
+The supported deployment policy is **owner-only on every supported version**, including 1.5.0,
+with only the configured owner-signing exception above. `CredibleSafeGuard` gates only owner/multisig `execTransaction`.
+It prevents *new* authorization from a clean state; it does not intercept either module entrypoint.
+Existing listed or orphan modules can still execute in unmarked blocks and can remove the guard.
+Do not install on such a Safe and describe it as protected.
+
+Require a fresh proxy with a verified singleton, no setup delegatecall (`setup.to == address(0)`),
+no authorized modules and no self fallback handler, or independently verified equivalent history.
+Review the entire history through installation, not just the creation transaction. Self fallback
+handlers are rejected consistently across versions, matching newer Safe releases even though
+Safe 1.3.0 itself permits them.
+
+An empty enumerated module list, event scan, or best-effort mapping-preimage discovery is **not**
+proof that `modules[msg.sender]` contains no hidden authorization. If clean provenance cannot be
+established, migrate assets to a fresh Safe. The installation generator requires
+`SAFE_OWNER_ONLY_PROVENANCE_CONFIRMED=true` as a human acknowledgement, and rejects listed modules
+and self fallback handlers. Neither those sanity checks nor the flag proves absence of orphans;
+recheck intervening transactions before executing. Direct `setGuard` remains possible, so this is
+an admission requirement, not an on-chain certification mechanism.
+
+For this supported stack, configure `SafeTxShapeAssertion` with `moduleExecutionEnabled=false`,
+no allowed modules and no delegatecall-enabled batch executors, and `SafeConfigLockAssertion`
+with only the empty enumerated module set approved. The generic assertion constructor options
+below remain available, but do not override the guard's stricter owner-only policy. Assertions
+alone cannot protect module executions in unmarked blocks.
+
+Owner recovery uses direct `CALL` transactions, including guard removal/replacement under the
+existing credibility/fail-open rules. Removing the guard ends the owner-only guarantee; re-review
+provenance before reinstalling. Separate configuration assertions must permit the designated
+recovery route. Delegatecall-based upgrades require deliberate maintenance with the configuration
+assertion deactivated and the guard removed, followed by review and replacement protection pinned
+to the resulting singleton. No MultiSend, unlisted signing-helper, or active-policy upgrade exception exists.
 
 ## Safe Tx Shape Assertion
 
@@ -205,7 +250,7 @@ It is meant for teams that know what their Safe configuration should look like a
 - The Safe threshold is at least `minThreshold`.
 - The Safe owner count is at least `minOwners`.
 - The full owner set matches one of `approvedOwnerSetHashes`.
-- The full module set matches one of `approvedModuleSetHashes`.
+- The sentinel-linked, enumerated module set matches one of `approvedModuleSetHashes`.
 - The transaction guard equals `expectedGuard`.
 - The module guard equals `expectedModuleGuard`.
 - The fallback handler equals `expectedFallbackHandler`.
@@ -222,7 +267,10 @@ It is meant for teams that know what their Safe configuration should look like a
 
 Owner and module set hashes are computed by sorting addresses ascending and hashing `abi.encode(sortedAddresses)`.
 
-For modules, `bytes32(0)` in `approvedModuleSetHashes` means modules must be disabled. This is useful when the safest policy is that only owner-approved Safe transactions may execute.
+For modules, `bytes32(0)` in `approvedModuleSetHashes` requires the enumerated list to be empty.
+It does **not** prove that the effective authorization mapping is empty: disconnected nonzero
+entries are invisible to this check. Owner-only deployments require the clean-provenance and
+on-chain guard restrictions described above; enumeration is only defense in depth.
 
 Module-set checks paginate Safe modules in pages of 256. Very large module sets may exceed the assertion gas limit while reading and hashing the full set; keep protected Safes below that practical cap or split module-heavy operational surfaces behind a smaller approved module set.
 
@@ -230,7 +278,7 @@ Module-set checks paginate Safe modules in pages of 256. Very large module sets 
 
 - A transaction cannot reduce the Safe below the configured threshold or owner count.
 - A transaction cannot quietly swap, add, or remove owners unless the resulting owner set is pre-approved.
-- A transaction cannot enable an unexpected module, or any module at all when modules are disabled by policy.
+- A transaction cannot leave an unexpected module in the enumerated list. Hidden authorization is outside this check.
 - A transaction cannot change the transaction guard, module guard, or fallback handler away from the configured addresses.
 - The check runs at transaction end, so it cares about the final Safe configuration rather than the specific function path used to get there.
 
