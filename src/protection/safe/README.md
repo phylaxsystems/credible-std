@@ -179,7 +179,11 @@ Approval policy:
 
 Approval resets and revocations are allowed by default when the token is configured for that approval kind: ERC-20 `approve(spender, 0)`, ERC-721 `approve(address(0), tokenId)`, and `setApprovalForAll(operator, false)` reduce approval risk. Risk-increasing approvals to untrusted spenders/operators, ERC-20 unlimited approvals without explicit permission, and ERC-20 amounts above cap are blocked.
 
-For ERC-20 `approve(spender, amount)` the cap binds `amount` directly. For ERC-20 `increaseAllowance(spender, addedValue)` the cap binds the post-state `allowance(safe, spender)` so two consecutive `increaseAllowance` calls inside a `MultiSend` cannot stack above the cap.
+For ERC-20 `approve(spender, amount)` the cap binds `amount` directly. For ERC-20 `increaseAllowance(spender, addedValue)` it binds the allowance before the Safe entrypoint plus every positive increase for that token/spender in the batch. Spending and `approve(spender, 0)` do not replenish this conservative bound. For example, with cap 100, `increase 60; spend 60; increase 60` is rejected even though outstanding allowance never exceeds 60. This is not a general spending budget: repeated capped `approve` and spend calls are still allowed.
+
+Positive `approve` and positive `increaseAllowance` cannot be mixed for the same token/spender in one batch, in either order. Different token/spender pairs remain independent. Zero approvals and zero increases do not count as mixed methods; a zero approval never clears accumulated increases. Standalone revocation is allowed even if the starting allowance exceeds the cap. Resetting an excessive allowance and increasing again requires separate Safe entrypoints.
+
+Addition saturates at `uint256.max`. That sentinel always requires `allowUnlimited`, including when the numeric cap is also `uint256.max`. When enabled, the sentinel is allowed independently of the cap; finite bounds still obey the numeric cap. The bound is scoped to one Safe entrypoint, not a transaction-wide or time-window spending limit, and assumes the configured token implements the approval methods with ERC-20 semantics.
 
 ### Material Effect
 
