@@ -265,7 +265,13 @@ contract SafeAllowanceExecutionTest is Test, CredibleTest {
             abi.encodePacked(
                 type(SafeTxShapeAssertion).creationCode,
                 abi.encode(
-                    targets, new SafeTxShapeHelpers.SelectorPolicy[](0), batches, approvals, false, new address[](0)
+                    targets,
+                    new SafeTxShapeHelpers.SelectorPolicy[](0),
+                    batches,
+                    approvals,
+                    false,
+                    new address[](0),
+                    new address[](0)
                 )
             ),
             SafeTxShapeAssertion.assertSafeApprovalPolicy.selector
