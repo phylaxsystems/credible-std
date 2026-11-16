@@ -22,6 +22,11 @@ batch executors, and rejects malformed, nested, or delegatecall-containing
 batches. It validates the action shape, not arbitrary downstream behavior in a
 trusted router; pair it with effect-based assertions when that is required.
 
+For ERC-20 approvals and cumulative `increaseAllowance` peaks, `uint256.max`
+requires `allowUnlimited = true` independently of `maxAmount`. A maximum numeric
+cap alone does not permit unlimited allowance. Finite peaks still obey the cap
+even when unlimited allowance is enabled.
+
 ## Safe Config Lock Assertion
 
 `SafeConfigLockAssertion` checks the Safe's final configuration after each

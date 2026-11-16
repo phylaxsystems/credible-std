@@ -732,6 +732,84 @@ contract SafeTxShapeAssertionTest is Test, CredibleTest {
         );
     }
 
+    function testFuzzIncreaseAllowanceUnlimitedFlag(bool batched, bool allowUnlimited, bool maxCap) public {
+        SafeTxShapeHelpers.ApprovalPolicy[] memory approvals = _approvalPolicies(false);
+        approvals[1].allowUnlimited = allowUnlimited;
+        approvals[1].maxAmount = maxCap ? type(uint256).max : 100;
+        erc20Token.setAllowance(address(safe), TRUSTED_SPENDER, 7);
+        _armPolicyFor(
+            _baselineTargets(),
+            _baselineSelectors(),
+            _baselineBatchPolicies(4),
+            approvals,
+            false,
+            _noModules(),
+            SafeTxShapeAssertion.assertSafeApprovalPolicy.selector
+        );
+
+        if (!allowUnlimited) {
+            vm.expectRevert();
+        }
+        _execAllowanceIncrease(batched, type(uint256).max - 7);
+    }
+
+    function testFuzzIncreaseAllowanceFiniteBoundary(bool batched, bool allowUnlimited, uint8 offset) public {
+        offset = uint8(bound(offset, 0, 2));
+        SafeTxShapeHelpers.ApprovalPolicy[] memory approvals = _approvalPolicies(false);
+        approvals[1].allowUnlimited = allowUnlimited;
+        erc20Token.setAllowance(address(safe), TRUSTED_SPENDER, 37);
+        _armPolicyFor(
+            _baselineTargets(),
+            _baselineSelectors(),
+            _baselineBatchPolicies(4),
+            approvals,
+            false,
+            _noModules(),
+            SafeTxShapeAssertion.assertSafeApprovalPolicy.selector
+        );
+
+        if (offset == 2) {
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    SafeTxShapeHelpers.SafeTxShapeApprovalAmountAboveCap.selector,
+                    address(erc20Token),
+                    TRUSTED_SPENDER,
+                    APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE,
+                    uint256(101),
+                    uint256(100)
+                )
+            );
+        }
+        _execAllowanceIncrease(batched, 62 + uint256(offset));
+    }
+
+    function _execAllowanceIncrease(bool batched, uint256 increase) internal {
+        if (!batched) {
+            _execOwner(
+                address(erc20Token),
+                0,
+                abi.encodeWithSelector(INCREASE_ALLOWANCE_SELECTOR, TRUSTED_SPENDER, increase),
+                OP_CALL
+            );
+            return;
+        }
+        bytes memory txs = bytes.concat(
+            _packMultiSendTx(
+                OP_CALL,
+                address(erc20Token),
+                0,
+                abi.encodeWithSelector(INCREASE_ALLOWANCE_SELECTOR, TRUSTED_SPENDER, uint256(11))
+            ),
+            _packMultiSendTx(
+                OP_CALL,
+                address(erc20Token),
+                0,
+                abi.encodeWithSelector(INCREASE_ALLOWANCE_SELECTOR, TRUSTED_SPENDER, increase - 11)
+            )
+        );
+        _execOwner(address(multiSend), 0, abi.encodeWithSelector(MULTISEND_SELECTOR, txs), OP_DELEGATECALL);
+    }
+
     function testBlocksDuplicatePolicyEntries() public {
         SafeTxShapeHelpers.TargetPolicy[] memory targets = _baselineTargets();
         targets[1].target = targets[0].target;
