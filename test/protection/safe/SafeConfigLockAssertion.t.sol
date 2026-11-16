@@ -16,6 +16,7 @@ contract MockSafeConfigLockTarget {
     bytes32 internal constant MODULE_GUARD_STORAGE_SLOT =
         0xb104e0b93118902c651344349b610029d694cfdec91c589c91ebafbcd0289947;
 
+    address internal singleton = address(0x5150);
     uint256 internal threshold;
     address[] internal owners;
     address[] internal modules;
@@ -185,10 +186,16 @@ contract MockSafePaginationSnapshot {
         (result.ok, result.data) = target.staticcall{gas: gasLimit}(data);
     }
 
-    function loadStateAt(address target, bytes32, PhEvm.ForkId calldata fork) external view returns (bytes32) {
-        require(target == safe && fork.forkType == 1 && fork.callIndex == 0, "unexpected snapshot");
+    function loadStateAt(address target, bytes32 slot, PhEvm.ForkId calldata fork) external view returns (bytes32) {
+        require(target == safe && fork.forkType <= 1 && fork.callIndex == 0, "unexpected snapshot");
+        if (slot == bytes32(0)) return bytes32(uint256(0x5150));
         // This fixture has no guard, module guard, or fallback handler.
         return bytes32(0);
+    }
+
+    function getStateChanges(address target, bytes32 slot) external view returns (bytes32[] memory) {
+        require(target == safe && slot == bytes32(0), "unexpected slot");
+        return new bytes32[](0);
     }
 }
 

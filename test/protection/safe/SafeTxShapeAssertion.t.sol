@@ -565,7 +565,7 @@ contract SafeTxShapeAssertionTest is Test, CredibleTest {
                 address(erc20Token),
                 TRUSTED_SPENDER,
                 APPROVAL_KIND_ERC20_INCREASE_ALLOWANCE,
-                uint256(101),
+                uint256(102),
                 uint256(100)
             )
         );
