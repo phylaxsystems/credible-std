@@ -6,7 +6,8 @@ import {Script, console2} from "forge-std/Script.sol";
 import {CredibleSafeGuard} from "credible-std/protection/safe/CredibleSafeGuard.sol";
 import {ICredibleRegistry} from "credible-std/protection/safe/ICredibleRegistry.sol";
 
-/// @notice Deploys a Credible Safe guard using Foundry's configured broadcast wallet.
+/// @notice Deprecated legacy guard tooling; the broadcast entrypoint is disabled.
+/// @custom:deprecated Use credible-registry/script/DeployCredibleSafeGuard.s.sol instead.
 contract DeployCredibleSafeGuard is Script {
     /// @notice Thrown when the configured registry address has no deployed code.
     /// @dev Catches the common footgun of a typo that resolves to an EOA: a codeless registry
@@ -16,31 +17,14 @@ contract DeployCredibleSafeGuard is Script {
     ///         return a single, well-formed 32-byte word.
     error RegistryReadFailed(address registry, string read);
 
-    function run() external returns (CredibleSafeGuard guard) {
-        address registry = vm.envAddress("CREDIBLE_REGISTRY");
-        uint256 threshold = vm.envUint("FAIL_OPEN_BLOCK_THRESHOLD");
-        address protocolManager = vm.envAddress("INITIAL_PROTOCOL_MANAGER");
-
-        // Validate the registry before broadcasting so a misconfigured (codeless or
-        // non-responsive) registry is caught up front rather than silently deploying a
-        // permanently-fail-open guard.
-        validateRegistry(registry);
-
-        vm.startBroadcast();
-        guard = deploy(registry, threshold, protocolManager);
-        vm.stopBroadcast();
-
-        console2.log("Chain ID:", block.chainid);
-        console2.log("Credible Safe guard:", address(guard));
-        console2.log("Credible Registry:", registry);
-        console2.log("Fail-open block threshold:", threshold);
-        console2.log("Initial protocol manager:", protocolManager);
+    function run() external pure returns (CredibleSafeGuard) {
+        revert("Deprecated: use credible-registry/script/DeployCredibleSafeGuard.s.sol");
     }
 
-    function deploy(address registry, uint256 threshold, address protocolManager)
-        public
-        returns (CredibleSafeGuard)
-    {
+    /// @dev Legacy helper retained for source compatibility and historical tests, not new deployments.
+    function deploy(address registry, uint256 threshold, address protocolManager) public returns (CredibleSafeGuard) {
+        console2.log("WARNING: deprecated guard; use credible-registry/src/CredibleSafeGuard.sol.");
+        console2.log("The legacy registry ABI fails open against the current registry. Do not deploy this guard.");
         return new CredibleSafeGuard(ICredibleRegistry(registry), threshold, protocolManager);
     }
 

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Deprecated
+
+- **Legacy Credible Safe Guard (0.7 maintenance line)**: use the canonical
+  [`credible-registry/src/CredibleSafeGuard.sol`](https://github.com/phylaxsystems/credible-registry/blob/main/src/CredibleSafeGuard.sol)
+  and its deployment/onboarding tooling. The retained guard calls `isCredibleBlock(uint256)`;
+  the current registry exposes `isCredibleBlock()`, so the legacy guard fails open on every
+  owner transaction against it. The local deployment and installation `run()` entrypoints
+  now revert with migration guidance; removal remains available. Legacy low-level helpers
+  warn rather than breaking existing callers. Contract runtime behavior, assertion APIs, and
+  dependency pins are unchanged. This does not deprecate the assertion library.
+
 ### Added
 
 - **Credible Block Guard**: `CredibleBlockGuard` reusable mixin (`src/protection/credible_block/`) exposing an `onlyCredibleBlock` modifier that gates functions on block credibility via the on-chain Credible Registry, failing open when the credible builder set goes offline so protected contracts are never bricked. Ships with an ABI-compatible `ICredibleRegistry` interface (matching `phylaxsystems/credible-registry`) and a full test suite.

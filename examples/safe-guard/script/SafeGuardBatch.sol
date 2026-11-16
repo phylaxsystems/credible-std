@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Script} from "forge-std/Script.sol";
+import {Script, console2} from "forge-std/Script.sol";
 
 import {IERC165, ITransactionGuard} from "credible-std/protection/safe/CredibleSafeGuard.sol";
 
@@ -29,6 +29,10 @@ abstract contract SafeGuardBatch is Script {
         view
         returns (string memory)
     {
+        console2.log(
+            "WARNING: deprecated installation tooling; use credible-registry/script/GenerateSafeGuardBatch.s.sol."
+        );
+        console2.log("The legacy guard fails open against the current registry. Do not install it.");
         _validateSafe(safe);
         _validateGuard(guard);
         return _buildBatch(safe, guard, Action.Install, chainId, createdAt);
