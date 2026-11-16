@@ -8,6 +8,7 @@ import {SafeConfigLockHelpers} from "./SafeConfigLockHelpers.sol";
 /// @author Phylax Systems
 /// @notice Locks the critical configuration envelope for a Safe multisig.
 /// @dev The assertion checks the Safe after each monitored transaction:
+///      - the singleton slot stays equal to its pre-transaction value throughout execution;
 ///      - threshold and owner count stay above configured minimums;
 ///      - owner and module sets match one of the approved set hashes;
 ///      - transaction guard, module guard, and fallback handler match expected addresses.
@@ -65,6 +66,14 @@ contract SafeConfigLockAssertion is SafeConfigLockHelpers {
     function assertSafeConfiguration() external view {
         address safe = ph.getAssertionAdopter();
         PhEvm.ForkId memory post = _postTx();
+
+        // Read proxy storage directly, before trusting any implementation's views.
+        bytes32 singleton = ph.loadStateAt(safe, bytes32(0), _preTx());
+        require(ph.loadStateAt(safe, bytes32(0), post) == singleton, "SafeConfigLock: singleton changed");
+        bytes32[] memory implementations = ph.getStateChanges(safe, bytes32(0));
+        for (uint256 i; i < implementations.length; ++i) {
+            require(implementations[i] == singleton, "SafeConfigLock: singleton changed");
+        }
 
         address[] memory owners = _ownersAt(safe, post);
         uint256 threshold = _thresholdAt(safe, post);
