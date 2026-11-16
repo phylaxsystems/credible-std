@@ -46,6 +46,10 @@ interface ITransactionGuard is IERC165 {
 
 /// @title CredibleSafeGuard
 /// @author Phylax Systems
+/// @custom:deprecated Use https://github.com/phylaxsystems/credible-registry/blob/main/src/CredibleSafeGuard.sol.
+///         Retained for legacy source compatibility only. This copy calls isCredibleBlock(uint256),
+///         not the current registry's isCredibleBlock(). That ABI mismatch makes every owner
+///         transaction fail open against the current registry, providing no credibility protection.
 /// @notice Safe transaction guard that only allows owner/multisig Safe transactions while the
 ///         current block is credible, i.e. built by a Credible Layer builder that enforces
 ///         assertions. When the credible builder set or registry is unavailable the guard fails

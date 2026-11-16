@@ -1,7 +1,18 @@
-# Credible Safe Guard operations
+# Legacy Credible Safe Guard operations (deprecated)
 
-Deployment and Safe Transaction Builder tooling for
-`src/protection/safe/CredibleSafeGuard.sol`.
+**Do not deploy or install `src/protection/safe/CredibleSafeGuard.sol` from credible-std.**
+The canonical guard is [`credible-registry/src/CredibleSafeGuard.sol`](https://github.com/phylaxsystems/credible-registry/blob/main/src/CredibleSafeGuard.sol).
+Use that repository's [deployment and onboarding guide](https://github.com/phylaxsystems/credible-registry/blob/main/docs/SAFE_GUARD.md).
+
+This retained copy calls `isCredibleBlock(uint256)` while the current registry implements
+`isCredibleBlock()`. The unsupported selector fails its probe, so it **fails open on every
+owner transaction** against the current registry. It provides no credibility protection in
+that configuration. The legacy deployment validator is not equivalent to the canonical
+validator either: it uses unbounded reads and accepts future last-credible-block heights.
+
+This deprecation does not remove the contract, change its runtime behavior, or deprecate
+the assertion library. Existing pinned consumers keep their source/API compatibility.
+It does not patch already deployed guards or historical tags and pins.
 
 The guard contract, compatibility matrix, and tests live with the Safe protection package:
 
@@ -11,54 +22,38 @@ The guard contract, compatibility matrix, and tests live with the Safe protectio
 - `test/protection/safe/CredibleSafeGuard.t.sol`
 - `test/protection/safe/integration/`
 
-## Deploy the guard
+## Deployment and installation are disabled
 
-The deployment script reads the registry, fail-open threshold, and initial protocol manager from the environment. Foundry handles the deployer wallet; the script does not read a private key.
+`DeployCredibleSafeGuard.run()` always reverts before reading configuration or broadcasting.
+`GenerateSafeGuardBatch.run()` rejects `SAFE_GUARD_ACTION=install` before writing a batch.
+Both errors point to the corresponding script in credible-registry. The low-level `deploy`
+and `buildInstallBatch` helpers remain for legacy source compatibility and historical tests,
+but print deprecation warnings. They must not be used for new deployments or onboarding.
 
-```sh
-FOUNDRY_PROFILE=safe-guard \
-CREDIBLE_REGISTRY=0x... \
-FAIL_OPEN_BLOCK_THRESHOLD=75 \
-INITIAL_PROTOCOL_MANAGER=0x... \
-forge script examples/safe-guard/script/DeployCredibleSafeGuard.s.sol \
-  --rpc-url "$RPC_URL" \
-  --account <foundry-keystore-account> \
-  --broadcast
-```
+For an existing installation, inspect its registry address and ABI. The registry address is
+immutable: updating this library cannot repair a deployed guard. Deploy a canonical guard
+using credible-registry's tooling, then coordinate the migration in this order:
 
-Foundry hardware-wallet flags such as `--ledger` or `--trezor` can be used instead of `--account`.
-
-## Create a Safe{Wallet} installation transaction
-
-`GenerateSafeGuardBatch.s.sol` creates an official Safe Transaction Builder JSON batch. It does not sign, broadcast, call `execTransaction`, or submit anything to the Safe Transaction Service.
-
-```sh
-FOUNDRY_PROFILE=safe-guard \
-SAFE_ADDRESS=0x... \
-SAFE_GUARD_ACTION=install \
-CREDIBLE_SAFE_GUARD=0x... \
-forge script examples/safe-guard/script/GenerateSafeGuardBatch.s.sol \
-  --rpc-url "$RPC_URL"
-```
-
-The output is written to:
-
-```text
-safe-guard-output/install.json
-```
-
-To install the guard:
-
-1. Open the target Safe in Safe{Wallet} on the same chain used to generate the file.
-2. Open **Apps → Transaction Builder**.
-3. Import `safe-guard-output/install.json`.
-4. Verify that the transaction target is the Safe itself, the value is zero, and the decoded call is `setGuard(<deployed guard>)`.
-5. Create the Safe transaction and complete the Safe's normal owner confirmation and execution flow.
-
-Safe's `setGuard` function is self-authorized. A Safe owner cannot call it directly; the call must execute through an owner-authorized Safe transaction targeting the Safe itself. The generated batch provides exactly that inner transaction and includes a Transaction Builder checksum so the UI can detect modification.
+1. Inspect the Safe's existing active assertion policies. An active `SafeConfigLockAssertion`
+   expecting the old guard rejects `setGuard(newGuard)` in a credible block. The legacy guard
+   failing open does **not** disable those assertions, and configuring the new guard's protocol
+   manager does not replace the Safe's existing policies.
+2. Have the existing authorized assertion manager remove or replace the affected policies so
+   they permit the intended migration. Confirm that the policy change has taken effect before
+   executing the Safe transaction; do not assume submission is activation or rely on a fixed
+   delay. Plan any temporary reduction in protection with that manager.
+3. Use credible-registry's installation batch for an owner-authorized Safe self-call to
+   `setGuard(newGuard)`. Review the chain, Safe, new guard, and effective assertion configuration
+   before signing. The currently installed guard still checks the replacement: do not assume
+   a healthy legacy guard allows it in a noncredible block.
+4. Verify the installed guard and confirm that the intended assertion policies protecting the
+   final configuration are active, including a configuration lock expecting the new guard where
+   required. Do not leave policies removed for migration unintentionally disabled.
 
 ## Create a removal transaction
 
+Apply the assertion-policy prerequisites above before removal too: an active configuration
+lock expecting a nonzero guard also rejects `setGuard(address(0))` in a credible block.
 Removal uses the same Safe self-call with the guard set to the zero address:
 
 ```sh

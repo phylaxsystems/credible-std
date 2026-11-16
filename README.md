@@ -2,6 +2,21 @@
 
 Standard library for implementing assertions in the Phylax Credible Layer (PCL). Provides the core contracts and interfaces needed to create, test, and validate assertions for smart contract security monitoring.
 
+## Deprecated Safe guard on the 0.7 maintenance line
+
+**Do not deploy `src/protection/safe/CredibleSafeGuard.sol` from this repository.** The canonical
+guard is [`credible-registry/src/CredibleSafeGuard.sol`](https://github.com/phylaxsystems/credible-registry/blob/main/src/CredibleSafeGuard.sol).
+This legacy copy calls `isCredibleBlock(uint256)`, but the current registry implements
+`isCredibleBlock()`. The failed probe makes it **fail open on every owner transaction** against
+the current registry, providing no credibility protection.
+
+The contract remains for source compatibility; the assertion library, including the Safe
+assertions used by credible-registry, is not deprecated. The default branch and 0.8 releases
+already omit this guard. Existing pinned revisions are unchanged by this deprecation.
+Use credible-registry's [deployment and onboarding guide](https://github.com/phylaxsystems/credible-registry/blob/main/docs/SAFE_GUARD.md)
+for new guards. See the [legacy operations guide](examples/safe-guard/README.md) for migration
+and removal; the local deployment and installation script entrypoints are disabled.
+
 ## Documentation
 
 Full API documentation is available at: https://phylaxsystems.github.io/credible-std

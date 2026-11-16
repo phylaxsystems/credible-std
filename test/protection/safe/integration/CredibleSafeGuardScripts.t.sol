@@ -221,18 +221,43 @@ contract CredibleSafeGuardScriptsTest is Test {
         assertEq(generator.outputPath(SafeGuardBatch.Action.Remove), "safe-guard-output/remove.json");
     }
 
-    function test_run_writesImportableInstallBatch() public {
+    function test_deployRun_rejectsDeprecatedDeployment() public {
+        vm.setEnv("CREDIBLE_REGISTRY", vm.toString(address(registry)));
+        vm.setEnv("FAIL_OPEN_BLOCK_THRESHOLD", vm.toString(THRESHOLD));
+        vm.setEnv("INITIAL_PROTOCOL_MANAGER", vm.toString(PROTOCOL_MANAGER));
+
+        vm.expectRevert(bytes("Deprecated: use credible-registry/script/DeployCredibleSafeGuard.s.sol"));
+        deployer.run();
+    }
+
+    function test_run_rejectsDeprecatedInstallation() public {
         CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER);
         vm.setEnv("SAFE_ADDRESS", vm.toString(address(safe)));
         vm.setEnv("SAFE_GUARD_ACTION", "install");
         vm.setEnv("CREDIBLE_SAFE_GUARD", vm.toString(address(guard)));
 
+        vm.expectRevert(
+            bytes("Deprecated: use credible-registry/script/GenerateSafeGuardBatch.s.sol for installations")
+        );
+        generator.run();
+    }
+
+    function test_run_writesImportableRemovalBatch() public {
+        CredibleSafeGuard guard = deployer.deploy(address(registry), THRESHOLD, PROTOCOL_MANAGER);
+        _executeGeneratedBatch(generator.buildInstallBatch(address(safe), address(guard), block.chainid, CREATED_AT));
+        registry.markCurrentBlockCredible();
+        vm.setEnv("SAFE_ADDRESS", vm.toString(address(safe)));
+        vm.setEnv("SAFE_GUARD_ACTION", "remove");
+        vm.setEnv("CREDIBLE_SAFE_GUARD", vm.toString(address(guard)));
+
         (string memory json, string memory path) = generator.run();
 
-        assertEq(path, "safe-guard-output/install.json");
+        assertEq(path, "safe-guard-output/remove.json");
         assertEq(vm.readFile(path), json);
         assertEq(vm.parseJsonAddress(json, ".transactions[0].to"), address(safe));
-        assertEq(vm.parseJsonAddress(json, ".transactions[0].contractInputsValues.guard"), address(guard));
+        assertEq(vm.parseJsonAddress(json, ".transactions[0].contractInputsValues.guard"), address(0));
+        _executeGeneratedBatch(json);
+        assertEq(_installedGuard(), address(0));
         vm.removeFile(path);
     }
 

@@ -8,11 +8,20 @@ This package contains Safe-native protections. They cover different surfaces and
 
 The two `*Assertion` contracts run inside the PhEvm. `CredibleSafeGuard` is a plain on-chain Gnosis Safe transaction guard installed on the Safe via `setGuard`.
 
-## Credible Safe Guard
+## Credible Safe Guard (deprecated)
 
-`CredibleSafeGuard` is a Gnosis Safe transaction guard that gates every owner-path Safe execution on block credibility, as reported by the on-chain [Credible Registry](https://github.com/phylaxsystems/credible-registry).
+**Do not deploy or install this legacy copy.** The canonical implementation is
+[`credible-registry/src/CredibleSafeGuard.sol`](https://github.com/phylaxsystems/credible-registry/blob/main/src/CredibleSafeGuard.sol).
+This copy uses `isCredibleBlock(uint256)` rather than the current registry's `isCredibleBlock()`.
+Against that registry, the failed selector probe makes every owner transaction fail open:
+Safe interface compatibility does not imply credibility enforcement.
 
-Install it through an owner-authorized Safe self-transaction whose calldata is `setGuard(address(guard))`; a direct owner call is not authorized. Safe then calls `checkTransaction` before each `execTransaction`, and the guard reverts to block the execution. The scripts and Safe Transaction Builder import workflow are documented in [`examples/safe-guard/README.md`](../../../examples/safe-guard/README.md).
+The source remains for legacy consumers and tests; the Safe assertion contracts below are
+not deprecated or changed. Use the canonical [operations guide](https://github.com/phylaxsystems/credible-registry/blob/main/docs/SAFE_GUARD.md)
+for deployment and onboarding. The local deployment/install entrypoints are disabled;
+see the [legacy operations guide](../../../examples/safe-guard/README.md) for migration and removal.
+The following compatibility and behavior sections describe the retained guard with a
+compatible **legacy** registry, not the current registry.
 
 ### Safe compatibility
 
