@@ -32,14 +32,28 @@ but print deprecation warnings. They must not be used for new deployments or onb
 
 For an existing installation, inspect its registry address and ABI. The registry address is
 immutable: updating this library cannot repair a deployed guard. Deploy a canonical guard
-using credible-registry's tooling, configure its protocol manager and assertions, and use
-that repository's installation batch to replace the legacy guard through an owner-authorized
-Safe self-call to `setGuard(newGuard)`. Review the chain, Safe, new guard, and assertion
-configuration before signing. A replacement is checked by the currently installed guard.
-Do not assume a healthy legacy guard can be replaced or removed in a noncredible block.
+using credible-registry's tooling, then coordinate the migration in this order:
+
+1. Inspect the Safe's existing active assertion policies. An active `SafeConfigLockAssertion`
+   expecting the old guard rejects `setGuard(newGuard)` in a credible block. The legacy guard
+   failing open does **not** disable those assertions, and configuring the new guard's protocol
+   manager does not replace the Safe's existing policies.
+2. Have the existing authorized assertion manager remove or replace the affected policies so
+   they permit the intended migration. Confirm that the policy change has taken effect before
+   executing the Safe transaction; do not assume submission is activation or rely on a fixed
+   delay. Plan any temporary reduction in protection with that manager.
+3. Use credible-registry's installation batch for an owner-authorized Safe self-call to
+   `setGuard(newGuard)`. Review the chain, Safe, new guard, and effective assertion configuration
+   before signing. The currently installed guard still checks the replacement: do not assume
+   a healthy legacy guard allows it in a noncredible block.
+4. Verify the installed guard and confirm that the intended assertion policies protecting the
+   final configuration are active, including a configuration lock expecting the new guard where
+   required. Do not leave policies removed for migration unintentionally disabled.
 
 ## Create a removal transaction
 
+Apply the assertion-policy prerequisites above before removal too: an active configuration
+lock expecting a nonzero guard also rejects `setGuard(address(0))` in a credible block.
 Removal uses the same Safe self-call with the guard set to the zero address:
 
 ```sh
