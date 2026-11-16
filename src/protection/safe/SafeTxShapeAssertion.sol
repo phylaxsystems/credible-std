@@ -11,13 +11,20 @@ import {SafeTxShapeHelpers} from "./SafeTxShapeHelpers.sol";
 ///      selectors, delegatecall restrictions, approved MultiSend batch contents, and
 ///      token approval spender/operator policy.
 contract SafeTxShapeAssertion is SafeTxShapeHelpers {
+    bytes4 public constant SIGN_MESSAGE_SELECTOR = bytes4(keccak256("signMessage(bytes)"));
+
+    /// @notice Reviewed, immutable signing libraries owners may delegatecall directly.
+    /// @dev This is an execution-code trust list, not a list of permitted message domains.
+    mapping(address libraryAddress => bool allowed) public ownerSigningLibraries;
+
     constructor(
         TargetPolicy[] memory targetPolicies_,
         SelectorPolicy[] memory selectorPolicies_,
         BatchExecutorPolicy[] memory batchExecutorPolicies_,
         ApprovalPolicy[] memory approvalPolicies_,
         bool moduleExecutionEnabled_,
-        address[] memory allowedModules_
+        address[] memory allowedModules_,
+        address[] memory ownerSigningLibraries_
     )
         SafeTxShapeHelpers(
             targetPolicies_,
@@ -27,7 +34,15 @@ contract SafeTxShapeAssertion is SafeTxShapeHelpers {
             moduleExecutionEnabled_,
             allowedModules_
         )
-    {}
+    {
+        for (uint256 i; i < ownerSigningLibraries_.length; ++i) {
+            address libraryAddress = ownerSigningLibraries_[i];
+            if (libraryAddress == address(0) || ownerSigningLibraries[libraryAddress]) {
+                revert SafeTxShapeInvalidPolicy();
+            }
+            ownerSigningLibraries[libraryAddress] = true;
+        }
+    }
 
     function triggers() external view override {
         registerFnCallTrigger(this.assertSafeModulePolicy.selector, EXEC_TRANSACTION_SELECTOR);
@@ -67,10 +82,21 @@ contract SafeTxShapeAssertion is SafeTxShapeHelpers {
         if (action.fromModule) _validateModuleCaller(action.module);
     }
 
-    /// @notice Blocks direct, module, and inner delegatecalls except configured top-level MultiSend execution.
+    /// @notice Allows configured batches and direct owner signing; blocks other delegatecalls.
     function assertSafeDelegateCallPolicy() external view {
         Action memory action = _triggeredAction();
         if (action.operation > OPERATION_DELEGATECALL) revert SafeTxShapeUnknownOperation(action.operation);
+
+        // Safe authenticates execTransaction owners. A module entrypoint never inherits
+        // this exception, even when an owner transaction called the module first.
+        if (
+            action.operation == OPERATION_DELEGATECALL && !action.fromModule && ownerSigningLibraries[action.target]
+                && action.value == 0 && action.dataLength >= 4
+                && _selectorAt(action.data, action.dataOffset) == SIGN_MESSAGE_SELECTOR
+        ) {
+            _decodeSingleBytesArgument(action.data, action.dataOffset, action.dataLength, SIGN_MESSAGE_SELECTOR);
+            return;
+        }
 
         (bool isBatchExecutor, uint256 batchIndex) =
             _batchPolicyForAction(action.target, action.data, action.dataOffset, action.dataLength);
