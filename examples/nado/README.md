@@ -1,15 +1,16 @@
-# nado examples
+# Nado examples
 
-Assertion examples and supporting helpers extracted from the `ink/assertions` branch.
+Protocol-specific assertion examples and supporting helpers.
 
-## Build
+## Build and test
 
 ```sh
 FOUNDRY_PROFILE=nado forge build
+FOUNDRY_PROFILE=nado pcl test
 ```
 
 ## Files
 
-- NadoClearinghouseAssertion.sol
-- NadoHelpers.sol
-- NadoInterfaces.sol
+- [NadoClearinghouseAssertion.sol](src/NadoClearinghouseAssertion.sol)
+- [NadoHelpers.sol](src/NadoHelpers.sol)
+- [NadoInterfaces.sol](src/NadoInterfaces.sol)

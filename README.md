@@ -34,8 +34,8 @@ Full API documentation is available at: https://phylaxsystems.github.io/credible
 
 ## Examples
 
-Assertion Book examples live in `examples/assertions-book`; micro-pattern examples
-live in `examples/micro-patterns`.
+See the [example guide](examples/) for runnable demos, small assertion patterns,
+protocol adapters, setup instructions, and coverage/quarantine status.
 
 ## Installation
 

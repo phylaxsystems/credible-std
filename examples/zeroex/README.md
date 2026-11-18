@@ -1,21 +1,22 @@
-# zeroex examples
+# 0x Settler examples
 
-Assertion examples and supporting helpers extracted from the `0x` branch.
+Protocol-specific assertion examples and supporting helpers.
 
-## Build
+## Build and test
 
 ```sh
 FOUNDRY_PROFILE=zeroex forge build
+FOUNDRY_PROFILE=zeroex pcl test
 ```
 
 ## Files
 
-- ZeroExSettlerAssertion.sol
-- ZeroExSettlerHelpers.sol
-- ZeroExSettlerInterfaces.sol
-- ZeroExSettlerMainnetSwapIntrospectionAssertion.sol
-- ZeroExSettlerMainnetSwapIntrospectionCodec.sol
-- ZeroExSettlerMainnetSwapIntrospectionHelpers.sol
+- [ZeroExSettlerAssertion.sol](src/ZeroExSettlerAssertion.sol)
+- [ZeroExSettlerHelpers.sol](src/ZeroExSettlerHelpers.sol)
+- [ZeroExSettlerInterfaces.sol](src/ZeroExSettlerInterfaces.sol)
+- [ZeroExSettlerMainnetSwapIntrospectionAssertion.sol](src/ZeroExSettlerMainnetSwapIntrospectionAssertion.sol)
+- [ZeroExSettlerMainnetSwapIntrospectionCodec.sol](src/ZeroExSettlerMainnetSwapIntrospectionCodec.sol)
+- [ZeroExSettlerMainnetSwapIntrospectionHelpers.sol](src/ZeroExSettlerMainnetSwapIntrospectionHelpers.sol)
 
 `ZeroExSettlerMainnetSwapIntrospectionAssertion` is intentionally quarantined and registers no
 triggers. Its parser is retained as research code, not as a deployable protocol guard.

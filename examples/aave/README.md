@@ -1,6 +1,6 @@
-# aave examples
+# Aave examples
 
-Assertion examples and supporting helpers extracted from the `aave` branch.
+Protocol-specific assertion examples and supporting helpers.
 
 ## Availability
 
@@ -8,25 +8,26 @@ The v4 Hub and Spoke wrappers are quarantined and register no triggers. Their fi
 can become governance liveness limits even though upstream reserve/spoke creation has no matching
 cap. V3/v4 tolerance configuration rejects 10,000 bps because that value disables ratio checks.
 
-## Build
+## Build and test
 
 ```sh
 FOUNDRY_PROFILE=aave forge build
+FOUNDRY_PROFILE=aave pcl test
 ```
 
 ## Files
 
-- AaveV3HorizonHelpers.sol
-- AaveV3HorizonInterfaces.sol
-- AaveV3HorizonOracleAssertion.sol
-- AaveV3HorizonReserveBackingAssertion.sol (quarantined: token-only mutations do not dispatch a Pool-adopter trigger)
-- AaveV4Helpers.sol
-- AaveV4HubAccountingAssertion.sol
-- AaveV4HubFlowRateCircuitBreaker.sol (quarantined: net-flow dispatch can miss directional reversals)
-- AaveV4Interfaces.sol
-- AaveV4OracleConsumptionAssertion.sol
-- AaveV4OracleConsumptionHelpers.sol
-- AaveV4SpokeRiskAssertion.sol
+- [AaveV3HorizonHelpers.sol](src/AaveV3HorizonHelpers.sol)
+- [AaveV3HorizonInterfaces.sol](src/AaveV3HorizonInterfaces.sol)
+- [AaveV3HorizonOracleAssertion.sol](src/AaveV3HorizonOracleAssertion.sol)
+- [AaveV3HorizonReserveBackingAssertion.sol](src/AaveV3HorizonReserveBackingAssertion.sol) (quarantined: token-only mutations do not dispatch a Pool-adopter trigger)
+- [AaveV4Helpers.sol](src/AaveV4Helpers.sol)
+- [AaveV4HubAccountingAssertion.sol](src/AaveV4HubAccountingAssertion.sol)
+- [AaveV4HubFlowRateCircuitBreaker.sol](src/AaveV4HubFlowRateCircuitBreaker.sol) (quarantined: net-flow dispatch can miss directional reversals)
+- [AaveV4Interfaces.sol](src/AaveV4Interfaces.sol)
+- [AaveV4OracleConsumptionAssertion.sol](src/AaveV4OracleConsumptionAssertion.sol)
+- [AaveV4OracleConsumptionHelpers.sol](src/AaveV4OracleConsumptionHelpers.sol)
+- [AaveV4SpokeRiskAssertion.sol](src/AaveV4SpokeRiskAssertion.sol)
 
 ## Aave v3 Horizon oracle guard
 

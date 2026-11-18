@@ -1,4 +1,4 @@
-# lighter examples
+# Lighter examples
 
 Runtime Credible Layer assertions for Lighter's L1 bridge / rollup contract (`ZkLighter`, the proxy
 at `0x3B4D794a66304F130a4Db8F2551B0070dfCf5ca7` on Ethereum mainnet).

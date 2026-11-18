@@ -1,4 +1,4 @@
-# cap examples
+# Cap examples
 
 Assertion examples and supporting helpers for the Cap protocol (cUSD / stcUSD).
 
@@ -9,10 +9,8 @@ FOUNDRY_PROFILE=cap forge build
 FOUNDRY_PROFILE=cap pcl test
 ```
 
-Requires `pcl` >= 1.4.0. These assertions register cumulative-flow triggers and use the
-`getLogsForCall` precompile; older builds fail during assertion setup with
-`Fn selector not found` / `Precompile selector not found` and execute 0 tests.
-Verified with `pcl` 1.4.0 (commit `a600e1d`).
+Use PCL 1.6.0, matching the [shared example checks](../README.md#setup-and-checks).
+The current tests verify quarantine behavior; they do not execute runtime assertions.
 
 ## Files
 

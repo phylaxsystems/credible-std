@@ -1,4 +1,4 @@
-# balancer examples
+# Balancer examples
 
 Assertion examples for Balancer V3's singleton Vault architecture.
 

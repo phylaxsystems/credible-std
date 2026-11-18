@@ -1,15 +1,16 @@
-# uniswap examples
+# Uniswap examples
 
-Assertion examples and supporting helpers extracted from the `0x` branch.
+Protocol-specific assertion examples and supporting helpers.
 
-## Build
+## Build and test
 
 ```sh
 FOUNDRY_PROFILE=uniswap forge build
+FOUNDRY_PROFILE=uniswap pcl test
 ```
 
 ## Files
 
-- UniswapV3PoolAssertion.sol
-- UniswapV3PoolHelpers.sol
-- UniswapV3PoolInterfaces.sol
+- [UniswapV3PoolAssertion.sol](src/UniswapV3PoolAssertion.sol)
+- [UniswapV3PoolHelpers.sol](src/UniswapV3PoolHelpers.sol)
+- [UniswapV3PoolInterfaces.sol](src/UniswapV3PoolInterfaces.sol)

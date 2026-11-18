@@ -1,19 +1,20 @@
-# safe examples
+# Safe examples
 
-Assertion examples and supporting helpers extracted from the `safe-protection-suite` branch.
+Protocol-specific assertion examples and supporting helpers.
 
-## Build
+## Build and test
 
 ```sh
 FOUNDRY_PROFILE=safe forge build
+FOUNDRY_PROFILE=safe pcl test
 ```
 
 ## Files
 
-- SafeConfigLockAssertion.sol
-- SafeConfigLockHelpers.sol
-- SafeTxShapeAssertion.sol
-- SafeTxShapeHelpers.sol
+- [SafeConfigLockAssertion.sol](src/SafeConfigLockAssertion.sol)
+- [SafeConfigLockHelpers.sol](src/SafeConfigLockHelpers.sol)
+- [SafeTxShapeAssertion.sol](src/SafeTxShapeAssertion.sol)
+- [SafeTxShapeHelpers.sol](src/SafeTxShapeHelpers.sol)
 
 `SafeTxShapeAssertion` expands configured CALL and DELEGATECALL batch executors, rejects packed
 zero-address targets, and disables signed gas refunds because refund-token and refund-recipient
