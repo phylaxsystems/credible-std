@@ -1,5 +1,7 @@
 # 0x Settler examples
 
+Run commands from the repository root after the [shared setup](../README.md#setup-and-checks).
+
 Protocol-specific assertion examples and supporting helpers.
 
 ## Build and test

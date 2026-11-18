@@ -19,7 +19,7 @@ the pinned dependencies:
 ```sh
 git submodule update --init --recursive
 
-# Format, build, and test every example (also used by CI; requires jq).
+# Check formatting, build, and test every example (also used by CI; requires jq).
 ./scripts/check_examples.sh
 
 # Check one profile, including evidence that its assertions executed.
@@ -44,8 +44,8 @@ instruction to deploy it.
 
 “Runtime” means the suite executes at least one assertion through PCL. It does
 not mean every contract or trigger in that folder is covered. “Quarantine/setup”
-means the current tests check disabled wrappers or construction, with no runtime
-assertion execution. “Build” means there is no dedicated test suite.
+means the current tests check disabled wrappers, construction, or pure helpers,
+with no runtime assertion execution. “Build” means there is no dedicated test suite.
 
 | Example / profile | Focus and limitations | Check |
 |---|---|---|
@@ -59,7 +59,7 @@ assertion execution. “Build” means there is no dedicated test suite.
 | [curve](curve/) | crvUSD, LlamaLend, LLAMMA, StableSwap-NG, and TriCrypto-NG | Runtime |
 | [denaria](denaria/) | Legacy Solidity reference; current Stylus deployment unsupported | Runtime |
 | [euler](euler/) | EVault user-storage accounting; full bundle and share-price wrapper quarantined | Runtime |
-| [fluid](fluid/) | Liquidity accounting, flow policy, fToken pricing, and vault configuration | Runtime |
+| [fluid](fluid/) | Persisted exchange-price monotonicity, flow policy, fToken pricing, and vault configuration | Runtime |
 | [kyber](kyber/) | Receiver min-return checks split by router version | Runtime |
 | [lido](lido/) | EasyTrack snapshot check; generic vault prototypes quarantined | Runtime |
 | [lighter](lighter/) | Quarantined bridge state-machine wrapper and outflow policy | Quarantine/setup |

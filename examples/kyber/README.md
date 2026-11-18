@@ -1,5 +1,7 @@
 # KyberSwap examples
 
+Run commands from the repository root after the [shared setup](../README.md#setup-and-checks).
+
 This example targets MetaAggregationRouterV2. Kyber uses the same router address across chains but
 has distinct verified runtime families, so the example exposes separate assertion artifacts:
 

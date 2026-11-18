@@ -1,6 +1,8 @@
 # Lighter examples
 
-Runtime Credible Layer assertions for Lighter's L1 bridge / rollup contract (`ZkLighter`, the proxy
+Run commands from the repository root after the [shared setup](../README.md#setup-and-checks).
+
+Credible Layer assertion prototypes for Lighter's L1 bridge / rollup contract (`ZkLighter`, the proxy
 at `0x3B4D794a66304F130a4Db8F2551B0070dfCf5ca7` on Ethereum mainnet).
 
 > **Unavailable:** the `LighterBridgeAssertion` wrapper is quarantined and registers no triggers.
@@ -18,13 +20,13 @@ point only guards its own local transition with `require`s; nothing asserts the 
 relationship as a postcondition, and the trusted validator set / upgradeable proxy can write the
 counters and state root directly — bypassing those local guards.
 
-## Invariants
+## Quarantined checks
 
 - **Batch & priority ordering** (`assertBatchOrdering`) — `executed <= verified <= committed` for
   both batches and priority requests, and the open queue covers every committed-but-unexecuted
   request. You cannot execute (pay out) funds against state that was never proven.
-- **Finality non-decrease** (`assertFinalityNonDecreasing`) — verified/executed counters never roll
-  back. Finalized funds cannot be un-finalized by a too-deep revert or a counter-rewinding upgrade.
+- **Finality non-decrease** (`assertFinalityNonDecreasing`) — executed counters never roll
+  back. Verified-but-unexecuted batches may be rolled back while remaining above the executed tip.
 - **State-root continuity** (`assertStateRootContinuity`) — the executed state root changes only when
   executed batches advanced, or via the proof-gated one-shot migration call. Any other root mutation
   is an operator silently rewriting account balances.
@@ -46,7 +48,8 @@ The funds-custody outflow rate limit is a separate, independently deployable ass
 - `src/LighterBridgeHelpers.sol` — fork-aware reads.
 - `src/LighterBridgeAssertion.sol` — state-machine + desert-mode bundle (trigger wiring + invariants).
 - `src/LighterOutflowCircuitBreaker.sol` — standalone rolling-window collateral outflow breaker.
-- `test/LighterBridgeAssertion.t.sol` — honest + malicious behavior per state-machine invariant.
+- `test/LighterBridgeAssertion.t.sol` — verifies that the wrapper registers no triggers;
+  the retained `retired*` behavior functions are not executed tests.
 - `test/LighterOutflowCircuitBreaker.t.sol` — breaker decision logic + constructor guards.
 
 ## Build & test
@@ -61,10 +64,8 @@ FOUNDRY_PROFILE=lighter pcl test
 - `IZkLighterLike` assumes each value is reachable through a same-named public getter. Verify the
   selectors/storage layout against the live deployment; if these are non-public variables, read the
   storage slots with `ph.loadStateAt` instead and adjust `LighterBridgeHelpers`.
-- `LighterOutflowCircuitBreaker` uses the `watchCumulativeOutflow` trigger, which is driven by the
-  executor's rolling-window accounting and is not fired by local `pcl test`. Its breach path therefore
-  cannot be armed via `cl.assertion` locally (the trigger never fires, so the harness would report
-  "0 executed"). The breaker's decision policy lives in the pure `_breakerTrips` function and is
-  unit-tested directly, alongside its constructor guards; the trigger-fired path is validated by the
-  executor in production. The four state-machine / desert-mode invariants have honest + malicious
-  `pcl test` coverage.
+- The current outflow tests exercise the pure `_breakerTrips` decision and constructor guards.
+  They do not arm the rolling-window trigger or verify its executor integration. Validate that
+  path separately before adoption; this repository does not establish production validation.
+- The bridge suite only verifies quarantine. The retained state-machine and desert-mode behavior
+  functions are named `retired*` and are not run by `pcl test`.

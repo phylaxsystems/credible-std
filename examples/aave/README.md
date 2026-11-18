@@ -1,10 +1,12 @@
 # Aave examples
 
+Run commands from the repository root after the [shared setup](../README.md#setup-and-checks).
+
 Protocol-specific assertion examples and supporting helpers.
 
 ## Availability
 
-The v4 Hub and Spoke wrappers are quarantined and register no triggers. Their fixed scan bounds
+The `AaveV4HubAccountingAssertion` and `AaveV4SpokeRiskAssertion` wrappers are quarantined and register no triggers. Their fixed scan bounds
 can become governance liveness limits even though upstream reserve/spoke creation has no matching
 cap. V3/v4 tolerance configuration rejects 10,000 bps because that value disables ratio checks.
 
@@ -55,7 +57,7 @@ oracle output through its direct `latestAnswer()` child, rejects routing and
 adapter write-and-restore sequences, validates complete reserve policy, and
 uses one bounded transaction-end scan for nested and multicall flows.
 
-`AaveV4EthereumMainSpokeOracleAssertion` pins the live Ethereum Main Spoke,
+`AaveV4EthereumMainSpokeOracleAssertion` pins the Ethereum Main Spoke snapshot,
 implementation, oracle, 14 reserves, direct sources, and 22 verified mutable
 source-graph slots at block 25,646,732.
 

@@ -85,7 +85,7 @@ forge install phylaxsystems/credible-std@0.8.1
 Or install from master (latest development version):
 
 ```bash
-forge install phylaxsystems/credible-std
+forge install phylaxsystems/credible-std@master
 ```
 
 Add the remapping to your `remappings.txt`:
@@ -107,7 +107,7 @@ The Phylax Credible Layer (PCL) is a security framework that enables real-time m
 | `PhEvm.sol` | Interface for the PhEvm precompile (state forking, logs, call inputs) |
 | `StateChanges.sol` | Type-safe utilities for tracking contract state changes |
 | `TriggerRecorder.sol` | Interface for registering assertion triggers |
-| `CredibleTest.sol` | Base contract for testing assertions with Forge |
+| `CredibleTest.sol` | Base contract for testing assertions with `pcl test` |
 | `CredibleTestWithBacktesting.sol` | Extended test contract with historical transaction backtesting |
 
 ## Features
@@ -115,73 +115,108 @@ The Phylax Credible Layer (PCL) is a security framework that enables real-time m
 - **Trigger System**: Register triggers for function calls, storage changes, and balance changes
 - **State Inspection**: Fork to pre/post transaction state, inspect logs, call inputs, and storage
 - **Type-Safe State Changes**: Built-in converters for uint256, address, bool, and bytes32 state changes
-- **Testing Framework**: Test assertions locally with Forge before deployment
+- **Testing Framework**: Test assertions locally with PCL before deployment
 - **Backtesting**: Validate assertions against historical blockchain transactions
 - **Internal Call Detection**: Automatically detect transactions that call your contract internally (not just direct calls)
 
 ## Quick Start
 
-### 1. Create an Assertion
+Install [Foundry](https://getfoundry.sh/) and
+[PCL 1.6.0](https://github.com/phylaxsystems/pcl/releases/tag/1.6.0), the version
+used by this repository's CI. In a Foundry project with `forge-std` and the
+`credible-std/` remapping above, create the following three files.
+
+This teaching policy rejects **every net ETH withdrawal**, including legitimate
+ones. It demonstrates snapshot reads and assertion testing; it is not a general
+vault-solvency policy.
+
+### 1. Create the demo target
+
+Save as `src/MyContract.sol`:
 
 ```solidity
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.20;
 
-import {Assertion} from "credible-std/Assertion.sol";
+contract MyContract {
+    function deposit() external payable {}
 
-contract MyAssertion is Assertion {
-    // Register when this assertion should run
-    function triggers() external view override {
-        // Run on any call to the adopter contract
-        registerCallTrigger(this.checkInvariant.selector);
-
-        // Or run only on specific function calls
-        // registerCallTrigger(this.checkInvariant.selector, ITarget.deposit.selector);
+    function balance() external view returns (uint256) {
+        return address(this).balance;
     }
 
-    // Implement your invariant check
-    function checkInvariant() external {
+    function withdraw(uint256 amount) external {
+        (bool ok,) = msg.sender.call{value: amount}("");
+        require(ok, "ETH transfer failed");
+    }
+}
+```
+
+The target intentionally has no access control or depositor accounting.
+
+### 2. Create an assertion
+
+Save as `src/MyAssertion.sol`:
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {Assertion} from "credible-std/Assertion.sol";
+import {AssertionSpec} from "credible-std/SpecRecorder.sol";
+import {MyContract} from "./MyContract.sol";
+
+contract MyAssertion is Assertion {
+    constructor() {
+        registerAssertionSpec(AssertionSpec.Reshiram);
+    }
+
+    function triggers() external view override {
+        registerTxEndTrigger(this.checkInvariant.selector);
+    }
+
+    function checkInvariant() external view {
         address target = ph.getAssertionAdopter();
-
-        ph.forkPreTx();
-        uint256 balanceBefore = target.balance;
-
-        ph.forkPostTx();
-        uint256 balanceAfter = target.balance;
-
+        bytes memory query = abi.encodeCall(MyContract.balance, ());
+        uint256 balanceBefore = _readUintAt(target, query, _preTx());
+        uint256 balanceAfter = _readUintAt(target, query, _postTx());
         require(balanceAfter >= balanceBefore, "Balance decreased unexpectedly");
     }
 }
 ```
 
-### 2. Test Your Assertion
+### 3. Test the assertion
+
+Save as `test/MyAssertion.t.sol`:
 
 ```solidity
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.20;
 
 import {CredibleTest} from "credible-std/CredibleTest.sol";
 import {Test} from "forge-std/Test.sol";
-import {MyAssertion} from "./MyAssertion.sol";
-import {MyContract} from "./MyContract.sol";
+import {MyAssertion} from "../src/MyAssertion.sol";
+import {MyContract} from "../src/MyContract.sol";
 
 contract TestMyAssertion is CredibleTest, Test {
     MyContract target;
 
     function setUp() public {
         target = new MyContract();
+        vm.deal(address(this), 2 ether);
+        vm.deal(address(target), 1 ether);
     }
 
+    receive() external payable {}
+
     function test_assertionPasses() public {
-        // Register the assertion
         cl.assertion({
             adopter: address(target),
             createData: type(MyAssertion).creationCode,
             fnSelector: MyAssertion.checkInvariant.selector
         });
-
-        // Execute a transaction - assertion runs automatically
         target.deposit{value: 1 ether}();
+        assertEq(address(target).balance, 2 ether);
     }
 
     function test_assertionFails() public {
@@ -190,22 +225,50 @@ contract TestMyAssertion is CredibleTest, Test {
             createData: type(MyAssertion).creationCode,
             fnSelector: MyAssertion.checkInvariant.selector
         });
-
-        // This should revert because the assertion fails
         vm.expectRevert("Balance decreased unexpectedly");
         target.withdraw(1 ether);
+        assertEq(address(target).balance, 1 ether);
     }
 }
 ```
 
-Run tests with:
+Run with `pcl test -vv`. `cl.assertion` arms the next external transaction; stock
+`forge test` does not implement this cheatcode. The failing-policy test also
+checks that the blocked withdrawal leaves the target's balance unchanged.
+
+## Developing this repository
+
+Run from the repository root after installing Foundry, PCL 1.6.0, and `jq`:
+
 ```bash
-pcl test
+git submodule update --init --recursive
+forge test --no-match-path 'test/{backtesting,protection}/**'
+RUST_MIN_STACK=16777216 FOUNDRY_PROFILE=ci pcl test --match-path 'test/protection/**'
+./scripts/check_examples.sh
 ```
+
+The [example guide](examples/README.md) explains each profile's coverage and
+quarantines. Backtests require FFI and a suitable RPC endpoint; see
+[Backtesting](#backtesting). For assertion gas reports, see the
+[gas collection guide](scripts/GAS_USAGE_README.md).
 
 ## PhEvm Cheatcodes
 
-Access these via the `ph` instance inherited from `Credible`:
+Access these via the `ph` instance inherited from `Credible`. Prefer explicit
+`ForkId` snapshots for new assertions: `Assertion` inherits `_preTx()`,
+`_postTx()`, `_preCall(id)`, `_postCall(id)`, and typed `_read*At` helpers from
+[`ForkUtils`](src/utils/ForkUtils.sol).
+
+| Current API | Description |
+|-------------|-------------|
+| `staticcallAt(target, data, gasLimit, fork)` | Read a contract at an explicit snapshot |
+| `loadStateAt(target, slot, fork)` | Read storage at an explicit snapshot |
+| `context()` | Read the matched function call's selector and call boundaries |
+| `getLogsQuery(query, fork)` | Filter logs within a snapshot scope |
+| `getErc20Transfers(token, fork)` | Inspect ERC-20 transfers within a snapshot scope |
+
+The following APIs remain available; `forkPreTx`, `forkPostTx`, `forkPreCall`,
+`forkPostCall`, and `load` are deprecated in favor of explicit snapshots:
 
 | Function | Description |
 |----------|-------------|
@@ -226,7 +289,13 @@ Access these via the `ph` instance inherited from `Credible`:
 
 ## Trigger Types
 
-Register triggers in your `triggers()` function:
+For Reshiram assertions (as in the quick start), use `registerTxEndTrigger` for
+transaction-wide checks or `registerFnCallTrigger(assertionSelector, targetSelector)`
+for per-call checks. The latter supplies `ph.context()` for call-scoped snapshots.
+ERC-20 changes and cumulative-flow policies have dedicated triggers; see
+[`Assertion.sol`](src/Assertion.sol).
+
+The legacy trigger API remains available in `triggers()`:
 
 ```solidity
 function triggers() external view override {
@@ -265,7 +334,9 @@ gas_limit = 100000000
 
 ### Block Range Backtesting
 
-Test all transactions in a block range:
+The following templates need a real target, transaction/block range, assertion,
+and archive-capable RPC URL. Discovery selects transactions touching the target;
+it may fall back to direct calls only when tracing is unavailable.
 
 ```solidity
 import {CredibleTestWithBacktesting} from "credible-std/CredibleTestWithBacktesting.sol";
@@ -279,15 +350,18 @@ contract MyBacktest is CredibleTestWithBacktesting {
                 endBlock: 1000000,                   // End block
                 blockRange: 100,                     // Number of blocks to test
                 assertionCreationCode: type(MyAssertion).creationCode,
-                assertionSelector: MyAssertion.check.selector,
+                assertionSelector: MyAssertion.checkInvariant.selector,
                 rpcUrl: "https://eth.llamarpc.com",
                 detailedBlocks: false,               // Verbose block output
                 forkByTxHash: true                   // Fork by tx hash for accurate state
             })
         );
 
-        // Check no assertions failed
+        // A zero-failure result alone can mean nothing was exercised.
+        assertGt(results.successfulValidations, 0, "No successful validations");
         assertEq(results.assertionFailures, 0, "Assertions failed on historical data");
+        assertEq(results.replayFailures, 0, "Replay failures");
+        assertEq(results.unknownErrors, 0, "Unknown errors");
     }
 }
 ```
@@ -305,11 +379,14 @@ contract MyBacktest is CredibleTestWithBacktesting {
             txHash,
             0x1234...,                              // Target contract
             type(MyAssertion).creationCode,
-            MyAssertion.check.selector,
+            MyAssertion.checkInvariant.selector,
             "https://eth.llamarpc.com"
         );
 
+        assertEq(results.successfulValidations, 1);
         assertEq(results.assertionFailures, 0);
+        assertEq(results.replayFailures, 0);
+        assertEq(results.unknownErrors, 0);
     }
 }
 ```
@@ -359,7 +436,7 @@ The backtesting framework provides detailed categorization:
 |--------|-------------|
 | **Success** | Transaction passed assertion validation |
 | **Skipped** | Transaction didn't trigger the assertion (selector mismatch) |
-| **Assertion Failed** | Real protocol violation detected |
+| **Assertion Failed** | Assertion policy rejected the transaction; investigate whether the policy models legitimate behavior correctly |
 | **Replay Failure** | Transaction reverted before assertion could run |
 | **Unknown Error** | Unexpected failure |
 
@@ -386,7 +463,7 @@ uint256[] memory fieldChanges = getStateChangesUint(target, structSlot, key, fie
 ## Resources
 
 - [Credible Layer Documentation](https://docs.phylax.systems/credible/credible-introduction)
-- [Writing Assertions Guide](https://docs.phylax.systems/credible/pcl-assertion-guide)
+- [Writing Assertions Guide](https://docs.phylax.systems/credible/write-first-assertion)
 - [Testing Assertions Guide](https://docs.phylax.systems/credible/testing-assertions)
 - [API Documentation](https://phylaxsystems.github.io/credible-std)
 

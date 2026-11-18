@@ -1,5 +1,7 @@
 # Denaria examples
 
+Run commands from the repository root after the [shared setup](../README.md#setup-and-checks).
+
 The included Solidity adapter targets Denaria's legacy `PerpPair` and `Vault` ABI. It is retained as
 reference code, but its assertion triggers are intentionally disabled: current production writes use
 the Stylus `PerpEngine` `*For` selectors and different insurance/event/accounting semantics.

@@ -1,5 +1,7 @@
 # Vault Demo
 
+Run commands from the repository root after the [shared setup](../README.md#setup-and-checks).
+
 This example contains intentionally vulnerable demo contracts for three assertion walkthroughs.
 
 - `VulnerableERC4626Vault`: normal ERC4626 `deposit`, `withdraw`, and `redeem`, but `mint` issues shares without collecting assets.

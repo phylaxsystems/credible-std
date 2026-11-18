@@ -1,5 +1,7 @@
 # Credible Assertion Patterns
 
+Run commands from the repository root after the [shared setup](../README.md#setup-and-checks).
+
 Small examples of seven recurring assertion policies using simplified protocol interfaces.
 These sketches explain mechanics; their assumptions must be adapted to the target protocol.
 

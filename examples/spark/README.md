@@ -1,5 +1,7 @@
 # Spark examples
 
+Run commands from the repository root after the [shared setup](../README.md#setup-and-checks).
+
 Protocol-specific assertion examples and supporting helpers.
 
 `SparkLendOraclePriceGuardAssertion` is unavailable and registers no triggers until collateral

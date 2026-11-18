@@ -1,5 +1,7 @@
 # Veda examples
 
+Run commands from the repository root after the [shared setup](../README.md#setup-and-checks).
+
 Protocol-specific assertion examples and supporting helpers.
 
 Every zero-asset-amount exit is treated as a share-only burn, regardless of the supplied asset

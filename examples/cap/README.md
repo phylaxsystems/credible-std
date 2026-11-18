@@ -1,5 +1,7 @@
 # Cap examples
 
+Run commands from the repository root after the [shared setup](../README.md#setup-and-checks).
+
 Assertion examples and supporting helpers for the Cap protocol (cUSD / stcUSD).
 
 ## Build & test

@@ -1,5 +1,7 @@
 # Symbiotic examples
 
+Run commands from the repository root after the [shared setup](../README.md#setup-and-checks).
+
 Protocol-specific assertion examples and supporting helpers.
 
 ## Build and test
@@ -8,6 +10,12 @@ Protocol-specific assertion examples and supporting helpers.
 FOUNDRY_PROFILE=symbiotic forge build
 FOUNDRY_PROFILE=symbiotic pcl test
 ```
+
+## Test coverage
+
+The current suite checks construction or quarantine only. Retained `retired*`
+functions are not executed tests, and a passing run does not demonstrate runtime
+assertion protection.
 
 ## Files
 

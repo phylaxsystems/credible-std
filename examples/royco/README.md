@@ -1,5 +1,7 @@
 # Royco examples
 
+Run commands from the repository root after the [shared setup](../README.md#setup-and-checks).
+
 Protocol-specific assertion examples and supporting helpers.
 
 The Kernel bundle is narrowed to v1.2-compatible NAV conservation, ordinary non-bypass coverage,
@@ -15,6 +17,12 @@ must still be version-bound before activation.
 FOUNDRY_PROFILE=royco forge build
 FOUNDRY_PROFILE=royco pcl test
 ```
+
+## Test coverage
+
+The current suite checks construction or quarantine only. Retained `retired*`
+functions are not executed tests, and a passing run does not demonstrate runtime
+assertion protection.
 
 ## Files
 

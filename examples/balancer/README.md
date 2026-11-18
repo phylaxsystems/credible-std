@@ -1,5 +1,7 @@
 # Balancer examples
 
+Run commands from the repository root after the [shared setup](../README.md#setup-and-checks).
+
 Assertion examples for Balancer V3's singleton Vault architecture.
 
 ## Build

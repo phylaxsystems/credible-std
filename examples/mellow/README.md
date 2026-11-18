@@ -1,5 +1,7 @@
 # Mellow examples
 
+Run commands from the repository root after the [shared setup](../README.md#setup-and-checks).
+
 These examples target Mellow `flexible-vaults` and are version-specific.
 
 ```sh

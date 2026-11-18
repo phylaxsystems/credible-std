@@ -1,5 +1,7 @@
 # Tydro examples
 
+Run commands from the repository root after the [shared setup](../README.md#setup-and-checks).
+
 Assertion examples for the Tydro deployment on Ink.
 
 The adapter is pinned to the explorer-verified revision-11 L2 Pool at
