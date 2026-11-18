@@ -7,7 +7,8 @@ profiles=()
 for directory in examples/*/; do
   profile="${directory#examples/}"
   profile="${profile%/}"
-  profiles+=("${profile//_/-}")
+  [[ "$profile" != vault_demo ]] || profile=vault-demo
+  profiles+=("$profile")
 done
 
 if [[ "${1:-}" == --matrix ]]; then
@@ -33,17 +34,20 @@ for profile in "${profiles[@]}"; do
   directory="examples/${profile}"
   [[ "$profile" != vault-demo ]] || directory=examples/vault_demo
   # A misspelled/missing profile must not silently fall back to the root suite.
-  forge config --json | jq -e --arg directory "$directory" \
-    '.src | startswith($directory + "/")' >/dev/null
+  if ! forge config --json | jq -e --arg directory "$directory" \
+    '(.src | startswith($directory + "/")) and (.test == $directory + "/test")' >/dev/null; then
+    echo "${profile}: expected src under ${directory}/ and test at ${directory}/test" >&2
+    exit 1
+  fi
   # Format tracked sources only; the Aave staging project links back to this repo.
   git ls-files -z -- "$directory/*.sol" | xargs -0 forge fmt --check
   if [[ "$profile" == assertions-book ]]; then
     # Docs snippets currently have no test suite; compile them explicitly.
-    if compgen -G "$directory/test/*.t.sol" > /dev/null; then
+    if [[ -d "$directory/test" ]] && [[ -n "$(find "$directory/test" -type f -name '*.t.sol' -print -quit)" ]]; then
       echo "${profile} now has tests; remove its build-only classification" >&2
       exit 1
     fi
-    forge build
+    forge build "$directory/assertions/src" "$directory/src"
     continue
   fi
   if ! pcl test -vv --junit > "$report"; then

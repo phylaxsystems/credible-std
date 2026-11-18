@@ -255,9 +255,9 @@ quarantines. Backtests require FFI and a suitable RPC endpoint; see
 ## PhEvm Cheatcodes
 
 Access these via the `ph` instance inherited from `Credible`. Prefer explicit
-`ForkId` snapshots for new assertions: `Assertion` inherits `_preTx()`,
-`_postTx()`, `_preCall(id)`, `_postCall(id)`, and typed `_read*At` helpers from
-[`ForkUtils`](src/utils/ForkUtils.sol).
+`ForkId` snapshots for new assertions: [`Assertion`](src/Assertion.sol) defines
+`_preTx()`, `_postTx()`, `_preCall(id)`, and `_postCall(id)` directly and inherits
+typed `_read*At` helpers from [`ForkUtils`](src/utils/ForkUtils.sol).
 
 | Current API | Description |
 |-------------|-------------|

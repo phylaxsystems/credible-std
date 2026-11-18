@@ -15,7 +15,15 @@ contract ParticipantOracleMock is IParticipantOracle {
 
 /// @dev Minimal call surface: screening is independent of balances and token authorization.
 contract SensitiveTokenMock {
-    function transfer(address, uint256) external returns (bool) {
+    ParticipantOracleMock internal oracleToUpdate;
+
+    /// @dev Configure an oracle mutation inside the next transfer for snapshot tests.
+    function blockRecipientOnTransfer(ParticipantOracleMock oracle) external {
+        oracleToUpdate = oracle;
+    }
+
+    function transfer(address recipient, uint256) external returns (bool) {
+        if (address(oracleToUpdate) != address(0)) oracleToUpdate.blockAccount(recipient);
         return true;
     }
 
@@ -26,6 +34,13 @@ contract SensitiveTokenMock {
     function mint(address, uint256) external {}
 
     function burn(address, uint256) external {}
+}
+
+contract TokenForwarder {
+    /// @dev Keep the immediate caller distinct from the transaction sender.
+    function transfer(SensitiveTokenMock token, address recipient) external returns (bool) {
+        return token.transfer(recipient, 1);
+    }
 }
 
 contract ParticipantGateTest is Test, CredibleTest {
@@ -51,6 +66,14 @@ contract ParticipantGateTest is Test, CredibleTest {
     function testAllowedTransferPasses() public {
         _arm();
         assertTrue(token.transfer(allowed, 1));
+    }
+
+    function testRecipientAllowedAtEntryPassesDespiteBeingBlockedDuringTransfer() public {
+        token.blockRecipientOnTransfer(oracle);
+        assertFalse(oracle.isBlocked(allowed));
+        _arm();
+        assertTrue(token.transfer(allowed, 1));
+        assertTrue(oracle.isBlocked(allowed));
     }
 
     function testBlockedTransferRecipientReverts() public {
@@ -94,6 +117,16 @@ contract ParticipantGateTest is Test, CredibleTest {
         _arm();
         vm.expectRevert("blocked participant");
         token.transfer(allowed, 1);
+    }
+
+    function testBlockedForwarderRevertsWithAllowedSenderAndRecipient() public {
+        TokenForwarder forwarder = new TokenForwarder();
+        oracle.blockAccount(address(forwarder));
+        assertFalse(oracle.isBlocked(address(this)));
+        assertFalse(oracle.isBlocked(allowed));
+        _arm();
+        vm.expectRevert("blocked participant");
+        forwarder.transfer(token, allowed);
     }
 
     function testFuzzBlockedRecipientReverts(address recipient) public {

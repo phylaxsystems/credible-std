@@ -67,6 +67,8 @@ jobs:
       matrix: ${{ steps.profiles.outputs.matrix }}
     steps:
       - uses: actions/checkout@v6
+      - name: Test example check guards
+        run: bash scripts/test_check_examples.sh
       - id: profiles
         run: echo "matrix=$(./scripts/check_examples.sh --matrix)" >> "$GITHUB_OUTPUT"
 
