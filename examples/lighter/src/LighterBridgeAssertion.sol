@@ -72,7 +72,9 @@ contract LighterBridgeAssertion is LighterBridgeHelpers {
                 post.executedPriorityRequests == pre.executedPriorityRequests,
                 "LighterBridge: executed priority changed on activation"
             );
-            require(post.openPriorityRequests == pre.openPriorityRequests, "LighterBridge: open queue changed on activation");
+            require(
+                post.openPriorityRequests == pre.openPriorityRequests, "LighterBridge: open queue changed on activation"
+            );
             require(post.stateRoot == pre.stateRoot, "LighterBridge: state root changed on activation");
             return;
         }

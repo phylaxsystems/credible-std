@@ -52,8 +52,7 @@ contract LighterOutflowCircuitBreaker is Assertion {
         require(collateral_ != address(0), "LighterBreaker: collateral zero");
         require(outflowThresholdBps_ != 0 && outflowThresholdBps_ < 10_000, "LighterBreaker: invalid threshold");
         require(
-            outflowWindowDuration_ >= 10 && outflowWindowDuration_ <= type(uint64).max,
-            "LighterBreaker: invalid window"
+            outflowWindowDuration_ >= 10 && outflowWindowDuration_ <= type(uint64).max, "LighterBreaker: invalid window"
         );
 
         BRIDGE = bridge_;

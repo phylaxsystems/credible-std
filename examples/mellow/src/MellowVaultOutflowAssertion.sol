@@ -51,8 +51,7 @@ contract MellowVaultOutflowAssertion is Assertion {
         require(asset_ != address(0), "MellowOutflow: zero asset");
         require(outflowThresholdBps_ != 0 && outflowThresholdBps_ < 10_000, "MellowOutflow: bad threshold");
         require(
-            outflowWindowDuration_ >= 10 && outflowWindowDuration_ <= type(uint64).max,
-            "MellowOutflow: invalid window"
+            outflowWindowDuration_ >= 10 && outflowWindowDuration_ <= type(uint64).max, "MellowOutflow: invalid window"
         );
 
         vault = vault_;

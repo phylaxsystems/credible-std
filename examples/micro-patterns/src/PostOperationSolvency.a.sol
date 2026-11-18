@@ -45,7 +45,8 @@ contract PostOperationSolvencyAssertion is Assertion {
     function assertLiquidationImprovesHealth() external view {
         address protocol = ph.getAssertionAdopter();
         PhEvm.TriggerContext memory ctx = ph.context();
-        (uint256 marketId, address account) = abi.decode(_stripSelector(ph.callinputAt(ctx.callStart)), (uint256, address));
+        (uint256 marketId, address account) =
+            abi.decode(_stripSelector(ph.callinputAt(ctx.callStart)), (uint256, address));
 
         uint256 preHealth = _healthAt(protocol, account, marketId, _preCall(ctx.callStart));
         uint256 postHealth = _healthAt(protocol, account, marketId, _postCall(ctx.callEnd));
@@ -76,6 +77,8 @@ contract PostOperationSolvencyAssertion is Assertion {
     function _stripSelector(bytes memory input) private pure returns (bytes memory args) {
         require(input.length >= 4, "input too short");
         args = new bytes(input.length - 4);
-        for (uint256 i; i < args.length; ++i) args[i] = input[i + 4];
+        for (uint256 i; i < args.length; ++i) {
+            args[i] = input[i + 4];
+        }
     }
 }

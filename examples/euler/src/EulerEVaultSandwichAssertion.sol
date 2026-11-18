@@ -63,9 +63,8 @@ contract EulerERC4626CallSandwichAssertion is EulerEVaultSandwichBase {
             (uint256 shares, address receiver) = abi.decode(_stripSelector(input), (uint256, address));
             PhEvm.ForkId memory pre = _preCall(ctx.callStart);
             PhEvm.ForkId memory post = _postCall(ctx.callEnd);
-            uint256 expectedAssets = _readUintAt(
-                vault, abi.encodeCall(IEulerEVaultSandwichLike.previewMint, (shares)), pre
-            );
+            uint256 expectedAssets =
+                _readUintAt(vault, abi.encodeCall(IEulerEVaultSandwichLike.previewMint, (shares)), pre);
             require(actualReturn == expectedAssets, "EulerEVault: mint return != pre-call preview");
 
             // mint must report returned assets and requested shares.
@@ -81,9 +80,8 @@ contract EulerERC4626CallSandwichAssertion is EulerEVaultSandwichBase {
                 abi.decode(_stripSelector(input), (uint256, address, address));
             PhEvm.ForkId memory pre = _preCall(ctx.callStart);
             PhEvm.ForkId memory post = _postCall(ctx.callEnd);
-            uint256 expectedShares = _readUintAt(
-                vault, abi.encodeCall(IEulerEVaultSandwichLike.previewWithdraw, (assets)), pre
-            );
+            uint256 expectedShares =
+                _readUintAt(vault, abi.encodeCall(IEulerEVaultSandwichLike.previewWithdraw, (assets)), pre);
             require(actualReturn == expectedShares, "EulerEVault: withdraw return != pre-call preview");
 
             // Same-call Withdraw event must report requested assets and returned burned shares.

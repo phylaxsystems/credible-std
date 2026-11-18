@@ -125,8 +125,7 @@ contract CapOFTLockboxBackingAssertion is Assertion {
     ///      `sendTo` (bytes32) at [0, 32) followed by `amountSD` (uint64, shared decimals) at
     ///      [32, 40). A message too short to carry an amount authorizes nothing.
     function _messageAmount(bytes memory input) internal view returns (uint256) {
-        (,, bytes memory message,,) =
-            abi.decode(input, (ILayerZeroReceiverLike.Origin, bytes32, bytes, address, bytes));
+        (,, bytes memory message,,) = abi.decode(input, (ILayerZeroReceiverLike.Origin, bytes32, bytes, address, bytes));
         if (message.length < 40) return 0;
 
         uint64 amountSD;

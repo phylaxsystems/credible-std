@@ -35,8 +35,7 @@ abstract contract RoycoKernelCumulativeOutflowAssertion is RoycoKernelHelpers {
     constructor(uint256 thresholdBps_, uint256 windowDuration_) {
         require(thresholdBps_ != 0 && thresholdBps_ < 10_000, "Royco: invalid outflow threshold");
         require(
-            windowDuration_ >= MIN_FLOW_WINDOW && windowDuration_ <= type(uint64).max,
-            "Royco: invalid outflow window"
+            windowDuration_ >= MIN_FLOW_WINDOW && windowDuration_ <= type(uint64).max, "Royco: invalid outflow window"
         );
         outflowThresholdBps = thresholdBps_;
         outflowWindowDuration = windowDuration_;

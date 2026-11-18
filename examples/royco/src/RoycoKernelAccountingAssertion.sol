@@ -88,5 +88,4 @@ abstract contract RoycoKernelAccountingAssertion is RoycoKernelHelpers {
         require(actualBonusNAV <= maxBonusNAV, "Royco: self-liquidation bonus exceeds neutral bound");
         require(postState.utilizationWAD <= preState.utilizationWAD, "Royco: self-liquidation increased utilization");
     }
-
 }

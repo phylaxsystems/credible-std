@@ -95,7 +95,9 @@ contract NadoClearinghouseAssertionTest is Test, CredibleTest {
                 1 days
             )
         );
-        cl.assertion(address(clearinghouse), createData, NadoClearinghouseAssertion.assertDepositCreditsSpotBalance.selector);
+        cl.assertion(
+            address(clearinghouse), createData, NadoClearinghouseAssertion.assertDepositCreditsSpotBalance.selector
+        );
     }
 
     function _deposit(uint128 amount) internal {

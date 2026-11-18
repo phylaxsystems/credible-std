@@ -294,364 +294,349 @@ contract ResearchPool is IAaveV3LikePool {
     }
 }
 
-    contract ResearchBundle {
-        function priceThenBorrow(
-            ResearchPriceSource source,
-            int256 answer,
-            ResearchPool pool,
-            address asset,
-            address user
-        ) external {
-            source.setAnswer(answer);
-            pool.borrow(asset, 1, 2, 0, user);
-        }
-
-        function priceBorrowRestore(
-            ResearchPriceSource source,
-            int256 temporaryAnswer,
-            int256 restoredAnswer,
-            ResearchPool pool,
-            address asset,
-            address user
-        ) external {
-            source.setAnswer(temporaryAnswer);
-            pool.borrow(asset, 1, 2, 0, user);
-            source.setAnswer(restoredAnswer);
-        }
-
-        function sourceBorrowRestore(
-            ResearchOracle oracle,
-            address oracleAsset,
-            address temporarySource,
-            address restoredSource,
-            ResearchPool pool,
-            address borrowAsset,
-            address user
-        ) external {
-            _setSource(oracle, oracleAsset, temporarySource);
-            pool.borrow(borrowAsset, 1, 2, 0, user);
-            _setSource(oracle, oracleAsset, restoredSource);
-        }
-
-        function providerThenBorrow(
-            ResearchAddressesProvider provider,
-            address newOracle,
-            ResearchPool pool,
-            address borrowAsset,
-            address user
-        ) external {
-            provider.setPriceOracle(newOracle);
-            pool.borrow(borrowAsset, 1, 2, 0, user);
-        }
-
-        function providerBorrowRestore(
-            ResearchAddressesProvider provider,
-            address temporaryOracle,
-            address restoredOracle,
-            ResearchPool pool,
-            address borrowAsset,
-            address user
-        ) external {
-            provider.setPriceOracle(temporaryOracle);
-            pool.borrow(borrowAsset, 1, 2, 0, user);
-            provider.setPriceOracle(restoredOracle);
-        }
-
-        function seizeThenPoolCall(
-            ResearchAccountingToken underlying,
-            address aToken,
-            address recipient,
-            uint256 amount,
-            ResearchPool pool,
-            address borrowAsset,
-            address user
-        ) external {
-            underlying.seize(aToken, recipient, amount);
-            pool.borrow(borrowAsset, 1, 2, 0, user);
-        }
-
-        function seizePoolCallRestore(
-            ResearchAccountingToken underlying,
-            address aToken,
-            address recipient,
-            uint256 amount,
-            ResearchPool pool,
-            address borrowAsset,
-            address user
-        ) external {
-            underlying.seize(aToken, recipient, amount);
-            pool.borrow(borrowAsset, 1, 2, 0, user);
-            underlying.seize(recipient, aToken, amount);
-        }
-
-        function twoBorrows(ResearchPool pool, address asset, address user) external {
-            pool.borrow(asset, 1, 2, 0, user);
-            pool.borrow(asset, 1, 2, 0, user);
-        }
-
-        function successfulThenFailedBorrow(ResearchPool pool, address asset, address user) external {
-            pool.borrow(asset, 1, 2, 0, user);
-            (bool ok,) = address(pool).call(abi.encodeCall(ResearchPool.borrow, (asset, 0, 2, 0, user)));
-            require(!ok, "borrow unexpectedly succeeded");
-        }
-
-        function _setSource(ResearchOracle oracle, address asset, address source) internal {
-            address[] memory assets = new address[](1);
-            assets[0] = asset;
-            address[] memory sources = new address[](1);
-            sources[0] = source;
-            oracle.setAssetSources(assets, sources);
-        }
+contract ResearchBundle {
+    function priceThenBorrow(ResearchPriceSource source, int256 answer, ResearchPool pool, address asset, address user)
+        external
+    {
+        source.setAnswer(answer);
+        pool.borrow(asset, 1, 2, 0, user);
     }
 
-    /// @notice Research-only trace probe. A successful Pool call selects TxEnd; the probe then checks
-    ///         whether getAllCallInputs also returns a caught, reverted call with the same selector.
-    contract SuccessfulCallTraceAssertion is AaveV3HorizonHelpers {
-        address internal immutable POOL;
-
-        constructor(address pool_) {
-            POOL = pool_;
-        }
-
-        function triggers() external view override {
-            registerTxEndTrigger(this.assertOnlySuccessfulBorrowSeen.selector);
-        }
-
-        function assertOnlySuccessfulBorrowSeen() external view {
-            require(
-                ph.getAllCallInputs(POOL, IAaveV3LikePool.borrow.selector).length == 1,
-                "research: reverted call included"
-            );
-        }
+    function priceBorrowRestore(
+        ResearchPriceSource source,
+        int256 temporaryAnswer,
+        int256 restoredAnswer,
+        ResearchPool pool,
+        address asset,
+        address user
+    ) external {
+        source.setAnswer(temporaryAnswer);
+        pool.borrow(asset, 1, 2, 0, user);
+        source.setAnswer(restoredAnswer);
     }
 
-    /// @dev Test-only harness arms the quarantined backing logic so its accounting remains covered.
-    contract ArmedReserveBackingAssertion is AaveV3HorizonReserveBackingAssertion {
-        constructor(address pool_, address[] memory assets_, uint256 deficit_)
-            AaveV3HorizonReserveBackingAssertion(pool_, assets_, deficit_)
-        {}
-
-        function triggers() external view override {
-            registerTxEndTrigger(this.assertReserveBacking.selector);
-        }
+    function sourceBorrowRestore(
+        ResearchOracle oracle,
+        address oracleAsset,
+        address temporarySource,
+        address restoredSource,
+        ResearchPool pool,
+        address borrowAsset,
+        address user
+    ) external {
+        _setSource(oracle, oracleAsset, temporarySource);
+        pool.borrow(borrowAsset, 1, 2, 0, user);
+        _setSource(oracle, oracleAsset, restoredSource);
     }
 
-    contract AaveV3AdversarialResearchTest is Test, CredibleTest {
-        uint256 internal constant MAX_RESERVES = 8;
-        uint256 internal constant ORACLE_TOLERANCE_BPS = 100;
-        int256 internal constant PRICE = 100_00000000;
-
-        address internal alice = makeAddr("alice");
-        address internal recipient = makeAddr("recipient");
-
-        ResearchAccountingToken internal debtAsset;
-        ResearchAccountingToken internal collateralAsset;
-        ResearchAccountingToken internal debtAToken;
-        ResearchAccountingToken internal collateralAToken;
-        ResearchAccountingToken internal variableDebtToken;
-        ResearchFallbackOracle internal fallbackOracle;
-        ResearchOracle internal oracle;
-        ResearchOracle internal secondOracle;
-        ResearchAddressesProvider internal provider;
-        ResearchPriceSource internal debtSource;
-        ResearchPriceSource internal collateralSource;
-        ResearchPriceSource internal temporarySource;
-        ResearchPool internal pool;
-        ResearchBundle internal bundle;
-
-        function setUp() public {
-            debtAsset = new ResearchAccountingToken(18);
-            collateralAsset = new ResearchAccountingToken(18);
-            debtAToken = new ResearchAccountingToken(18);
-            collateralAToken = new ResearchAccountingToken(18);
-            variableDebtToken = new ResearchAccountingToken(18);
-            fallbackOracle = new ResearchFallbackOracle();
-            oracle = new ResearchOracle(address(fallbackOracle));
-            secondOracle = new ResearchOracle(address(fallbackOracle));
-            provider = new ResearchAddressesProvider(address(oracle));
-            debtSource = new ResearchPriceSource(PRICE);
-            collateralSource = new ResearchPriceSource(PRICE);
-            temporarySource = new ResearchPriceSource(2 * PRICE);
-            pool = new ResearchPool(address(provider));
-            bundle = new ResearchBundle();
-
-            _setSources(oracle, address(debtSource), address(collateralSource));
-            _setSources(secondOracle, address(debtSource), address(collateralSource));
-            pool.setReserve(address(debtAsset), 0, address(debtAToken), address(variableDebtToken));
-            pool.setReserve(address(collateralAsset), 1, address(collateralAToken), address(0));
-            pool.setUserConfig(alice, (1 << 0) | (1 << 3));
-            pool.setAccount(alice, 200 ether, 100 ether, 2 ether);
-
-            debtAToken.mint(alice, 1_000 ether);
-            debtAsset.mint(address(debtAToken), 600 ether);
-            variableDebtToken.mint(alice, 400 ether);
-            collateralAToken.mint(alice, 1_000 ether);
-            collateralAsset.mint(address(collateralAToken), 1_000 ether);
-        }
-
-        function testBackingHonestPoolTransactionPasses() public {
-            _armBacking();
-            pool.borrow(address(debtAsset), 1, 2, 0, alice);
-        }
-
-        function testBackingSameSeizureTripsWhenTransactionAlsoTouchesPool() public {
-            _armBacking();
-            vm.expectRevert(bytes("AaveV3Horizon: reserve backing deficit"));
-            bundle.seizeThenPoolCall(
-                collateralAsset, address(collateralAToken), recipient, 1 ether, pool, address(debtAsset), alice
-            );
-        }
-
-        function testBackingIncludesAccruedTreasuryLiability() public {
-            pool.setAccruedToTreasury(address(collateralAsset), uint128(10 ether));
-
-            _armBacking();
-            vm.expectRevert(bytes("AaveV3Horizon: reserve backing deficit"));
-            pool.borrow(address(debtAsset), 1, 2, 0, alice);
-        }
-
-        function testBackingUsesCurrentNormalizedIncomeWhenStoredIndexIsStale() public {
-            collateralAsset.mint(address(collateralAToken), 15 ether);
-            pool.setAccruedToTreasury(address(collateralAsset), uint128(10 ether));
-            pool.setReserveNormalizedIncome(address(collateralAsset), 2e27);
-
-            _armBacking();
-            vm.expectRevert(bytes("AaveV3Horizon: reserve backing deficit"));
-            pool.borrow(address(debtAsset), 1, 2, 0, alice);
-        }
-
-        function testBackingDeficitHasCorrectPositiveSign() public {
-            collateralAsset.seize(address(collateralAToken), recipient, 10 ether);
-            pool.setReserveDeficit(address(collateralAsset), 10 ether);
-
-            _armBacking();
-            pool.borrow(address(debtAsset), 1, 2, 0, alice);
-        }
-
-        /// @dev PostTx-only backing accepts a temporary transaction-intermediate custody shortfall.
-        function testBackingTemporarySeizureRestoredBeforeTxEndPasses() public {
-            _armBacking();
-            bundle.seizePoolCallRestore(
-                collateralAsset, address(collateralAToken), recipient, 1 ether, pool, address(debtAsset), alice
-            );
-        }
-
-        function testOracleStableBorrowPasses() public {
-            _armOracle();
-            pool.borrow(address(debtAsset), 1, 2, 0, alice);
-        }
-
-        function testOracleMultipleStableCallsPass() public {
-            _armOracle();
-            bundle.twoBorrows(pool, address(debtAsset), alice);
-        }
-
-        function testOraclePersistentPriceMutationTrips() public {
-            _armOracle();
-            vm.expectRevert(bytes("AaveV3Horizon: consumed oracle price deviated"));
-            bundle.priceThenBorrow(collateralSource, 2 * PRICE, pool, address(debtAsset), alice);
-        }
-
-        function testOracleTemporaryPriceManipulationAndRestoreTrips() public {
-            _armOracle();
-            vm.expectRevert(bytes("AaveV3Horizon: consumed oracle price deviated"));
-            bundle.priceBorrowRestore(collateralSource, 2 * PRICE, PRICE, pool, address(debtAsset), alice);
-        }
-
-        function testOracleTemporarySourceSwapAndRestoreTrips() public {
-            _armOracle();
-            vm.expectRevert(bytes("AaveV3Horizon: reserve oracle source changed during transaction"));
-            bundle.sourceBorrowRestore(
-                oracle,
-                address(collateralAsset),
-                address(temporarySource),
-                address(collateralSource),
-                pool,
-                address(debtAsset),
-                alice
-            );
-        }
-
-        function testOraclePermanentProviderSwitchToExistingOracleTrips() public {
-            _armOracle();
-            vm.expectRevert(bytes("AaveV3Horizon: provider oracle changed during transaction"));
-            bundle.providerThenBorrow(provider, address(secondOracle), pool, address(debtAsset), alice);
-        }
-
-        function testOracleTemporaryProviderSwitchAndRestoreTrips() public {
-            _armOracle();
-            vm.expectRevert(bytes("AaveV3Horizon: Pool consumed a different oracle"));
-            bundle.providerBorrowRestore(
-                provider, address(secondOracle), address(oracle), pool, address(debtAsset), alice
-            );
-        }
-
-        /// @dev This models a normal feed update bundled by an automation/governance transaction.
-        function testOracleLegitimateLargePriceUpdateBundledWithBorrowTrips() public {
-            _armOracle();
-            vm.expectRevert(bytes("AaveV3Horizon: consumed oracle price deviated"));
-            bundle.priceThenBorrow(collateralSource, 102_00000000, pool, address(debtAsset), alice);
-        }
-
-        function testGetAllCallInputsExcludesCaughtRevertedBorrow() public {
-            bytes memory createData =
-                abi.encodePacked(type(SuccessfulCallTraceAssertion).creationCode, abi.encode(address(pool)));
-            cl.assertion(
-                address(pool), createData, SuccessfulCallTraceAssertion.assertOnlySuccessfulBorrowSeen.selector
-            );
-
-            bundle.successfulThenFailedBorrow(pool, address(debtAsset), alice);
-        }
-
-        /// @dev The production wrapper creates its suite in constructor initcode. The assertion runtime
-        ///      currently cannot call that child contract when registering monitored selectors.
-        function testProductionOperationSafetyBundleChildSuiteIsUnavailable() public {
-            bytes memory createData = abi.encodePacked(
-                type(AaveV3HorizonOperationSafetyAssertion).creationCode, abi.encode(address(pool), address(provider))
-            );
-            cl.assertion(address(pool), createData, LendingBaseAssertion.assertOperationSafety.selector);
-
-            vm.expectRevert();
-            pool.borrow(address(debtAsset), 1, 2, 0, alice);
-        }
-
-        function _armBacking() internal {
-            bytes memory createData = abi.encodePacked(
-                type(ArmedReserveBackingAssertion).creationCode, abi.encode(address(pool), _assets(), 0)
-            );
-            cl.assertion(address(pool), createData, AaveV3HorizonReserveBackingAssertion.assertReserveBacking.selector);
-        }
-
-        function _armOracle() internal {
-            AaveV3HorizonOracleAssertion.AssetPolicy[] memory policies = new AaveV3HorizonOracleAssertion
-                .AssetPolicy[](2);
-            policies[0] =
-                AaveV3HorizonOracleAssertion.AssetPolicy({
-                asset: address(debtAsset), deviationBps: ORACLE_TOLERANCE_BPS
-            });
-            policies[1] = AaveV3HorizonOracleAssertion.AssetPolicy({
-                asset: address(collateralAsset), deviationBps: ORACLE_TOLERANCE_BPS
-            });
-            bytes memory createData = abi.encodePacked(
-                type(AaveV3HorizonOracleAssertion).creationCode,
-                abi.encode(address(pool), address(provider), MAX_RESERVES, policies)
-            );
-            cl.assertion(
-                address(pool), createData, AaveV3HorizonOracleAssertion.assertConsumedOraclePricesSafe.selector
-            );
-        }
-
-        function _assets() internal view returns (address[] memory assets) {
-            assets = new address[](2);
-            assets[0] = address(debtAsset);
-            assets[1] = address(collateralAsset);
-        }
-
-        function _setSources(ResearchOracle targetOracle, address debtSource_, address collateralSource_) internal {
-            address[] memory assets = _assets();
-            address[] memory sources = new address[](2);
-            sources[0] = debtSource_;
-            sources[1] = collateralSource_;
-            targetOracle.setAssetSources(assets, sources);
-        }
+    function providerThenBorrow(
+        ResearchAddressesProvider provider,
+        address newOracle,
+        ResearchPool pool,
+        address borrowAsset,
+        address user
+    ) external {
+        provider.setPriceOracle(newOracle);
+        pool.borrow(borrowAsset, 1, 2, 0, user);
     }
+
+    function providerBorrowRestore(
+        ResearchAddressesProvider provider,
+        address temporaryOracle,
+        address restoredOracle,
+        ResearchPool pool,
+        address borrowAsset,
+        address user
+    ) external {
+        provider.setPriceOracle(temporaryOracle);
+        pool.borrow(borrowAsset, 1, 2, 0, user);
+        provider.setPriceOracle(restoredOracle);
+    }
+
+    function seizeThenPoolCall(
+        ResearchAccountingToken underlying,
+        address aToken,
+        address recipient,
+        uint256 amount,
+        ResearchPool pool,
+        address borrowAsset,
+        address user
+    ) external {
+        underlying.seize(aToken, recipient, amount);
+        pool.borrow(borrowAsset, 1, 2, 0, user);
+    }
+
+    function seizePoolCallRestore(
+        ResearchAccountingToken underlying,
+        address aToken,
+        address recipient,
+        uint256 amount,
+        ResearchPool pool,
+        address borrowAsset,
+        address user
+    ) external {
+        underlying.seize(aToken, recipient, amount);
+        pool.borrow(borrowAsset, 1, 2, 0, user);
+        underlying.seize(recipient, aToken, amount);
+    }
+
+    function twoBorrows(ResearchPool pool, address asset, address user) external {
+        pool.borrow(asset, 1, 2, 0, user);
+        pool.borrow(asset, 1, 2, 0, user);
+    }
+
+    function successfulThenFailedBorrow(ResearchPool pool, address asset, address user) external {
+        pool.borrow(asset, 1, 2, 0, user);
+        (bool ok,) = address(pool).call(abi.encodeCall(ResearchPool.borrow, (asset, 0, 2, 0, user)));
+        require(!ok, "borrow unexpectedly succeeded");
+    }
+
+    function _setSource(ResearchOracle oracle, address asset, address source) internal {
+        address[] memory assets = new address[](1);
+        assets[0] = asset;
+        address[] memory sources = new address[](1);
+        sources[0] = source;
+        oracle.setAssetSources(assets, sources);
+    }
+}
+
+/// @notice Research-only trace probe. A successful Pool call selects TxEnd; the probe then checks
+///         whether getAllCallInputs also returns a caught, reverted call with the same selector.
+contract SuccessfulCallTraceAssertion is AaveV3HorizonHelpers {
+    address internal immutable POOL;
+
+    constructor(address pool_) {
+        POOL = pool_;
+    }
+
+    function triggers() external view override {
+        registerTxEndTrigger(this.assertOnlySuccessfulBorrowSeen.selector);
+    }
+
+    function assertOnlySuccessfulBorrowSeen() external view {
+        require(
+            ph.getAllCallInputs(POOL, IAaveV3LikePool.borrow.selector).length == 1, "research: reverted call included"
+        );
+    }
+}
+
+/// @dev Test-only harness arms the quarantined backing logic so its accounting remains covered.
+contract ArmedReserveBackingAssertion is AaveV3HorizonReserveBackingAssertion {
+    constructor(address pool_, address[] memory assets_, uint256 deficit_)
+        AaveV3HorizonReserveBackingAssertion(pool_, assets_, deficit_)
+    {}
+
+    function triggers() external view override {
+        registerTxEndTrigger(this.assertReserveBacking.selector);
+    }
+}
+
+contract AaveV3AdversarialResearchTest is Test, CredibleTest {
+    uint256 internal constant MAX_RESERVES = 8;
+    uint256 internal constant ORACLE_TOLERANCE_BPS = 100;
+    int256 internal constant PRICE = 100_00000000;
+
+    address internal alice = makeAddr("alice");
+    address internal recipient = makeAddr("recipient");
+
+    ResearchAccountingToken internal debtAsset;
+    ResearchAccountingToken internal collateralAsset;
+    ResearchAccountingToken internal debtAToken;
+    ResearchAccountingToken internal collateralAToken;
+    ResearchAccountingToken internal variableDebtToken;
+    ResearchFallbackOracle internal fallbackOracle;
+    ResearchOracle internal oracle;
+    ResearchOracle internal secondOracle;
+    ResearchAddressesProvider internal provider;
+    ResearchPriceSource internal debtSource;
+    ResearchPriceSource internal collateralSource;
+    ResearchPriceSource internal temporarySource;
+    ResearchPool internal pool;
+    ResearchBundle internal bundle;
+
+    function setUp() public {
+        debtAsset = new ResearchAccountingToken(18);
+        collateralAsset = new ResearchAccountingToken(18);
+        debtAToken = new ResearchAccountingToken(18);
+        collateralAToken = new ResearchAccountingToken(18);
+        variableDebtToken = new ResearchAccountingToken(18);
+        fallbackOracle = new ResearchFallbackOracle();
+        oracle = new ResearchOracle(address(fallbackOracle));
+        secondOracle = new ResearchOracle(address(fallbackOracle));
+        provider = new ResearchAddressesProvider(address(oracle));
+        debtSource = new ResearchPriceSource(PRICE);
+        collateralSource = new ResearchPriceSource(PRICE);
+        temporarySource = new ResearchPriceSource(2 * PRICE);
+        pool = new ResearchPool(address(provider));
+        bundle = new ResearchBundle();
+
+        _setSources(oracle, address(debtSource), address(collateralSource));
+        _setSources(secondOracle, address(debtSource), address(collateralSource));
+        pool.setReserve(address(debtAsset), 0, address(debtAToken), address(variableDebtToken));
+        pool.setReserve(address(collateralAsset), 1, address(collateralAToken), address(0));
+        pool.setUserConfig(alice, (1 << 0) | (1 << 3));
+        pool.setAccount(alice, 200 ether, 100 ether, 2 ether);
+
+        debtAToken.mint(alice, 1_000 ether);
+        debtAsset.mint(address(debtAToken), 600 ether);
+        variableDebtToken.mint(alice, 400 ether);
+        collateralAToken.mint(alice, 1_000 ether);
+        collateralAsset.mint(address(collateralAToken), 1_000 ether);
+    }
+
+    function testBackingHonestPoolTransactionPasses() public {
+        _armBacking();
+        pool.borrow(address(debtAsset), 1, 2, 0, alice);
+    }
+
+    function testBackingSameSeizureTripsWhenTransactionAlsoTouchesPool() public {
+        _armBacking();
+        vm.expectRevert(bytes("AaveV3Horizon: reserve backing deficit"));
+        bundle.seizeThenPoolCall(
+            collateralAsset, address(collateralAToken), recipient, 1 ether, pool, address(debtAsset), alice
+        );
+    }
+
+    function testBackingIncludesAccruedTreasuryLiability() public {
+        pool.setAccruedToTreasury(address(collateralAsset), uint128(10 ether));
+
+        _armBacking();
+        vm.expectRevert(bytes("AaveV3Horizon: reserve backing deficit"));
+        pool.borrow(address(debtAsset), 1, 2, 0, alice);
+    }
+
+    function testBackingUsesCurrentNormalizedIncomeWhenStoredIndexIsStale() public {
+        collateralAsset.mint(address(collateralAToken), 15 ether);
+        pool.setAccruedToTreasury(address(collateralAsset), uint128(10 ether));
+        pool.setReserveNormalizedIncome(address(collateralAsset), 2e27);
+
+        _armBacking();
+        vm.expectRevert(bytes("AaveV3Horizon: reserve backing deficit"));
+        pool.borrow(address(debtAsset), 1, 2, 0, alice);
+    }
+
+    function testBackingDeficitHasCorrectPositiveSign() public {
+        collateralAsset.seize(address(collateralAToken), recipient, 10 ether);
+        pool.setReserveDeficit(address(collateralAsset), 10 ether);
+
+        _armBacking();
+        pool.borrow(address(debtAsset), 1, 2, 0, alice);
+    }
+
+    /// @dev PostTx-only backing accepts a temporary transaction-intermediate custody shortfall.
+    function testBackingTemporarySeizureRestoredBeforeTxEndPasses() public {
+        _armBacking();
+        bundle.seizePoolCallRestore(
+            collateralAsset, address(collateralAToken), recipient, 1 ether, pool, address(debtAsset), alice
+        );
+    }
+
+    function testOracleStableBorrowPasses() public {
+        _armOracle();
+        pool.borrow(address(debtAsset), 1, 2, 0, alice);
+    }
+
+    function testOracleMultipleStableCallsPass() public {
+        _armOracle();
+        bundle.twoBorrows(pool, address(debtAsset), alice);
+    }
+
+    function testOraclePersistentPriceMutationTrips() public {
+        _armOracle();
+        vm.expectRevert(bytes("AaveV3Horizon: consumed oracle price deviated"));
+        bundle.priceThenBorrow(collateralSource, 2 * PRICE, pool, address(debtAsset), alice);
+    }
+
+    function testOracleTemporaryPriceManipulationAndRestoreTrips() public {
+        _armOracle();
+        vm.expectRevert(bytes("AaveV3Horizon: consumed oracle price deviated"));
+        bundle.priceBorrowRestore(collateralSource, 2 * PRICE, PRICE, pool, address(debtAsset), alice);
+    }
+
+    function testOracleTemporarySourceSwapAndRestoreTrips() public {
+        _armOracle();
+        vm.expectRevert(bytes("AaveV3Horizon: reserve oracle source changed during transaction"));
+        bundle.sourceBorrowRestore(
+            oracle,
+            address(collateralAsset),
+            address(temporarySource),
+            address(collateralSource),
+            pool,
+            address(debtAsset),
+            alice
+        );
+    }
+
+    function testOraclePermanentProviderSwitchToExistingOracleTrips() public {
+        _armOracle();
+        vm.expectRevert(bytes("AaveV3Horizon: provider oracle changed during transaction"));
+        bundle.providerThenBorrow(provider, address(secondOracle), pool, address(debtAsset), alice);
+    }
+
+    function testOracleTemporaryProviderSwitchAndRestoreTrips() public {
+        _armOracle();
+        vm.expectRevert(bytes("AaveV3Horizon: Pool consumed a different oracle"));
+        bundle.providerBorrowRestore(provider, address(secondOracle), address(oracle), pool, address(debtAsset), alice);
+    }
+
+    /// @dev This models a normal feed update bundled by an automation/governance transaction.
+    function testOracleLegitimateLargePriceUpdateBundledWithBorrowTrips() public {
+        _armOracle();
+        vm.expectRevert(bytes("AaveV3Horizon: consumed oracle price deviated"));
+        bundle.priceThenBorrow(collateralSource, 102_00000000, pool, address(debtAsset), alice);
+    }
+
+    function testGetAllCallInputsExcludesCaughtRevertedBorrow() public {
+        bytes memory createData =
+            abi.encodePacked(type(SuccessfulCallTraceAssertion).creationCode, abi.encode(address(pool)));
+        cl.assertion(address(pool), createData, SuccessfulCallTraceAssertion.assertOnlySuccessfulBorrowSeen.selector);
+
+        bundle.successfulThenFailedBorrow(pool, address(debtAsset), alice);
+    }
+
+    /// @dev The production wrapper creates its suite in constructor initcode. The assertion runtime
+    ///      currently cannot call that child contract when registering monitored selectors.
+    function testProductionOperationSafetyBundleChildSuiteIsUnavailable() public {
+        bytes memory createData = abi.encodePacked(
+            type(AaveV3HorizonOperationSafetyAssertion).creationCode, abi.encode(address(pool), address(provider))
+        );
+        cl.assertion(address(pool), createData, LendingBaseAssertion.assertOperationSafety.selector);
+
+        vm.expectRevert();
+        pool.borrow(address(debtAsset), 1, 2, 0, alice);
+    }
+
+    function _armBacking() internal {
+        bytes memory createData =
+            abi.encodePacked(type(ArmedReserveBackingAssertion).creationCode, abi.encode(address(pool), _assets(), 0));
+        cl.assertion(address(pool), createData, AaveV3HorizonReserveBackingAssertion.assertReserveBacking.selector);
+    }
+
+    function _armOracle() internal {
+        AaveV3HorizonOracleAssertion.AssetPolicy[] memory policies = new AaveV3HorizonOracleAssertion.AssetPolicy[](2);
+        policies[0] =
+            AaveV3HorizonOracleAssertion.AssetPolicy({asset: address(debtAsset), deviationBps: ORACLE_TOLERANCE_BPS});
+        policies[1] = AaveV3HorizonOracleAssertion.AssetPolicy({
+            asset: address(collateralAsset), deviationBps: ORACLE_TOLERANCE_BPS
+        });
+        bytes memory createData = abi.encodePacked(
+            type(AaveV3HorizonOracleAssertion).creationCode,
+            abi.encode(address(pool), address(provider), MAX_RESERVES, policies)
+        );
+        cl.assertion(address(pool), createData, AaveV3HorizonOracleAssertion.assertConsumedOraclePricesSafe.selector);
+    }
+
+    function _assets() internal view returns (address[] memory assets) {
+        assets = new address[](2);
+        assets[0] = address(debtAsset);
+        assets[1] = address(collateralAsset);
+    }
+
+    function _setSources(ResearchOracle targetOracle, address debtSource_, address collateralSource_) internal {
+        address[] memory assets = _assets();
+        address[] memory sources = new address[](2);
+        sources[0] = debtSource_;
+        sources[1] = collateralSource_;
+        targetOracle.setAssetSources(assets, sources);
+    }
+}

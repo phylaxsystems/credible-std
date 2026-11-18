@@ -54,7 +54,6 @@ contract NadoClearinghouseAssertion is NadoHelpers {
         registerFnCallTrigger(
             this.assertRebalanceXWithdrawDebitsSpotBalance.selector, INadoClearinghouseLike.rebalanceXWithdraw.selector
         );
-
     }
 
     /// @notice Checks that a successful `Clearinghouse.depositCollateral` credits the sender's spot balance.

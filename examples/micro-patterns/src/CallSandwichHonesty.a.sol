@@ -29,11 +29,11 @@ contract CallSandwichHonestyAssertion is Assertion {
     function assertDepositWasHonest() external view {
         address vault = ph.getAssertionAdopter();
         PhEvm.TriggerContext memory ctx = ph.context();
-        (uint256 assets, address receiver) = abi.decode(_stripSelector(ph.callinputAt(ctx.callStart)), (uint256, address));
+        (uint256 assets, address receiver) =
+            abi.decode(_stripSelector(ph.callinputAt(ctx.callStart)), (uint256, address));
 
-        uint256 expectedShares = _readUintAt(
-            vault, abi.encodeCall(IPreviewableVault.previewDeposit, (assets)), _preCall(ctx.callStart)
-        );
+        uint256 expectedShares =
+            _readUintAt(vault, abi.encodeCall(IPreviewableVault.previewDeposit, (assets)), _preCall(ctx.callStart));
         uint256 returnedShares = abi.decode(ph.callOutputAt(ctx.callStart), (uint256));
 
         // Failure scenario: the call charged one amount but minted shares inconsistent with its own preview.
@@ -52,6 +52,8 @@ contract CallSandwichHonestyAssertion is Assertion {
     function _stripSelector(bytes memory input) private pure returns (bytes memory args) {
         require(input.length >= 4, "input too short");
         args = new bytes(input.length - 4);
-        for (uint256 i; i < args.length; ++i) args[i] = input[i + 4];
+        for (uint256 i; i < args.length; ++i) {
+            args[i] = input[i + 4];
+        }
     }
 }

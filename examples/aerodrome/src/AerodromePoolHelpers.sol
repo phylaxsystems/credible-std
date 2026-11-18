@@ -75,8 +75,7 @@ abstract contract AerodromePoolHelpers is Assertion {
     }
 
     function _triggeredCaller(PhEvm.TriggerContext memory ctx) internal view returns (address caller) {
-        PhEvm.TriggerCall[] memory calls =
-            ph.matchingCalls(POOL, ctx.selector, _successOnlyFilter(), type(uint256).max);
+        PhEvm.TriggerCall[] memory calls = ph.matchingCalls(POOL, ctx.selector, _successOnlyFilter(), type(uint256).max);
         for (uint256 i; i < calls.length; ++i) {
             if (calls[i].callId == ctx.callStart) return calls[i].caller;
         }

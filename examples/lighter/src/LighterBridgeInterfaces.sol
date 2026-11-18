@@ -43,5 +43,4 @@ interface IZkLighterLike {
 
     /// @notice True once the escape hatch is active; irreversible.
     function desertMode() external view returns (bool);
-
 }

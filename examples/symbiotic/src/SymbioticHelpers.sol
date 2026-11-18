@@ -157,11 +157,7 @@ abstract contract SymbioticHelpers is Assertion {
     }
 
     /// @notice Returns the caller for the exact call matching the current trigger context.
-    function _currentTriggerCaller(address target, PhEvm.TriggerContext memory ctx)
-        internal
-        view
-        returns (address)
-    {
+    function _currentTriggerCaller(address target, PhEvm.TriggerContext memory ctx) internal view returns (address) {
         PhEvm.CallInputs[] memory calls = ph.getCallInputs(target, ctx.selector);
         for (uint256 i; i < calls.length; ++i) {
             if (calls[i].id == ctx.callStart) {

@@ -58,15 +58,17 @@ abstract contract SymbioticVaultFlowHelpers is SymbioticVaultBaseAssertion {
         });
     }
 
-    function _queueDeltasAt(address claimer, uint256 nextEpoch, PhEvm.ForkId memory preFork, PhEvm.ForkId memory postFork)
-        internal
-        view
-        returns (QueueDeltas memory deltas)
-    {
+    function _queueDeltasAt(
+        address claimer,
+        uint256 nextEpoch,
+        PhEvm.ForkId memory preFork,
+        PhEvm.ForkId memory postFork
+    ) internal view returns (QueueDeltas memory deltas) {
         deltas = QueueDeltas({
             activeStakeReduction: _activeStakeAt(vault, preFork) - _activeStakeAt(vault, postFork),
             activeSharesReduction: _activeSharesAt(vault, preFork) - _activeSharesAt(vault, postFork),
-            queuedAssetsIncrease: _withdrawalsAt(vault, nextEpoch, postFork) - _withdrawalsAt(vault, nextEpoch, preFork),
+            queuedAssetsIncrease: _withdrawalsAt(vault, nextEpoch, postFork)
+                - _withdrawalsAt(vault, nextEpoch, preFork),
             queuedSharesIncrease: _withdrawalSharesAt(vault, nextEpoch, postFork)
                 - _withdrawalSharesAt(vault, nextEpoch, preFork),
             claimerQueuedSharesIncrease: _withdrawalSharesOfAt(vault, nextEpoch, claimer, postFork)
@@ -142,10 +144,12 @@ abstract contract SymbioticVaultFlowHelpers is SymbioticVaultBaseAssertion {
         expected.nextWithdrawals -= nextSlashed;
     }
 
-    function _assertDepositPolicy(address caller, PhEvm.ForkId memory preFork, PhEvm.ForkId memory postFork, uint256 postActiveStake)
-        internal
-        view
-    {
+    function _assertDepositPolicy(
+        address caller,
+        PhEvm.ForkId memory preFork,
+        PhEvm.ForkId memory postFork,
+        uint256 postActiveStake
+    ) internal view {
         if (_depositWhitelistAt(vault, preFork)) {
             require(
                 _isDepositorWhitelistedAt(vault, caller, preFork),
