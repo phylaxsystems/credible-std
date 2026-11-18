@@ -35,13 +35,23 @@ for profile in "${profiles[@]}"; do
   # A misspelled/missing profile must not silently fall back to the root suite.
   forge config --json | jq -e --arg directory "$directory" \
     '.src | startswith($directory + "/")' >/dev/null
-  forge fmt --check "$directory"
+  # Format tracked sources only; the Aave staging project links back to this repo.
+  git ls-files -z -- "$directory/*.sol" | xargs -0 forge fmt --check
   if [[ "$profile" == assertions-book ]]; then
     # Docs snippets currently have no test suite; compile them explicitly.
+    if compgen -G "$directory/test/*.t.sol" > /dev/null; then
+      echo "${profile} now has tests; remove its build-only classification" >&2
+      exit 1
+    fi
     forge build
     continue
   fi
   if ! pcl test -vv --junit > "$report"; then
+    cat "$report"
+    exit 1
+  fi
+  if grep -q '<skipped' "$report"; then
+    echo "Skipped tests found for ${profile}" >&2
     cat "$report"
     exit 1
   fi
