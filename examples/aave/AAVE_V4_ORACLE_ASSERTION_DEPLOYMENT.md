@@ -3,6 +3,25 @@
 `AaveV4EthereumMainSpokeOracleAssertion` is pinned to Ethereum Main Spoke state
 at block 25,646,732 and Aave V4 release `v0.5.11`.
 
+This is a historical deployment configuration, not confirmation of the current
+on-chain implementation or reserve set. Revalidate the adoption checklist before
+using it.
+
+## Build and test
+
+From the repository root, follow the [shared setup](../README.md#setup-and-checks):
+
+```sh
+FOUNDRY_PROFILE=aave pcl test --match-contract 'AaveV4.*Oracle.*' -vvvv
+(cd examples/aave/credible && forge build)
+```
+
+The pinned wrapper lives in
+[`src/AaveV4OracleConsumptionAssertion.sol`](src/AaveV4OracleConsumptionAssertion.sol).
+The [staging wrappers](credible/assertions/src/AaveV4StagingAssertions.sol) use a
+separate project pinned to Solidity 0.8.30, outside the root example CI matrix.
+The root tests exercise the generic guard, pinned wrapper configuration, and mock fixtures.
+
 ## Constructor
 
 ```solidity

@@ -4,7 +4,11 @@ pragma solidity ^0.8.13;
 import {Assertion} from "credible-std/Assertion.sol";
 import {PhEvm} from "credible-std/PhEvm.sol";
 import {AssertionSpec} from "credible-std/SpecRecorder.sol";
-import {AaveV3LikeTypes, IAaveV3LikeOracle, IAaveV3LikePool} from "credible-std/protection/lending/examples/AaveV3LikeInterfaces.sol";
+import {
+    AaveV3LikeTypes,
+    IAaveV3LikeOracle,
+    IAaveV3LikePool
+} from "credible-std/protection/lending/examples/AaveV3LikeInterfaces.sol";
 
 interface IMarketReferenceOracle {
     function marketPrice(address asset, address denomAsset) external view returns (uint256);
@@ -86,9 +90,7 @@ contract SparkLendOraclePriceGuardAssertion is Assertion {
             }
             for (uint256 j; j < i; ++j) {
                 if (watchEntries_[j].asset == watchEntries_[i].asset) {
-                    revert SparkLendOraclePriceGuardInvalidEntry(
-                        watchEntries_[i].asset, watchEntries_[i].toleranceBps
-                    );
+                    revert SparkLendOraclePriceGuardInvalidEntry(watchEntries_[i].asset, watchEntries_[i].toleranceBps);
                 }
             }
 

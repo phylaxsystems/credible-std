@@ -188,9 +188,7 @@ contract LidoEasyTrackFlashLoanAssertion is Assertion {
         uint256 motionId = abi.decode(_stripSelector(ph.callinputAt(ctx.callStart)), (uint256));
         ILidoEasyTrackLike.Motion memory motion = abi.decode(
             _viewAt(
-                governanceContract,
-                abi.encodeCall(ILidoEasyTrackLike.getMotion, (motionId)),
-                _preCall(ctx.callStart)
+                governanceContract, abi.encodeCall(ILidoEasyTrackLike.getMotion, (motionId)), _preCall(ctx.callStart)
             ),
             (ILidoEasyTrackLike.Motion)
         );

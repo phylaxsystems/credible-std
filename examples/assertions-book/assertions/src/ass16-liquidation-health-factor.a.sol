@@ -60,9 +60,7 @@ contract LiquidationHealthFactorAssertion is Assertion {
 
 // Simplified lending protocol interface
 interface ILendingProtocol {
-    function liquidate(address borrower, uint256 seizedAssets, uint256 repaidDebt)
-        external
-        returns (uint256, uint256);
+    function liquidate(address borrower, uint256 seizedAssets, uint256 repaidDebt) external returns (uint256, uint256);
 
     function isHealthy(address user) external view returns (bool);
     function healthFactor(address user) external view returns (uint256);

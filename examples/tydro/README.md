@@ -1,4 +1,6 @@
-# tydro examples
+# Tydro examples
+
+Run commands from the repository root after the [shared setup](../README.md#setup-and-checks).
 
 Assertion examples for the Tydro deployment on Ink.
 
@@ -8,12 +10,13 @@ The adapter is pinned to the explorer-verified revision-11 L2 Pool at
 receive mode intentionally follow that verified implementation. Do not attach
 this adapter to a different Pool revision based on ABI resemblance alone.
 
-## Build
+## Build and test
 
 ```sh
 FOUNDRY_PROFILE=tydro forge build
+FOUNDRY_PROFILE=tydro pcl test
 ```
 
 ## Files
 
-- TydroOperationSafety.sol
+- [TydroOperationSafety.sol](src/TydroOperationSafety.sol)

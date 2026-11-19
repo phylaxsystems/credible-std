@@ -63,8 +63,7 @@ abstract contract EulerEVaultSandwichBase is EulerEVaultBase {
         require(logs.length == 1, "EulerEVault: expected one Withdraw event");
         require(logs[0].topics.length >= 4, "EulerEVault: malformed Withdraw topics");
         require(
-            address(uint160(uint256(logs[0].topics[2]))) == expectedReceiver,
-            "EulerEVault: Withdraw receiver mismatch"
+            address(uint160(uint256(logs[0].topics[2]))) == expectedReceiver, "EulerEVault: Withdraw receiver mismatch"
         );
         require(address(uint160(uint256(logs[0].topics[3]))) == expectedOwner, "EulerEVault: Withdraw owner mismatch");
         (uint256 assets, uint256 shares) = abi.decode(logs[0].data, (uint256, uint256));

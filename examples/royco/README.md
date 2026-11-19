@@ -1,6 +1,8 @@
-# royco examples
+# Royco examples
 
-Assertion examples and supporting helpers extracted from the `royco-dawn` branch.
+Run commands from the repository root after the [shared setup](../README.md#setup-and-checks).
+
+Protocol-specific assertion examples and supporting helpers.
 
 The Kernel bundle is narrowed to v1.2-compatible NAV conservation, ordinary non-bypass coverage,
 and self-liquidation deleveraging. The tranche operation wrapper is quarantined and registers no
@@ -9,18 +11,25 @@ perpetual-health predicate, preview-to-preview recovery checks, v1.2 virtual-off
 and idle-balance cumulative-flow policies are not registered. Live mixed v1.2/v1.3 deployments
 must still be version-bound before activation.
 
-## Build
+## Build and test
 
 ```sh
 FOUNDRY_PROFILE=royco forge build
+FOUNDRY_PROFILE=royco pcl test
 ```
+
+## Test coverage
+
+The current suite checks construction or quarantine only. Retained `retired*`
+functions are not executed tests, and a passing run does not demonstrate runtime
+assertion protection.
 
 ## Files
 
-- RoycoHelpers.sol
-- RoycoKernelAccountingAssertion.sol
-- RoycoKernelAssertion.sol
-- RoycoKernelCumulativeFlowAssertion.sol
-- RoycoKernelCumulativeOutflowAssertion.sol
-- RoycoVaultTrancheAssertion.sol
-- RoycoVaultTrancheOperationAssertion.sol
+- [RoycoHelpers.sol](src/RoycoHelpers.sol)
+- [RoycoKernelAccountingAssertion.sol](src/RoycoKernelAccountingAssertion.sol)
+- [RoycoKernelAssertion.sol](src/RoycoKernelAssertion.sol)
+- [RoycoKernelCumulativeFlowAssertion.sol](src/RoycoKernelCumulativeFlowAssertion.sol)
+- [RoycoKernelCumulativeOutflowAssertion.sol](src/RoycoKernelCumulativeOutflowAssertion.sol)
+- [RoycoVaultTrancheAssertion.sol](src/RoycoVaultTrancheAssertion.sol)
+- [RoycoVaultTrancheOperationAssertion.sol](src/RoycoVaultTrancheOperationAssertion.sol)

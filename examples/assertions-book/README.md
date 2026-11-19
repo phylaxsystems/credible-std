@@ -1,5 +1,7 @@
 # Assertions Book Examples
 
+Run commands from the repository root after the [shared setup](../README.md#setup-and-checks).
+
 This directory is the canonical source for Assertions Book code examples.
 
 | Directory | Contents |

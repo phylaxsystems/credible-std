@@ -1,5 +1,7 @@
 # Lido examples
 
+Run commands from the repository root after the [shared setup](../README.md#setup-and-checks).
+
 Build with:
 
 ```sh

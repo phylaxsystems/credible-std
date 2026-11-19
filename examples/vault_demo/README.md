@@ -1,6 +1,8 @@
 # Vault Demo
 
-This example contains intentionally vulnerable demo contracts for the three fault scenarios in the vault plan.
+Run commands from the repository root after the [shared setup](../README.md#setup-and-checks).
+
+This example contains intentionally vulnerable demo contracts for three assertion walkthroughs.
 
 - `VulnerableERC4626Vault`: normal ERC4626 `deposit`, `withdraw`, and `redeem`, but `mint` issues shares without collecting assets.
 - `VaultConvertToAssetsOracleSanityAssertion`: treats `convertToAssets(probeShares)` as the checked price and catches direct asset donations that manipulate the exchange rate.
@@ -10,7 +12,7 @@ This example contains intentionally vulnerable demo contracts for the three faul
 Run the demo tests with:
 
 ```sh
-FOUNDRY_PROFILE=vault-demo pcl test --offline
+FOUNDRY_PROFILE=vault-demo pcl test
 ```
 
 Assertion mapping:

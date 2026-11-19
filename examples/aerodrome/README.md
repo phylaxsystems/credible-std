@@ -1,15 +1,18 @@
-# aerodrome examples
+# Aerodrome examples
 
-Assertion examples and supporting helpers extracted from the `aerodrome` branch.
+Run commands from the repository root after the [shared setup](../README.md#setup-and-checks).
 
-## Build
+Protocol-specific assertion examples and supporting helpers.
+
+## Build and test
 
 ```sh
 FOUNDRY_PROFILE=aerodrome forge build
+FOUNDRY_PROFILE=aerodrome pcl test
 ```
 
 ## Files
 
-- AerodromePoolAssertion.sol
-- AerodromePoolHelpers.sol
-- AerodromePoolInterfaces.sol
+- [AerodromePoolAssertion.sol](src/AerodromePoolAssertion.sol)
+- [AerodromePoolHelpers.sol](src/AerodromePoolHelpers.sol)
+- [AerodromePoolInterfaces.sol](src/AerodromePoolInterfaces.sol)

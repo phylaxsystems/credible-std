@@ -54,9 +54,8 @@ contract SparkVaultAssertionTest is Test, CredibleTest {
     }
 
     function _arm() internal {
-        bytes memory createData = abi.encodePacked(
-            type(SparkVaultAssertion).creationCode, abi.encode(address(vault), address(asset))
-        );
+        bytes memory createData =
+            abi.encodePacked(type(SparkVaultAssertion).creationCode, abi.encode(address(vault), address(asset)));
         cl.assertion(address(vault), createData, SparkVaultAssertion.assertSparkTakeAccounting.selector);
     }
 

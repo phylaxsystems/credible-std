@@ -143,7 +143,6 @@ abstract contract SymbioticVaultConfigAssertion is SymbioticVaultBaseAssertion {
                 _slasherVaultAt(state.slasher, postTx) == vault, "SymbioticConfig: slasher points at a different vault"
             );
         }
-
     }
 
     function _assertBurnerConfiguration(VaultConfigState memory state, PhEvm.ForkId memory postTx) internal view {

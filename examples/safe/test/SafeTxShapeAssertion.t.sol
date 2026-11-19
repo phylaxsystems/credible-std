@@ -62,7 +62,10 @@ contract SafeTxShapeAssertionTest is Test, CredibleTest {
     }
 
     function _execSafeTx(address to) internal returns (bool) {
-        return safe.execTransaction(to, 0, abi.encodeWithSelector(bytes4(0x12345678)), 0, 0, 0, 0, address(0), address(0), "");
+        return
+            safe.execTransaction(
+                to, 0, abi.encodeWithSelector(bytes4(0x12345678)), 0, 0, 0, 0, address(0), address(0), ""
+            );
     }
 
     function testConfiguredTargetPasses() public {

@@ -72,18 +72,17 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticVaultFlowHelpers {
 
         QueueDeltas memory deltas = _queueDeltasAt(claimer, nextEpoch, preFork, postFork);
 
-        _assertNoImmediateCollateralOutflow(
-            preFork, postFork, "SymbioticVault: withdraw moved collateral immediately"
-        );
+        _assertNoImmediateCollateralOutflow(preFork, postFork, "SymbioticVault: withdraw moved collateral immediately");
         require(deltas.activeStakeReduction == amount, "SymbioticVault: withdraw activeStake mismatch");
         require(deltas.activeSharesReduction == burnedShares, "SymbioticVault: withdraw burned shares mismatch");
         require(
-            _activeSharesOfAt(vault, caller, preFork) - _activeSharesOfAt(vault, caller, postFork)
-                == burnedShares,
+            _activeSharesOfAt(vault, caller, preFork) - _activeSharesOfAt(vault, caller, postFork) == burnedShares,
             "SymbioticVault: withdraw caller shares not burned"
         );
         require(deltas.queuedAssetsIncrease == amount, "SymbioticVault: withdraw next-epoch withdrawals mismatch");
-        require(deltas.queuedSharesIncrease == mintedWithdrawalShares, "SymbioticVault: withdraw epoch share mint mismatch");
+        require(
+            deltas.queuedSharesIncrease == mintedWithdrawalShares, "SymbioticVault: withdraw epoch share mint mismatch"
+        );
         require(
             deltas.claimerQueuedSharesIncrease == mintedWithdrawalShares,
             "SymbioticVault: withdraw claimer share mint mismatch"
@@ -116,7 +115,9 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticVaultFlowHelpers {
         );
         require(deltas.activeStakeReduction == withdrawnAssets, "SymbioticVault: redeem withdrawn assets mismatch");
         require(deltas.queuedAssetsIncrease == withdrawnAssets, "SymbioticVault: redeem withdrawals mismatch");
-        require(deltas.queuedSharesIncrease == mintedWithdrawalShares, "SymbioticVault: redeem epoch share mint mismatch");
+        require(
+            deltas.queuedSharesIncrease == mintedWithdrawalShares, "SymbioticVault: redeem epoch share mint mismatch"
+        );
         require(
             deltas.claimerQueuedSharesIncrease == mintedWithdrawalShares,
             "SymbioticVault: redeem claimer share mint mismatch"
@@ -207,10 +208,7 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticVaultFlowHelpers {
             post.currentWithdrawals == expected.currentWithdrawals,
             "SymbioticVault: slashed current withdrawals mismatch"
         );
-        require(
-            post.nextWithdrawals == expected.nextWithdrawals,
-            "SymbioticVault: slashed next withdrawals mismatch"
-        );
+        require(post.nextWithdrawals == expected.nextWithdrawals, "SymbioticVault: slashed next withdrawals mismatch");
 
         address burner = _burnerAt(vault, preFork);
         uint256 vaultOutflow = _readBalanceAt(asset, vault, preFork) - _readBalanceAt(asset, vault, postFork);
@@ -238,7 +236,6 @@ abstract contract SymbioticVaultFlowAssertion is SymbioticVaultFlowHelpers {
             "SymbioticVault: totalStake identity broken"
         );
     }
-
 }
 
 /// @title SymbioticVaultProtection

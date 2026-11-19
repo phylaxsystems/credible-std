@@ -82,16 +82,14 @@ contract AaveV3HorizonReserveBackingAssertion is AaveV3HorizonHelpers {
         uint256 deficit = _readUintAt(POOL, abi.encodeCall(IAaveV3HorizonDeficitPool.getReserveDeficit, (asset)), fork);
 
         backing.aTokenSupply = _totalSupplyAt(reserveData.aTokenAddress, fork);
-        uint256 normalizedIncome = _readUintAt(
-            POOL, abi.encodeCall(IAaveV3HorizonDeficitPool.getReserveNormalizedIncome, (asset)), fork
-        );
+        uint256 normalizedIncome =
+            _readUintAt(POOL, abi.encodeCall(IAaveV3HorizonDeficitPool.getReserveNormalizedIncome, (asset)), fork);
         backing.accruedTreasuryLiability = _rayMul(reserveData.accruedToTreasury, normalizedIncome);
         backing.backingClaims = availableLiquidity + stableDebt + variableDebt + reserveData.unbacked + deficit;
     }
 
     function _isBacked(ReserveBacking memory backing) internal view returns (bool) {
-        return backing.aTokenSupply + backing.accruedTreasuryLiability
-            <= backing.backingClaims + MAX_BACKING_DEFICIT;
+        return backing.aTokenSupply + backing.accruedTreasuryLiability <= backing.backingClaims + MAX_BACKING_DEFICIT;
     }
 
     /// @dev Aave stores `accruedToTreasury` in scaled aToken units. Mirror WadRayMath.rayMul's

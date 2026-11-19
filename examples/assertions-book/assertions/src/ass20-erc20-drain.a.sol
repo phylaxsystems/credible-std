@@ -20,10 +20,7 @@ contract ERC20CumulativeOutflowBreakerAssertion is Assertion {
 
     function triggers() external view override {
         watchCumulativeOutflow(
-            monitoredToken,
-            outflowThresholdBps,
-            outflowWindowDuration,
-            this.assertCumulativeOutflow.selector
+            monitoredToken, outflowThresholdBps, outflowWindowDuration, this.assertCumulativeOutflow.selector
         );
     }
 

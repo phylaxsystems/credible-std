@@ -20,9 +20,7 @@ contract RoycoKernelAssertion is RoycoKernelAccountingAssertion {
         address stAsset_,
         address juniorTranche_,
         address jtAsset_
-    )
-        RoycoKernelHelpers(kernel_, accountant_, seniorTranche_, stAsset_, juniorTranche_, jtAsset_)
-    {
+    ) RoycoKernelHelpers(kernel_, accountant_, seniorTranche_, stAsset_, juniorTranche_, jtAsset_) {
         registerAssertionSpec(AssertionSpec.Reshiram);
     }
 

@@ -5,8 +5,10 @@ import {Test} from "forge-std/Test.sol";
 import {ERC20Mock} from "../../../lib/openzeppelin-contracts/contracts/mocks/token/ERC20Mock.sol";
 
 import {CredibleTest} from "../../../src/CredibleTest.sol";
-import {SymbioticVaultCircuitBreakerAssertion, SymbioticVaultCircuitBreakerProtection} from
-    "../src/SymbioticVaultCircuitBreakerAssertion.sol";
+import {
+    SymbioticVaultCircuitBreakerAssertion,
+    SymbioticVaultCircuitBreakerProtection
+} from "../src/SymbioticVaultCircuitBreakerAssertion.sol";
 
 contract MockSymbioticVault {
     ERC20Mock public immutable asset;
@@ -35,11 +37,13 @@ contract SymbioticVaultCircuitBreakerAssertionTest is Test, CredibleTest {
     function _arm(bytes4 fnSelector) internal {
         SymbioticVaultCircuitBreakerAssertion.LiquidationRoute[] memory routes =
             new SymbioticVaultCircuitBreakerAssertion.LiquidationRoute[](1);
-        routes[0] =
-            SymbioticVaultCircuitBreakerAssertion.LiquidationRoute({target: makeAddr("liquidator"), selector: 0x12345678});
+        routes[0] = SymbioticVaultCircuitBreakerAssertion.LiquidationRoute({
+            target: makeAddr("liquidator"), selector: 0x12345678
+        });
 
         bytes memory createData = abi.encodePacked(
-            type(SymbioticVaultCircuitBreakerProtection).creationCode, abi.encode(address(vault), address(asset), routes)
+            type(SymbioticVaultCircuitBreakerProtection).creationCode,
+            abi.encode(address(vault), address(asset), routes)
         );
         cl.assertion(address(vault), createData, fnSelector);
     }

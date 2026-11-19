@@ -73,14 +73,20 @@ contract ParticipantGateAssertion is Assertion {
     }
 
     function _assertAllowed(address account) private view {
-        if (account != address(0)) require(!ORACLE.isBlocked(account), "blocked participant");
+        if (account == address(0)) return;
+        // Read protocol state at the triggering call, not in the assertion's isolated state.
+        bool blocked = _readBoolAt(
+            address(ORACLE), abi.encodeCall(IParticipantOracle.isBlocked, (account)), _preCall(ph.context().callStart)
+        );
+        require(!blocked, "blocked participant");
     }
 
     function _addressArg(bytes memory input, uint256 argIndex) private pure returns (address account) {
         uint256 offset = 4 + argIndex * 32;
         require(input.length >= offset + 32, "malformed calldata");
         assembly {
-            account := shr(96, mload(add(add(input, 0x20), offset)))
+            // ABI addresses are right-aligned in their 32-byte words.
+            account := and(mload(add(add(input, 0x20), offset)), 0xffffffffffffffffffffffffffffffffffffffff)
         }
     }
 }

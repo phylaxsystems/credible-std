@@ -43,7 +43,9 @@ contract LlamaLendControllerAssertionTest is Test, CredibleTest {
         bytes memory createData = abi.encodePacked(
             type(LlamaLendControllerAssertion).creationCode, abi.encode(address(controller), borrowedToken, 0)
         );
-        cl.assertion(address(controller), createData, LlamaLendControllerAssertion.assertDebtIncreaseWithinBorrowCap.selector);
+        cl.assertion(
+            address(controller), createData, LlamaLendControllerAssertion.assertDebtIncreaseWithinBorrowCap.selector
+        );
     }
 
     function testBorrowMorePassesWithinCap() public {

@@ -1,23 +1,26 @@
-# curve examples
+# Curve examples
 
-Assertion examples and supporting helpers extracted from the `curve` branch.
+Run commands from the repository root after the [shared setup](../README.md#setup-and-checks).
 
-## Build
+Protocol-specific assertion examples and supporting helpers.
+
+## Build and test
 
 ```sh
 FOUNDRY_PROFILE=curve forge build
+FOUNDRY_PROFILE=curve pcl test
 ```
 
 ## Files
 
-- CurveLlammaAssertion.sol
-- CurveLlammaProtocol.sol
-- CurveUsdControllerAssertion.sol
-- CurveUsdProtocol.sol
-- LlamaLendControllerAssertion.sol
-- LlamaLendProtocol.sol
-- LlamaLendVaultAssertion.sol
-- StableSwapNGPoolAssertion.sol
-- StableSwapNGProtocol.sol
-- TriCryptoNGPoolAssertion.sol
-- TriCryptoNGProtocol.sol
+- [CurveLlammaAssertion.sol](src/CurveLlammaAssertion.sol)
+- [CurveLlammaProtocol.sol](src/CurveLlammaProtocol.sol)
+- [CurveUsdControllerAssertion.sol](src/CurveUsdControllerAssertion.sol)
+- [CurveUsdProtocol.sol](src/CurveUsdProtocol.sol)
+- [LlamaLendControllerAssertion.sol](src/LlamaLendControllerAssertion.sol)
+- [LlamaLendProtocol.sol](src/LlamaLendProtocol.sol)
+- [LlamaLendVaultAssertion.sol](src/LlamaLendVaultAssertion.sol)
+- [StableSwapNGPoolAssertion.sol](src/StableSwapNGPoolAssertion.sol)
+- [StableSwapNGProtocol.sol](src/StableSwapNGProtocol.sol)
+- [TriCryptoNGPoolAssertion.sol](src/TriCryptoNGPoolAssertion.sol)
+- [TriCryptoNGProtocol.sol](src/TriCryptoNGProtocol.sol)

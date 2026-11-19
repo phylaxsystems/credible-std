@@ -5,10 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {ERC20Mock} from "../../../lib/openzeppelin-contracts/contracts/mocks/token/ERC20Mock.sol";
 
 import {CredibleTest} from "../../../src/CredibleTest.sol";
-import {
-    SymbioticVaultFlowAssertion,
-    SymbioticVaultProtection
-} from "../src/SymbioticVaultFlowAssertion.sol";
+import {SymbioticVaultFlowAssertion, SymbioticVaultProtection} from "../src/SymbioticVaultFlowAssertion.sol";
 
 contract MockSymbioticV1Vault {
     ERC20Mock public immutable collateral;
@@ -113,9 +110,8 @@ contract SymbioticVaultFlowAssertionTest is Test, CredibleTest {
     }
 
     function _arm(bytes4 selector) internal {
-        bytes memory createData = abi.encodePacked(
-            type(SymbioticVaultProtection).creationCode, abi.encode(address(vault), address(asset))
-        );
+        bytes memory createData =
+            abi.encodePacked(type(SymbioticVaultProtection).creationCode, abi.encode(address(vault), address(asset)));
         cl.assertion(address(vault), createData, selector);
     }
 

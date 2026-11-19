@@ -20,10 +20,7 @@ contract ERC20CumulativeInflowBreakerAssertion is Assertion {
 
     function triggers() external view override {
         watchCumulativeInflow(
-            monitoredToken,
-            inflowThresholdBps,
-            inflowWindowDuration,
-            this.assertCumulativeInflow.selector
+            monitoredToken, inflowThresholdBps, inflowWindowDuration, this.assertCumulativeInflow.selector
         );
     }
 

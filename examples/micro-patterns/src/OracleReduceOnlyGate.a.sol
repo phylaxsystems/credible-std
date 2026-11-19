@@ -70,6 +70,8 @@ contract OracleReduceOnlyGateAssertion is Assertion {
     function _stripSelector(bytes memory input) private pure returns (bytes memory args) {
         require(input.length >= 4, "input too short");
         args = new bytes(input.length - 4);
-        for (uint256 i; i < args.length; ++i) args[i] = input[i + 4];
+        for (uint256 i; i < args.length; ++i) {
+            args[i] = input[i + 4];
+        }
     }
 }

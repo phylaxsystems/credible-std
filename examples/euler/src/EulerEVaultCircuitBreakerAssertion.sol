@@ -27,8 +27,7 @@ abstract contract EulerEVaultCircuitBreakerMixin is EulerEVaultBase {
         require(asset_ != address(0), "EulerEVault: zero flow asset");
         require(inflowThresholdBps_ != 0 && inflowThresholdBps_ < 10_000, "EulerEVault: bad inflow threshold");
         require(
-            inflowWindowDuration_ >= 10 && inflowWindowDuration_ <= type(uint64).max,
-            "EulerEVault: bad inflow window"
+            inflowWindowDuration_ >= 10 && inflowWindowDuration_ <= type(uint64).max, "EulerEVault: bad inflow window"
         );
         flowAsset = asset_;
         inflowThresholdBps = inflowThresholdBps_;

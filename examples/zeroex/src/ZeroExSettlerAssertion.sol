@@ -4,11 +4,7 @@ pragma solidity ^0.8.13;
 import {PhEvm} from "credible-std/PhEvm.sol";
 
 import {ZeroExSettlerHelpers} from "./ZeroExSettlerHelpers.sol";
-import {
-    IZeroExSettlerLike,
-    IZeroExSettlerMetaTxnLike,
-    ZeroExSettlerSlippage
-} from "./ZeroExSettlerInterfaces.sol";
+import {IZeroExSettlerLike, IZeroExSettlerMetaTxnLike, ZeroExSettlerSlippage} from "./ZeroExSettlerInterfaces.sol";
 
 /// @title ZeroExSettlerAssertion
 /// @author Phylax Systems
@@ -42,7 +38,6 @@ contract ZeroExSettlerAssertion is ZeroExSettlerHelpers {
         registerFnCallTrigger(
             this.assertRecipientReceivesMinimumBuyAmount.selector, IZeroExSettlerMetaTxnLike.executeMetaTxn.selector
         );
-
     }
 
     /// @notice A called Settler must still be the registry's current or previous deployment.
