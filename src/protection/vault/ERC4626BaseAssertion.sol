@@ -19,7 +19,6 @@ import {IERC4626} from "./IERC4626.sol";
 ///         ERC4626SharePriceAssertion(50) // 50 bps tolerance
 ///         ERC4626CumulativeOutflowAssertion(1_000, 24 hours) // 10% in 24h
 ///     {}
-///
 ///     function triggers() external view override {
 ///         _registerSharePriceTriggers();
 ///         _registerPreviewTriggers();

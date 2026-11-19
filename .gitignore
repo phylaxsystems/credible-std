@@ -12,7 +12,11 @@ out/
 /broadcast/
 
 # Docs
-docs/
+docs/*
+!docs/index.md
+!docs/package.json
+!docs/package-lock.json
+!docs/vocs.config.ts
 
 # Dotenv file
 .env
